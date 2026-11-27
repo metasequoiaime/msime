@@ -1796,29 +1796,49 @@ impl AccountApi for BackendAccountClient {
     }
 
     fn refresh(&self, refresh_token: &str) -> Result<AccountTokens, AccountError> {
+        self.refresh_detailed(refresh_token)
+            .map_err(|failure| failure.error)
+    }
+
+    fn refresh_detailed(&self, refresh_token: &str) -> Result<AccountTokens, AccountFailure> {
         if !crate::text::is_lower_hex(refresh_token, 64) {
-            return Err(AccountError::Invalid);
+            return Err(AccountError::Invalid.into());
         }
         #[derive(Serialize)]
         struct Body<'a> {
             refresh_token: &'a str,
         }
-        let tokens = self.json(
+        let tokens = self.json_detailed(
             Method::POST,
             "/v1/auth/refresh",
             None,
             Some(&Body { refresh_token }),
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
         )?;
         validate_tokens(&tokens)?;
         Ok(tokens)
     }
 
     fn profile(&self, access_token: &str) -> Result<AccountProfile, AccountError> {
+        self.profile_detailed(access_token)
+            .map_err(|failure| failure.error)
+    }
+
+    fn profile_detailed(&self, access_token: &str) -> Result<AccountProfile, AccountFailure> {
         if !crate::text::is_lower_hex(access_token, 64) {
-            return Err(AccountError::Invalid);
+            return Err(AccountError::Invalid.into());
         }
-        let profile =
-            self.json::<AccountProfile, ()>(Method::GET, "/v1/users/me", Some(access_token), None)?;
+        let profile = self.json_detailed::<AccountProfile, ()>(
+            Method::GET,
+            "/v1/users/me",
+            Some(access_token),
+            None,
+            MAX_JSON_BYTES,
+            MAX_JSON_BYTES,
+            Duration::from_secs(30),
+        )?;
         validate_profile(&profile)?;
         Ok(profile)
     }

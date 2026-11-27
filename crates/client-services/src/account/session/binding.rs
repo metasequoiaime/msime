@@ -50,6 +50,17 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         expected_user_id: Option<&str>,
         expected_login: Option<&AccountLoginBinding>,
     ) -> Result<(String, String, u64), AccountError> {
+        self.credentials_for_login_detailed(rejected_token, expected_user_id, expected_login)
+            .map_err(|failure| failure.error)
+    }
+
+    /// 与 [`Self::credentials_for_login`] 相同，失败时保留刷新令牌那一步的 [`AccountFailure`]。
+    pub(in crate::account) fn credentials_for_login_detailed(
+        &self,
+        rejected_token: Option<&str>,
+        expected_user_id: Option<&str>,
+        expected_login: Option<&AccountLoginBinding>,
+    ) -> Result<(String, String, u64), AccountFailure> {
         self.ensure_session_id()?;
         let matches = |saved: Option<&SavedAccountSession>| {
             expected_user_id
@@ -65,15 +76,15 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             let mut state = self.lock()?;
             self.load_locked(&mut state)?;
             if !matches(state.saved.as_ref()) {
-                return Err(AccountError::Cancelled);
+                return Err(AccountError::Cancelled.into());
             }
         }
-        let token = self.access_token(rejected_token)?;
+        let token = self.access_token_detailed(rejected_token)?;
         let mut state = self.lock()?;
         self.load_locked(&mut state)?;
         let saved = state.saved.as_ref().ok_or(AccountError::Cancelled)?;
         if saved.tokens.access_token != token || !matches(Some(saved)) {
-            return Err(AccountError::Cancelled);
+            return Err(AccountError::Cancelled.into());
         }
         Ok((saved.tokens.user.id.clone(), token, state.generation))
     }

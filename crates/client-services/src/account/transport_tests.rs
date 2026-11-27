@@ -1088,6 +1088,19 @@ impl SignedIn {
         }))))
     }
 
+    /// 访问令牌已经过期的同一份会话：下一次取令牌要先刷新。
+    fn expired() -> Self {
+        let storage = Self::new();
+        storage
+            .0
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .expires_at_unix_ms = 0;
+        storage
+    }
+
     fn signed_in(&self) -> bool {
         self.0.lock().unwrap().is_some()
     }
@@ -1438,4 +1451,87 @@ fn send_errors_that_are_not_a_lost_connection_are_not_account_network() {
         "account_network"
     );
     assert_eq!(received.iter().count(), 2);
+}
+
+/// 本机上一个没人监听的地址：连上去被拒绝，相当于连不上 api.msime.app。
+fn unreachable_origin() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    drop(listener);
+    origin
+}
+
+#[test]
+fn an_expired_session_that_cannot_reach_the_server_reports_a_network_failure() {
+    // #11380：访问令牌已经过期、连不上账号服务时，账号页、设置同步和 QQ 群助手都显示「账号服务暂不可用」。刷新令牌这一步的断网要一直带到页面。
+    let storage = SignedIn::expired();
+    let session = BackendAccountSession::new(client(&unreachable_origin()), storage.clone());
+
+    let failure = session.profile_detailed().unwrap_err();
+    assert_eq!(failure.code(), "account_network");
+    assert!(failure.network_failure);
+    assert_eq!(failure.status, None);
+    assert_eq!(failure.error, AccountError::Unavailable);
+    assert_eq!(session.qq_links().unwrap_err().code(), "account_network");
+    assert_eq!(
+        session.preference_schema_detailed().unwrap_err().code(),
+        "account_network"
+    );
+    assert_eq!(
+        session.preferences_detailed().unwrap_err().code(),
+        "account_network"
+    );
+    assert_eq!(
+        session.access_token_detailed(None).unwrap_err().code(),
+        "account_network"
+    );
+    // 只认 `AccountError` 的已有接口看到的码不变。
+    assert_eq!(session.profile().unwrap_err(), AccountError::Unavailable);
+    assert_eq!(session.access_token(None), Err(AccountError::Unavailable));
+    // 断网不是登录失效，会话留着，网络恢复后照常刷新。
+    assert!(storage.signed_in());
+}
+
+#[test]
+fn a_refresh_the_server_answers_with_503_stays_account_unavailable() {
+    let (origin, received) = serve(vec![
+        error_response("503 Service Unavailable", "upstream_unavailable", &[]),
+        error_response("401 Unauthorized", "invalid_refresh_token", &[]),
+    ]);
+    let storage = SignedIn::expired();
+    let session = BackendAccountSession::new(client(&origin), storage.clone());
+
+    let failure = session.profile_detailed().unwrap_err();
+    assert_eq!(failure.code(), "account_unavailable");
+    assert!(!failure.network_failure);
+    assert_eq!(failure.status, Some(503));
+    assert!(storage.signed_in());
+    // 服务端拒绝刷新令牌时照旧清掉会话，报登录失效。
+    assert_eq!(
+        session.profile_detailed().unwrap_err().code(),
+        "account_unauthorized"
+    );
+    assert!(!storage.signed_in());
+    let lines: Vec<_> = received
+        .iter()
+        .map(|request| request.line().to_owned())
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            "POST /v1/auth/refresh HTTP/1.1",
+            "POST /v1/auth/refresh HTTP/1.1"
+        ]
+    );
+}
+
+#[test]
+fn a_profile_request_without_a_response_is_a_network_failure() {
+    let (origin, received) = serve(vec![hang_up()]);
+    let session = BackendAccountSession::new(client(&origin), SignedIn::new());
+    assert_eq!(
+        session.profile_detailed().unwrap_err().code(),
+        "account_network"
+    );
+    assert_eq!(received.recv().unwrap().line(), "GET /v1/users/me HTTP/1.1");
 }

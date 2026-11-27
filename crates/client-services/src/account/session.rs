@@ -19,7 +19,7 @@ struct SessionState {
 }
 
 struct RefreshFlight {
-    result: Mutex<Option<Result<String, AccountError>>>,
+    result: Mutex<Option<Result<String, AccountFailure>>>,
     ready: Condvar,
 }
 
@@ -31,14 +31,14 @@ impl RefreshFlight {
         }
     }
 
-    fn finish(&self, result: Result<String, AccountError>) {
+    fn finish(&self, result: Result<String, AccountFailure>) {
         if let Ok(mut slot) = self.result.lock() {
             *slot = Some(result);
             self.ready.notify_all();
         }
     }
 
-    fn wait(&self) -> Result<String, AccountError> {
+    fn wait(&self) -> Result<String, AccountFailure> {
         let mut slot = self.result.lock().map_err(|_| AccountError::Unavailable)?;
         while slot.is_none() {
             slot = self
@@ -583,6 +583,15 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
     }
 
     pub fn access_token(&self, rejected_token: Option<&str>) -> Result<String, AccountError> {
+        self.access_token_detailed(rejected_token)
+            .map_err(|failure| failure.error)
+    }
+
+    /// 与 [`Self::access_token`] 相同，失败时是 [`AccountFailure`]：刷新令牌时没拿到响应是 `account_network`，服务端回了 5xx 才是 `account_unavailable`。
+    pub fn access_token_detailed(
+        &self,
+        rejected_token: Option<&str>,
+    ) -> Result<String, AccountFailure> {
         let (flight, version, refresh_token) = {
             let mut state = self.lock()?;
             self.load_locked(&mut state)?;
@@ -598,7 +607,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                 return flight.wait();
             }
             if state.generation == u64::MAX {
-                return Err(AccountError::Unavailable);
+                return Err(AccountError::Unavailable.into());
             }
             let version = state.generation;
             let refresh_token = current.tokens.refresh_token.clone();
@@ -607,9 +616,14 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             (flight, version, refresh_token)
         };
 
-        let result = self.storage.with_refresh_lock(|| {
-            self.refresh_holding_lock(&refresh_token, rejected_token, version)
-        });
+        // The lock only reports its own failures as `AccountError`; the refresh inside keeps its `AccountFailure`.
+        let result = self
+            .storage
+            .with_refresh_lock(|| {
+                Ok(self.refresh_holding_lock(&refresh_token, rejected_token, version))
+            })
+            .map_err(AccountFailure::from)
+            .and_then(|result| result);
         if let Ok(mut state) = self.lock() {
             if state
                 .refresh
@@ -629,21 +643,21 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         expected: &str,
         rejected_token: Option<&str>,
         version: u64,
-    ) -> Result<String, AccountError> {
+    ) -> Result<String, AccountFailure> {
         let shared = self.storage.shared_across_processes();
         let mut refresh_token = expected.to_owned();
         if shared {
             let stored = self.stored()?;
             let mut state = self.lock()?;
             if state.generation != version {
-                return Err(AccountError::Cancelled);
+                return Err(AccountError::Cancelled.into());
             }
             match stored {
                 // Another process signed out while this one waited for the lock.
                 None => {
                     state.saved = None;
                     state.loaded = true;
-                    return Err(AccountError::Unauthorized);
+                    return Err(AccountError::Unauthorized.into());
                 }
                 // Another process refreshed while this one waited; refreshing from the token it already spent would revoke the session.
                 Some(stored) if stored.tokens.refresh_token != expected => {
@@ -652,7 +666,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                         state.saved = Some(stored);
                         state.loaded = true;
                         Self::next_generation(&mut state)?;
-                        return Err(AccountError::Cancelled);
+                        return Err(AccountError::Cancelled.into());
                     }
                     let usable = usable_session(&stored, rejected_token);
                     let access_token = stored.tokens.access_token.clone();
@@ -672,10 +686,10 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             .saved
             .as_ref()
             .and_then(|saved| saved.session_id);
-        let api_result = self.api.refresh(&refresh_token);
+        let api_result = self.api.refresh_detailed(&refresh_token);
         let mut state = self.lock()?;
         if state.generation != version {
-            return Err(AccountError::Cancelled);
+            return Err(AccountError::Cancelled.into());
         }
         match api_result {
             Ok(tokens) => {
@@ -687,7 +701,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                         None => {
                             state.saved = None;
                             state.loaded = true;
-                            return Err(AccountError::Unauthorized);
+                            return Err(AccountError::Unauthorized.into());
                         }
                         Some(current)
                             if current.tokens.refresh_token != refresh_token
@@ -696,7 +710,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                         {
                             state.saved = Some(current);
                             state.loaded = true;
-                            return Err(AccountError::Cancelled);
+                            return Err(AccountError::Cancelled.into());
                         }
                         Some(_) => {}
                     }
@@ -707,7 +721,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                 state.loaded = true;
                 Ok(token)
             }
-            Err(AccountError::Unauthorized) => {
+            Err(failure) if failure.error == AccountError::Unauthorized => {
                 // Clear only the session that was rejected; one another process saved meanwhile is adopted instead.
                 if shared {
                     if let Ok(Some(stored)) = self.stored() {
@@ -717,7 +731,7 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                                 state.saved = Some(stored);
                                 state.loaded = true;
                                 Self::next_generation(&mut state)?;
-                                return Err(AccountError::Cancelled);
+                                return Err(AccountError::Cancelled.into());
                             }
                             let usable = usable_session(&stored, rejected_token);
                             let access_token = stored.tokens.access_token.clone();
@@ -726,14 +740,15 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
                             return if usable {
                                 Ok(access_token)
                             } else {
-                                Err(AccountError::Unauthorized)
+                                Err(AccountError::Unauthorized.into())
                             };
                         }
                     }
                 }
                 state.saved = None;
                 state.loaded = true;
-                self.storage.clear().and(Err(AccountError::Unauthorized))
+                self.storage.clear()?;
+                Err(AccountError::Unauthorized.into())
             }
             Err(error) => Err(error),
         }
@@ -759,6 +774,15 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         expected_user_id: Option<&str>,
     ) -> Result<(String, String, u64), AccountError> {
         self.credentials_for_login(rejected_token, expected_user_id, None)
+    }
+
+    /// 与 [`Self::credentials_with_generation`] 相同，失败时保留刷新令牌那一步的 [`AccountFailure`]。
+    fn credentials_with_generation_detailed(
+        &self,
+        rejected_token: Option<&str>,
+        expected_user_id: Option<&str>,
+    ) -> Result<(String, String, u64), AccountFailure> {
+        self.credentials_for_login_detailed(rejected_token, expected_user_id, None)
     }
 
     /// 请求开始前在共享写锁内迁移旧会话，让两个进程使用同一个 ID，并保留旧文件的正常刷新行为。
@@ -838,6 +862,18 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
 
     pub fn profile(&self) -> Result<AccountProfile, AccountError> {
         self.profile_for_login(None)
+    }
+
+    /// 与 [`Self::profile`] 相同，失败时是 [`AccountFailure`]：读取资料或之前刷新令牌时没拿到响应是 `account_network`，账号页据此说「网络连接失败」而不是「账号服务暂不可用」。
+    pub fn profile_detailed(&self) -> Result<AccountProfile, AccountFailure> {
+        let (user_id, profile, generation) =
+            self.authenticated_with_user_at(None, |api, token| api.profile_detailed(token))?;
+        validate_profile(&profile)?;
+        if profile.user.id != user_id {
+            return Err(AccountError::Cancelled.into());
+        }
+        self.update_user(profile.user.clone(), generation)?;
+        Ok(profile)
     }
 
     pub(super) fn profile_for_login(
@@ -972,15 +1008,17 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         E: AuthenticationError,
         F: Fn(&A, &str) -> Result<T, E>,
     {
-        let (user_id, token, generation) =
-            self.credentials_with_generation(None, expected.map(|(user, _)| user))?;
+        let (user_id, token, generation) = self
+            .credentials_with_generation_detailed(None, expected.map(|(user, _)| user))
+            .map_err(E::from_failure)?;
         if expected.is_some_and(|(_, prior)| prior != generation) {
             return Err(AccountError::Cancelled.into());
         }
         let result = match operation(&self.api, &token) {
             Err(error) if error.unauthorized() => {
-                let (_, replacement, replacement_generation) =
-                    self.credentials_with_generation(Some(&token), Some(&user_id))?;
+                let (_, replacement, replacement_generation) = self
+                    .credentials_with_generation_detailed(Some(&token), Some(&user_id))
+                    .map_err(E::from_failure)?;
                 if replacement_generation != generation {
                     return Err(AccountError::Cancelled.into());
                 }
@@ -1149,6 +1187,22 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
 
     pub fn preferences(&self) -> Result<AccountPreferences, AccountError> {
         let preferences = self.authenticated(|api, token| api.preferences(token))?;
+        validate_account_preferences(&preferences)?;
+        Ok(preferences)
+    }
+
+    /// 与 [`Self::preference_schema`] 相同，失败时是 [`AccountFailure`]：请求或之前刷新令牌时没拿到响应是 `account_network`。
+    pub fn preference_schema_detailed(&self) -> Result<AccountPreferenceSchema, AccountFailure> {
+        let schema =
+            self.authenticated_detailed(|api, token| api.preference_schema_detailed(token))?;
+        validate_preference_schema(&schema)?;
+        Ok(schema)
+    }
+
+    /// 与 [`Self::preferences`] 相同，失败时是 [`AccountFailure`]：请求或之前刷新令牌时没拿到响应是 `account_network`。
+    pub fn preferences_detailed(&self) -> Result<AccountPreferences, AccountFailure> {
+        let preferences =
+            self.authenticated_detailed(|api, token| api.preferences_detailed(token))?;
         validate_account_preferences(&preferences)?;
         Ok(preferences)
     }
@@ -1528,17 +1582,25 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
 /// 认证调用的错误类型：已有接口用 [`AccountError`]，新接口用 [`AccountFailure`]；两者都要能从会话错误转换过来，也都要认得出 401。
 trait AuthenticationError: From<AccountError> {
     fn unauthorized(&self) -> bool;
+    /// 取令牌那一步的失败：返回 [`AccountFailure`] 的接口原样保留（刷新时断网仍是 `account_network`），只认 [`AccountError`] 的接口取其中的 `error`。
+    fn from_failure(failure: AccountFailure) -> Self;
 }
 
 impl AuthenticationError for AccountError {
     fn unauthorized(&self) -> bool {
         *self == AccountError::Unauthorized
     }
+    fn from_failure(failure: AccountFailure) -> Self {
+        failure.error
+    }
 }
 
 impl AuthenticationError for AccountFailure {
     fn unauthorized(&self) -> bool {
         self.is_unauthorized()
+    }
+    fn from_failure(failure: AccountFailure) -> Self {
+        failure
     }
 }
 

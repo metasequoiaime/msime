@@ -184,7 +184,11 @@ pub fn account_google_cancel(state: tauri::State<'_, AccountState>) {
 pub async fn account_profile(
     state: tauri::State<'_, AccountState>,
 ) -> Result<ProfileResponse, crate::CommandError> {
-    call_session(&state.session, |session| session.profile().map(Into::into)).await
+    // 资料读取和它之前的令牌刷新都保留断网（`account_network`），账号页才能说「网络连接失败」而不是「账号服务暂不可用」。
+    call_session_detailed(&state.session, |session| {
+        session.profile_detailed().map(Into::into)
+    })
+    .await
 }
 
 #[tauri::command]

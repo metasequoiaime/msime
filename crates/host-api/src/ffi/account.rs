@@ -479,6 +479,16 @@ fn run(session: &Session, action: AccountAction) -> Result<Value, Failure> {
                 session.link_apple_web(&grant, &code_verifier)?,
             ))?)
         }),
+        // 读取资料和云端设置（含之前的令牌刷新）时断网报 `account_network`，不与服务端 5xx 的 `account_unavailable` 混在一起。
+        AccountAction::Profile => {
+            detailed(|| Ok(value(ProfileResponse::from(session.profile_detailed()?))?))
+        }
+        AccountAction::PreferencesSchema => detailed(|| {
+            Ok(value(PreferenceSchemaResponse::from(
+                session.preference_schema_detailed()?,
+            ))?)
+        }),
+        AccountAction::PreferencesLoad => detailed(|| Ok(value(session.preferences_detailed()?)?)),
         action => run_other(session, action).map_err(Failure::from),
     }
 }
@@ -573,7 +583,6 @@ fn run_account(session: &Session, action: AccountAction) -> Result<Value, Accoun
             code_verifier,
             purpose: Purpose::Login,
         } => status(Some(session.sign_in_apple_web(&grant, &code_verifier)?)),
-        AccountAction::Profile => value(ProfileResponse::from(session.profile()?)),
         AccountAction::Rename { display_name } => {
             value(ProfileResponse::from(session.rename(&display_name)?))
         }
@@ -586,13 +595,12 @@ fn run_account(session: &Session, action: AccountAction) -> Result<Value, Accoun
         AccountAction::Logout { all } => session.logout(all).map(|()| Value::Null),
         AccountAction::Delete => session.delete_account().map(|()| Value::Null),
         AccountAction::Forget => session.forget().map(|()| Value::Null),
-        AccountAction::PreferencesSchema => {
-            value(PreferenceSchemaResponse::from(session.preference_schema()?))
-        }
-        AccountAction::PreferencesLoad => value(session.preferences()?),
-        // 要写本机偏好、错误码不全是账号错误码的两项由 run_other 处理，绑定登录方式的几步由 run 处理，要看会话来源的 ensure_anonymous 由导出函数处理，都不会到这里。
+        // 要写本机偏好、错误码不全是账号错误码的两项由 run_other 处理，绑定登录方式的几步和读取资料、云端设置由 run 处理，要看会话来源的 ensure_anonymous 由导出函数处理，都不会到这里。
         AccountAction::PreferencesUpload { .. }
         | AccountAction::PreferencesApply { .. }
+        | AccountAction::Profile
+        | AccountAction::PreferencesSchema
+        | AccountAction::PreferencesLoad
         | AccountAction::EnsureAnonymous
         | AccountAction::RequestCode {
             purpose: Purpose::Link,
