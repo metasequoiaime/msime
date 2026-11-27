@@ -509,6 +509,8 @@ struct ServiceSettingsView: View {
     .onChange(of: voiceSettings) {
       guard kind == .voice else { return }
       voiceSettingsSaveFailed = !MetasequoiaInputSessionBridge.updateSharedPreferences { voiceSettings.write(into: &$0) }
+      // 提示音和识别后润色也决定键盘能不能自己识别。
+      if !voiceSettingsSaveFailed { KeyboardVoicePublisher.refresh(settings: voiceSettings) }
     }
     .onChange(of: recorder.isRecording) { _, recording in
       // Also covers the recorder stopping itself at the 60-second limit.
@@ -823,6 +825,7 @@ struct ServiceSettingsView: View {
               allowWebSocket: kind == .voice && configuration.voiceProvider == .doubao, allowsLocalHTTP: kind == .ai)
             try ServiceTokenStore.write("", kind: kind, url: url)
             if kind == .ai { try KeyboardAIService.disable(); keyboardAIEnabled = false; publishAICandidates() }
+            if kind == .voice { KeyboardVoicePublisher.refresh(settings: voiceSettings) }
             token = ""
             fetchedModels = nil
             modelStatus = ""
@@ -936,6 +939,7 @@ struct ServiceSettingsView: View {
     do {
       try configuration.save(kind, token: token)
       token = ""
+      if kind == .voice { KeyboardVoicePublisher.refresh(settings: voiceSettings) }
       if kind == .ai && keyboardAIEnabled {
         try KeyboardAIService.publish(configuration, token: ServiceTokenStore.read(.ai, url: configuration.validatedURL(allowsLocalHTTP: true)))
       }

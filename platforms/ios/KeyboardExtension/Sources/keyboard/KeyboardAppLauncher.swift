@@ -11,7 +11,7 @@ import UIKit
 enum KeyboardAppLauncher {
   /// 键盘要打开的目标。scheme 是本版本的 `MSIMEAppEdition.urlScheme`,在 `platforms/ios/project.yml` 的 `CFBundleURLTypes` 里注册;按版本区分,装了多个版本时才不会拉起另一个版本的 App。
   static let settingsURL = URL(string: "\(MSIMEAppEdition.urlScheme)://settings")!
-  /// 语音录音页。iOS 键盘扩展拿不到麦克风,录音只能在应用里做,识别结果再经语音交接回到键盘。
+  /// 语音录音页：在应用里录音识别，识别结果再经语音交接回到键盘。
   static let voiceURL = URL(string: "\(MSIMEAppEdition.urlScheme)://voice")!
   /// 按住说话的后台语音会话：还没开或已经过期时长按空格打开它，App 在后台替键盘录音，用户回到原应用按住空格说话（`KeyboardVoiceDictation`）。
   static let voiceSessionURL = URL(string: "\(MSIMEAppEdition.urlScheme)://voice-session")!
