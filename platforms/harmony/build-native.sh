@@ -71,6 +71,7 @@ miniaudio="platforms/windows/third_party/miniaudio"
 "${compiler}++" -std=c++17 -g -Wl,--build-id=sha1 -shared -fPIC -Wall -Wextra -Werror \
   -Wl,--no-undefined -Wl,-soname,libmsimeclient.so \
   platforms/harmony/native/client_napi.cpp platforms/harmony/native/key_sound_render.cpp \
+  platforms/harmony/native/skin_folder_copy.cpp \
   platforms/common/CrashRecorder.cpp \
   "$output/miniaudio.o" -Icrates/host-api/include -I"$miniaudio" \
   -L"$output" -lmsime_host_api -lace_napi.z -lhilog_ndk.z -lz -lm -o "$output/libmsimeclient.so"
