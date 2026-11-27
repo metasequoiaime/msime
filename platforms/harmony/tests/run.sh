@@ -11,8 +11,9 @@ fi
 # 强制停止后的首次焦点可能在资源暂存或建面板的 await 期间到达；inputStart 必须先订阅，才能由 pending 留住编辑框而不让键盘首帧失去输入客户端。
 ability="$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/KeyboardExtensionAbility.ets"
 on_create_body=$(sed -n '/^  async onCreate(want: Want): Promise<void> {$/,/^  onDestroy(): void {$/p' "$ability")
-input_start_line=$(grep -nF "engine.on('inputStart', this.started);" <<< "$on_create_body" | head -n 1 | cut -d: -f1)
-first_await_line=$(grep -nE '\bawait\b' <<< "$on_create_body" | head -n 1 | cut -d: -f1)
+# grep 自己停在首条命中，避免 head 提前退出导致 grep 收到 SIGPIPE。
+input_start_line=$(grep -nFm 1 "engine.on('inputStart', this.started);" <<< "$on_create_body" | cut -d: -f1)
+first_await_line=$(grep -nEm 1 '\bawait\b' <<< "$on_create_body" | cut -d: -f1)
 if [[ -z "$input_start_line" || -z "$first_await_line" || "$input_start_line" -ge "$first_await_line" ]]; then
   echo "KeyboardExtensionAbility must subscribe to inputStart before its first asynchronous cold-start step" >&2
   exit 1
@@ -351,19 +352,17 @@ if ! grep -qF 'this.commaSwipe.down(touch.windowX, touch.windowY, Date.now());' 
   echo "KeyboardView must feed the comma touch's down, move and up with their time into CommaSwipeGesture, and the design-row comma's long press must ask commaSwipe.longPress() first" >&2
   exit 1
 fi
-# 密码框和只收数字的编辑框里三种键面类型都退回标准底行（`TouchLayoutStylePolicy.fieldRowStyle`、`EditorPolicy.keepsStandardRows` 由测试覆盖）：会话从编辑框类型认出只收数字，视图每次接上编辑框都刷新这个状态，九键外框与 26/14/18 键底行都经 fieldRowStyle 取样式。
+# 密码框和只收数字的编辑框里三种键面类型都退回标准底行：会话交给 EditorPatternPolicy 识别类型（具体数字、密码类型到标准底行的行为由 editor-pattern-policy.test.ts 覆盖），视图每次接上编辑框刷新状态，九键外框与 26/14/18 键底行都经 fieldRowStyle 取样式。
 traits_body=$(sed -n '/^  private static traitsFor(pattern: number): EditorTraits {$/,/^  }$/p' "$session")
 editor_face_body=$(sed -n '/^  private applyEditorFace(): void {$/,/^  }$/p' "$view")
 nine_style_body=$(sed -n '/^  private nineKeyFrameStyle(): string {$/,/^  }$/p' "$view")
 design_style_body=$(sed -n '/^  private designRowStyle(styled: StyledFace): string {$/,/^  }$/p' "$view")
-if ! grep -qF 'digits: pattern === inputMethodEngine.PATTERN_NUMBER' <<< "$traits_body" \
-  || ! grep -qF '|| pattern === inputMethodEngine.PATTERN_PHONE' <<< "$traits_body" \
-  || ! grep -qF '|| pattern === inputMethodEngine.PATTERN_NUMBER_DECIMAL' <<< "$traits_body" \
+if ! grep -qF 'return EditorPatternPolicy.traitsFor(pattern, types, inputMethod.TextInputType.MULTILINE);' <<< "$traits_body" \
   || ! grep -qF 'this.standardRowsField = KeyboardSession.shared.editorKeepsStandardRows();' <<< "$editor_face_body" \
   || ! grep -qF 'TouchLayoutStylePolicy.fieldRowStyle(this.nineKeyStyle, this.standardRowsField)' <<< "$nine_style_body" \
   || ! grep -qF 'TouchLayoutStylePolicy.fieldRowStyle(this.twentySixKeyStyle, this.standardRowsField)' <<< "$design_style_body" \
   || ! grep -qF 'TouchLayoutStylePolicy.fieldRowStyle(this.fourteenKeyStyle, this.standardRowsField)' <<< "$design_style_body"; then
-  echo "Password and digit-only fields must fall back to the standard row for every key type: KeyboardSession.traitsFor sets digits from PATTERN_NUMBER/PHONE/NUMBER_DECIMAL, applyEditorFace refreshes standardRowsField, and nineKeyFrameStyle and designRowStyle go through TouchLayoutStylePolicy.fieldRowStyle" >&2
+  echo "Password and digit-only fields must fall back to the standard row for every key type: KeyboardSession.traitsFor delegates to EditorPatternPolicy, applyEditorFace refreshes standardRowsField, and nineKeyFrameStyle and designRowStyle go through TouchLayoutStylePolicy.fieldRowStyle" >&2
   exit 1
 fi
 # 长空格样式把工具条那一行一直留着（符 在上面），看的是这块键盘的中文键面和用户的 26 键样式，不看此刻的中/英：同一块键盘切到英文 26 键时也留着，否则工具栏隐藏时每次切中/英这一行都出没一次，面板高度跟着跳。判定本身在 `TouchLayoutStylePolicy.chineseTwentySixKeyboard`，没有 english 参数，由 touch-layout-styles.test.ts 逐个方案覆盖（中文 26 键停在英文 26 键上仍留着这一行）；视图是 ArkTS，这里钉住接线：工具条、隐藏工具栏时藏工具和冷启动记下的键面都读视图的 `chineseTwentySixKeyboard`，它交给上面那个判定、交过去的键盘状态（`touchKeyboard`）里没有 `this.english`；`chineseTwentySixFace` 是它再加上此刻是中文。
@@ -469,6 +468,8 @@ if ! grep -qF 'SharedStateMirror.localFingerprints.fingerprint(' <<< "$fingerpri
   echo "Shared state fingerprints, the focus-time preference revision check and the snapshot queue pass and poll must skip work when nothing changed" >&2
   exit 1
 fi
+# 候选画布换场景、迟到的旧解码和清除场景：在 node 下执行 `CandidateCanvasFrame` 的实际重载方法，不运行 ArkUI 渲染。
+node "$here/candidate-canvas-frame-reload.test.cjs"
 # 候选皮肤位图在候选条放手后停放一份，同一套皮肤不再每个词重新解码；停放规则由 candidate-canvas-lease.test.ts 覆盖。解码器和扩展能力是 ArkTS，这里钉住接线：解码器经 CandidateCanvasLeaseCache 取用和放手，键盘收起、停止输入和销毁时 trim。
 frame_ets="$ets/keyboard/candidate/CandidateCanvasFrame.ets"
 hidden_body=$(sed -n '/^  private readonly keyboardHidden: () => void = (): void => {$/,/^  };$/p' "$ability_ets")
@@ -947,6 +948,12 @@ printf 'export declare const KeyboardLog: any;\nexport declare function describe
 printf 'export declare const HarmonyPrivacyConsent: any;\n' > "$telemetry_check/privacy/HarmonyPrivacyConsent.d.ts"
 "$tsc" --ignoreConfig --noEmit --strict --target es2021 --module commonjs --skipLibCheck \
   "$here/telemetry-typecheck.d.ts" "$telemetry_check/telemetry/Telemetry.ts" "$telemetry_check/telemetry/TelemetryPolicy.ts"
+toolbar_out="$repo_root/target/harmony-tests/toolbar-drag-runtime"
+rm -rf "$toolbar_out"
+"$tsc" --ignoreConfig --target es2022 --module commonjs --skipLibCheck --outDir "$toolbar_out" \
+  "$repo_root/platforms/harmony/entry/src/main/ets/keyboard/ToolbarDragGesture.ts" \
+  "$repo_root/platforms/harmony/entry/src/main/ets/inputmethodextability/ToolbarMoveQueue.ts"
+MSIME_HARMONY_TOOLBAR_OUT="$toolbar_out" node "$here/toolbar-drag.test.cjs"
 node "$here/idle-dictionary-lifecycle.test.cjs"
 node "$here/dictionary-learning-reset-adapter.test.cjs"
 # 上面已编译所有 tests/*.test.ts；逐个运行它们的输出。遍历源文件而不是输出目录，可以避免已删除测试遗留的旧 .js 被运行。
@@ -957,6 +964,19 @@ done
 node "$here/telemetry-adapter.test.cjs"
 node "$here/shared-dictionary-resources-adapter.test.cjs"
 node "$here/ai-candidate-response-adapter.test.cjs"
+node "$here/candidate-canvas-reload-adapter.test.cjs"
+node "$here/skin-import-adapter.test.cjs"
+node "$here/skin-folder-napi.test.cjs"
+# 固定目录 fd 的递归暂存必须拒绝替换和超限；只使用合成文件。
+skin_test_out="$repo_root/target/harmony-tests/skin-folder-fd"
+mkdir -p "$skin_test_out"
+"${CXX:-c++}" -std=c++17 -O1 -Wall -Wextra -Werror "$here/skin-folder-fd.test.cpp" -o "$skin_test_out/test"
+skin_scratch=$(mktemp -d "$skin_test_out/fixture.XXXXXX")
+trap 'rm -rf "$skin_scratch"' EXIT
+"$skin_test_out/test" "$skin_scratch"
+rm -rf "$skin_scratch"
+trap - EXIT
+node "$here/candidate-identity-adapter.test.cjs"
 node "$here/cloud-clipboard-receive-adapter.test.cjs"
 node "$here/nine-key-flick-panel-adapter.test.cjs"
 node "$here/custom-shuangpin-panel-adapter.test.cjs"
@@ -964,6 +984,7 @@ node "$here/shuangpin-separator-adapter.test.cjs"
 node "$here/letter-width-panel-adapter.test.cjs"
 node "$here/letter-width-row-adapter.test.cjs"
 node "$here/touch-shuangpin-panel-adapter.test.cjs"
+node "$here/toolbar-setup-adapter.test.cjs"
 bash "$here/check-native-capture.sh"
 # The key-sound renderer is plain C++ over miniaudio with no NAPI in it, so the build machine's compiler checks what it writes and what it refuses.
 out="$repo_root/target/harmony-tests"

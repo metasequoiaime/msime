@@ -14,7 +14,7 @@ zhoumo   →  周末   weekend   →  weekend
 
 **[下载水杉输入法](https://msime.app/download/)** · Windows · macOS · Linux · Android · iOS · HarmonyOS · 免费开源（GPL-3.0-only）
 
-- **怎么打开**：默认都是关的。在设置里打开「显示英文释义」（Android 和 iOS 上叫「离线英文释义」），想看读音再开「显示读音」：英文释义标音标，日文和韩文释义标罗马字，法、西、俄、德释义标国际音标（德语给实际读音）。释义和读音查本机词库，显示时不联网（Android、iOS 和 Linux 上英文音标词典和法日西俄德韩的外语读音词典各要在设置里下载一次）；「候选词翻译」不选在线翻译服务时也只查本机词库。
+- **怎么打开**：默认都是关的。在设置里打开「显示英文释义」（Android 上叫「离线释义」，iOS 上叫「离线英文释义」），想看读音再开「显示读音」：英文释义标音标，日文和韩文释义标罗马字，法、西、俄、德释义标国际音标（德语给实际读音）。释义和读音查本机词库，显示时不联网（Android、iOS 和 Linux 上英文音标词典和法日西俄德韩的外语读音词典各要在设置里下载一次）；「候选词翻译」不选在线翻译服务时也只查本机词库。
 - **还有什么**：「候选词翻译」的目标语言还可以换成法、日、西、俄、德、韩（鸿蒙手机上没有俄语）；「背单词」内置中考到 GRE 八本词书，按间隔重复排复习。
 - **平台差异**：读音目前在 macOS、Linux、Android、iOS、鸿蒙和 Windows 新版预览上显示；Windows 正式版由 [msime-windows](https://github.com/metasequoiaime/msime-windows) 发布，没有单独的「显示英文释义」开关，打开「候选词翻译」就会显示离线英文释义，也能用 Ctrl+Enter，暂时没有音标，也没有按间隔重复排复习的「背单词」词书；手机版仍是测试版。
 
@@ -26,17 +26,17 @@ zhoumo   →  周末   weekend   →  weekend
 
 > **关于名称**：MSIME 是 Metasequoia IME（水杉输入法）的缩写，与 Microsoft IME 无关，也与微软没有任何关联。代码、包名和仓库名中的 `msime` 一律是这个含义。设置中的 `shuangpin_profile: microsoft` 是「微软双拼」方案，与小鹤、自然码、首道和智能 ABC 并列的五个键位方案之一，供习惯该键位的用户选择，同样不代表任何关联。
 
-[![Core CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci.yml?branch=develop&label=Core%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci.yml?query=branch%3Adevelop)
-[![Native Platform CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci-platforms.yml?branch=develop&label=Platform%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci-platforms.yml?query=branch%3Adevelop)
-[![CodeQL](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/codeql.yml?branch=develop&event=schedule&label=CodeQL&logo=github)](https://github.com/metasequoiaime/msime/actions/workflows/codeql.yml)
-[![Cargo audit](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/cargo-audit.yml?branch=develop&event=schedule&label=cargo%20audit&logo=rust)](https://github.com/metasequoiaime/msime/actions/workflows/cargo-audit.yml)
+[![Core CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci.yml?branch=main&label=Core%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci.yml?query=branch%3Amain)
+[![Native Platform CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci-platforms.yml?branch=main&label=Platform%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci-platforms.yml?query=branch%3Amain)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/codeql.yml?branch=main&event=schedule&label=CodeQL&logo=github)](https://github.com/metasequoiaime/msime/actions/workflows/codeql.yml)
+[![Cargo audit](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/cargo-audit.yml?branch=main&event=schedule&label=cargo%20audit&logo=rust)](https://github.com/metasequoiaime/msime/actions/workflows/cargo-audit.yml)
 
-[![Android version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fandroid%2Fversion.txt&query=%24&prefix=v&label=Android&logo=android&logoColor=white&color=34A853)](platforms/android/README.md)
-[![iOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fios%2Fversion.txt&query=%24&prefix=v&label=iOS&logo=apple&logoColor=white&color=147EFB)](platforms/ios/README.md)
-[![macOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fmacos%2Fversion.txt&query=%24&prefix=v&label=macOS&logo=apple&logoColor=white&color=000000)](platforms/macos/README.md)
-[![Linux version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Flinux%2Fversion.txt&query=%24&prefix=v&label=Linux&logo=linux&logoColor=white&color=D97706)](platforms/linux/README.md)
-[![Windows version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fwindows%2Fversion.txt&query=%24&prefix=v&label=Windows&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDBoMTEuMzc3djExLjM3Mkgwem0xMi42MjMgMEgyNHYxMS4zNzJIMTIuNjIzek0wIDEyLjYyM2gxMS4zNzdWMjRIMHptMTIuNjIzIDBIMjRWMjRIMTIuNjIzeiIvPjwvc3ZnPg%3D%3D&logoColor=white&color=0078D4)](platforms/windows/README.md)
-[![HarmonyOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fharmony%2Fversion.txt&query=%24&prefix=v&label=HarmonyOS&logo=harmonyos&logoColor=white&color=CF0A2C)](platforms/harmony/README.md)
+[![Android version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fmain%2Fplatforms%2Fandroid%2Fversion.txt&query=%24&prefix=v&label=Android&logo=android&logoColor=white&color=34A853)](platforms/android/README.md)
+[![iOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fmain%2Fplatforms%2Fios%2Fversion.txt&query=%24&prefix=v&label=iOS&logo=apple&logoColor=white&color=147EFB)](platforms/ios/README.md)
+[![macOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fmain%2Fplatforms%2Fmacos%2Fversion.txt&query=%24&prefix=v&label=macOS&logo=apple&logoColor=white&color=000000)](platforms/macos/README.md)
+[![Linux version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fmain%2Fplatforms%2Flinux%2Fversion.txt&query=%24&prefix=v&label=Linux&logo=linux&logoColor=white&color=D97706)](platforms/linux/README.md)
+[![Windows version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fmain%2Fplatforms%2Fwindows%2Fversion.txt&query=%24&prefix=v&label=Windows&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDBoMTEuMzc3djExLjM3Mkgwem0xMi42MjMgMEgyNHYxMS4zNzJIMTIuNjIzek0wIDEyLjYyM2gxMS4zNzdWMjRIMHptMTIuNjIzIDBIMjRWMjRIMTIuNjIzeiIvPjwvc3ZnPg%3D%3D&logoColor=white&color=0078D4)](platforms/windows/README.md)
+[![HarmonyOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fmain%2Fplatforms%2Fharmony%2Fversion.txt&query=%24&prefix=v&label=HarmonyOS&logo=harmonyos&logoColor=white&color=CF0A2C)](platforms/harmony/README.md)
 [![npm @msime/web-engine](https://img.shields.io/npm/v/@msime/web-engine?label=%40msime%2Fweb-engine&logo=npm)](https://www.npmjs.com/package/@msime/web-engine)
 [![crates.io msime-engine](https://img.shields.io/crates/v/msime-engine?label=msime-engine&logo=rust)](https://crates.io/crates/msime-engine)
 
@@ -45,7 +45,7 @@ zhoumo   →  周末   weekend   →  weekend
 [![Website](https://img.shields.io/badge/website-msime.app-2E7D32)](https://msime.app/)
 [![GitHub stars](https://img.shields.io/github/stars/metasequoiaime/msime?style=flat&logo=github)](https://github.com/metasequoiaime/msime/stargazers)
 [![Contributors](https://img.shields.io/github/contributors/metasequoiaime/msime)](https://github.com/metasequoiaime/msime/graphs/contributors)
-[![Last commit](https://img.shields.io/github/last-commit/metasequoiaime/msime/develop)](https://github.com/metasequoiaime/msime/commits/develop)
+[![Last commit](https://img.shields.io/github/last-commit/metasequoiaime/msime/main)](https://github.com/metasequoiaime/msime/commits/main)
 <a href="https://depot.dev/?utm_source=metasequoiaime"><img src="https://depot.dev/badges/built-with-depot.svg" alt="Built with Depot" height="20"></a>
 
 ## Star History
@@ -77,7 +77,7 @@ zhoumo   →  周末   weekend   →  weekend
 
 ## CI 与发布
 
-`develop` 上的基础检查由 `Core CI` 负责，实际执行的是 actionlint 的 workflow 校验和依赖审查；仓库的文本契约是 `scripts/` 下的那批 `test-*.py`，由 `scripts/run-checks.sh` 按文件名自动发现并执行，`Core CI` 的 contracts job 在 Linux 上跑它，`scripts/verify-local.sh` 在本地跑同一份脚本；缺少所需工具或参考仓库的检查在 CI 上打印 skipped 并通过。iOS 与 macOS 的编译与测试由各自的原生宿主 workflow 负责。Android、Linux、HarmonyOS 与 Windows 由 Native Platform CI 在对应平台或共享层有改动时运行，未改动时明确跳过；这一层覆盖宿主契约、JVM 冒烟、容器构建和交叉编译。设备级的输入验收由各平台 README 记录的设备套件和手动步骤承担，不由 CI 代替。各 workflow 的运行状态见 [GitHub Actions](https://github.com/metasequoiaime/msime/actions)；develop 合并频繁，排队中的运行常被后来的推送取消，看结果时以最近一次跑完且未取消的运行为准。
+`main` 上的基础检查由 `Core CI` 负责，实际执行的是 actionlint 的 workflow 校验和依赖审查；仓库的文本契约是 `scripts/` 下的那批 `test-*.py`，由 `scripts/run-checks.sh` 按文件名自动发现并执行，`Core CI` 的 contracts job 在 Linux 上跑它，`scripts/verify-local.sh` 在本地跑同一份脚本；缺少所需工具或参考仓库的检查在 CI 上打印 skipped 并通过。iOS 与 macOS 的编译与测试由各自的原生宿主 workflow 负责。Android、Linux、HarmonyOS 与 Windows 由 Native Platform CI 在对应平台或共享层有改动时运行，未改动时明确跳过；这一层覆盖宿主契约、JVM 冒烟、容器构建和交叉编译。设备级的输入验收由各平台 README 记录的设备套件和手动步骤承担，不由 CI 代替。各 workflow 的运行状态见 [GitHub Actions](https://github.com/metasequoiaime/msime/actions)；main 合并频繁，排队中的运行常被后来的推送取消，看结果时以最近一次跑完且未取消的运行为准。
 
 六个平台的发布完全独立：每个平台有自己的手动 release workflow、版本文件、并发组、构建产物和 GitHub Release tag。发布 workflow 只创建 GitHub Release，不自动上传应用商店或使用签名凭据。
 

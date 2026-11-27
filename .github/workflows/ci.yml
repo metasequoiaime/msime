@@ -5,7 +5,6 @@ name: Core CI
 on:
   push:
     branches:
-      - develop
       - main
     # Prose that no build step compiles. ci-docs.yml answers for the required checks on exactly this list -- the same list the two platform workflows ignore -- so a documentation-only pull request stays mergeable, and it calls quality.yml and contracts.yml as well, both of which run on Linux without a build.
     #
@@ -26,7 +25,7 @@ on:
   merge_group:
 
 concurrency:
-  # Keyed by event as well as branch, for the same reason ci-macos.yml is: a pull_request run on the same branch must not cancel a dispatched one. Feature branches only ever get the pull_request run (push is restricted to develop and main), so this still collapses superseded runs of the same kind.
+  # Keyed by event as well as branch, for the same reason ci-macos.yml is: a pull_request run on the same branch must not cancel a dispatched one. Feature branches only ever get the pull_request run (push is restricted to main), so this still collapses superseded runs of the same kind.
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 

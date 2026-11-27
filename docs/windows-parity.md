@@ -11,7 +11,7 @@
 对照使用的是固定对象，不是某个仓库当天的 HEAD：
 
 - 来源：`metasequoiaime/MSIME-Windows` 的提交 `345cb87a3822f6ad7013bb29506fe3d856c1931a`。所有 reference 门禁统一经 `scripts/reference_source.py` 读取这个对象（`PINNED_SHA`），不跟随相邻检出的当前分支或可变远端 tip；环境变量 `MSIME_REFERENCE_DIR` 只覆盖检出位置，不能覆盖版本。检出存在但缺这个对象时，脚本判定为无效的验证环境并指出恢复命令，而不是回落到一个可变分支。
-- 目标：`metasequoiaime/msime` 的 `develop`。
+- 目标：`metasequoiaime/msime` 的 `main`。
 - Engine：来源把 C++ Engine 以 `engine/` 在自己树内维护；本仓库的输入引擎是移植成 Rust 的 `crates/engine`，不再取回或锁定任何 Engine 源码归档，也没有 overlay 这一层。下文各批次里提到的 `engine-lock.json`、`scripts/fetch_engine.py`、`vendor/MSIME-Engine`、`scripts/apply_engine_*.py` 与 `crates/engine-bridge`，是移植之前的做法，作为当时的记录保留；那些 overlay 承接的行为现在都直接写在 `crates/engine` 的对应模块里。两个 Engine 不因目录名或协议名相同而视为内容相同。
 
 来源的功能入口以该提交的 `README.md`「功能简介」「核心功能指南」、`ui-html/webview2/settings/ime-settings/src/modules/sidebar.ts`、`server/src/settings/settings_app.cpp`、`installer/default_config/config.default.toml` 和 `engine/contracts/webview/messages.json` 交叉核对。README 只是入口索引，真正的判据是后面几道逐字段、逐动作、逐文件的检查。
@@ -280,7 +280,7 @@
 ### Windows 发布流水线产出真实安装包（2026-09-23）
 
 - 流水线：`.github/workflows/release-windows.yml`（MSVC，Visual Studio 18 2026）按 `installer/Package-SimplySign.ps1` 的顺序走完 `Build-Client.ps1` → `Collect-Notices.ps1` → `Prepare-PackageFiles.ps1` → 签 payload → `Compile-Installer.ps1` → 签安装包。原生依赖按 `platforms/windows/vcpkg.json` 的 baseline 装进 x64/x86 两个前缀并缓存；Inno Setup 固定 6.7.1，`ChineseSimplified.isl` 取自同版本标签并校验 SHA-256。
-- 签名：仓库变量 `WINDOWS_SIGNING_PROVIDER=signpath` 打开时，`main` 和 `develop` 上的运行经 SignPath 签名：六个版本的本项目二进制（`installer/SignPath-PackageBinaries.ps1` 认定）合成一次签名请求，签好放回暂存包后编译安装包，六个安装包再合成一次请求，每次都要审批人在 SignPath 里批准。SignPath 的开源项目要求签名请求之前的每个 job 都在 GitHub 托管 runner 上，所以这时构建从 Depot 换到 `windows-2025`。vcpkg、Windows App SDK、ONNX Runtime 和 sherpa-onnx 的 DLL 保持上游原样，SignPath Foundation 不签上游代码。变量不设置时跳过这两步，发布未签名的安装包，代码签名证书是只在发布机上的 Certum SimplySign 卡，签名仍是本地步骤。范围、角色和流程见 [Code signing policy](code-signing-policy.md)。
+- 签名：仓库变量 `WINDOWS_SIGNING_PROVIDER=signpath` 打开时，发版 tag 上的运行经 SignPath 签名：六个版本的本项目二进制（`installer/SignPath-PackageBinaries.ps1` 认定）合成一次签名请求，签好放回暂存包后编译安装包，六个安装包再合成一次请求，每次都要审批人在 SignPath 里批准。SignPath 的开源项目要求签名请求之前的每个 job 都在 GitHub 托管 runner 上，所以这时构建从 Depot 换到 `windows-2025`。vcpkg、Windows App SDK、ONNX Runtime 和 sherpa-onnx 的 DLL 保持上游原样，SignPath Foundation 不签上游代码。变量不设置时跳过这两步，发布未签名的安装包，代码签名证书是只在发布机上的 Certum SimplySign 卡，签名仍是本地步骤。范围、角色和流程见 [Code signing policy](code-signing-policy.md)。
 - 产物：每个版本的 `<installer_base_name>_v<版本>.exe` 与 `.sha256` 作为 workflow artifact 上传；`publish` 输入默认打开，创建 `windows-v<版本>` Release（关掉则只上传 artifact）；构建“Use workflow from”所选分支或标签上的那个提交。
 - 第一次在 MSVC 上完整构建暴露并修掉的问题：Engine overlay 脚本按 ANSI 代码页读写 UTF-8 源；engine-bridge 的 MSVC 编译拿不到 vcpkg 头文件；strict 目标的 `/W4 /WX` 窄化、遮蔽与 `getenv` 弃用告警；TSF 引入 Engine 管道契约时被 SDK 的 `max` 宏改写；PowerShell 调 pnpm（`.cmd`）时 Tauri `--config` 的内联 JSON 丢了引号；`Collect-Notices.ps1` 按整个文件比较 Engine 标记；安装脚本 `[Code]` 里有先用后声明的 `UserConfigPath` 和保留字 `Protected`。
 - 证据：https://github.com/metasequoiaime/msime/actions/runs/35815935438 成功，artifact `msime-windows-0.1.0` 内含 201 MB 的 `MetasequoiaIME_Setup_v0.1.0.exe`，下载后 `.sha256` 校验通过。安装包尚未在真实 Windows 上安装验收。Rust crate 与 npm 包的补充声明已由 #650 收进通知集合，随后的发布运行 https://github.com/metasequoiaime/msime/actions/runs/35830590535（`publish=false`）成功。
@@ -2000,13 +2000,13 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 
 与来源的差异：来源由 `ClipboardMonitor` 在后台记录每次复制；HarmonyOS 只把剪贴板读取权限给系统应用，本宿主也不在后台记录，所以这一页和手机一样用「保存当前」按钮手动保存。设置里关闭剪贴板历史时这一页只显示提示，来源的「启用」按钮不照搬，开关统一留在设置页。
 
-### HarmonyOS 2in1：全屏应用上隐藏悬浮工具栏
+### HarmonyOS 2in1：全屏编辑器上照常显示悬浮工具栏（有意的差异）
 
-来源的窗口钩子（`window_hook.cpp` 的 `OnWinEvent`）在前台窗口全屏时隐藏悬浮工具栏，退出全屏后按配置恢复，游戏或视频画面上不会压着一条没人在用的状态栏。HarmonyOS 以前在 2in1 上始终显示工具栏。
+来源的窗口钩子（`window_hook.cpp` 的 `OnWinEvent`）在前台窗口全屏时隐藏悬浮工具栏，退出全屏后按配置恢复，游戏或视频画面上不会压着一条没人在用的状态栏；Linux 宿主按 `_NET_WM_STATE_FULLSCREEN` 做同样的事。HarmonyOS 有意不跟：
 
-- 现在编辑框每次获得焦点时，都用 `InputClient.getCallingWindowInfo()` 查询所在窗口的状态：`WindowStatusType.FULL_SCREEN` 时隐藏工具栏，焦点回到非全屏窗口时再显示。
-- HarmonyOS 不会主动通知输入法窗口状态的变化，只能在查询时拿到，所以编辑框保持焦点期间才进入全屏的窗口，要到下一次聚焦时才会生效。
-- 工具栏被设置关闭后再重新打开时，隐藏标记会随之清掉，不会把新开的工具栏误当成已隐藏。
+- 编辑器每次绑定（`inputStart`，以及键盘面板创建期间到达、创建完成后才挂载的编辑器）都请求显示工具栏，调用窗口是 `WindowStatusType.FULL_SCREEN` 时也一样，不再查询 `InputClient.getCallingWindowInfo()`。
+- 理由：这条路径只在有编辑器绑定、也就是用户正在打字时才会走到，「不挡住没人在用的视频或游戏」那条理由不成立；全屏应用里打字的用户同样要用工具栏。这是维护者确认的平台差异，也是反馈者要的行为。之前一版按窗口状态在全屏时隐藏，已撤回。
+- 宿主不缓存工具栏是否可见：系统切换窗口时可能自行收起状态面板，所以每次绑定都重新请求显示，见[编辑器重新聚焦时恢复鸿蒙悬浮工具栏](../.agents/notes/implemented/bug-fix/2026-11-19-harmony-toolbar-refocus.md)。
 - 手机没有悬浮工具栏，这一改动不涉及手机。
 
 ### HarmonyOS 2in1：行内预编辑（`tsf_preedit_style`）

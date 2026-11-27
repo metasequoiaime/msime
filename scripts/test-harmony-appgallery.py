@@ -281,7 +281,7 @@ class AppGalleryTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/release-harmony.yml").read_text()
         self.assertIn("options: [auto, none, upload, public-test]", workflow)
         self.assertIn("default: auto", workflow)
-        self.assertEqual(workflow.count("if: ${{ (inputs.publish || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}"), 5)
+        self.assertEqual(workflow.count("if: ${{ (steps.version.outputs.publish == 'true' || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}"), 5)
         # 只有版本步骤读取原始模式；所有门禁都读取解析后的模式。
         self.assertEqual(workflow.count("inputs.appgallery"), 1)
         self.assertIn("--materials platforms/harmony/appgallery-materials.json", workflow)
@@ -298,12 +298,18 @@ class AppGalleryTests(unittest.TestCase):
         block = workflow.split("      - id: version\n", 1)[1].split("      - name:", 1)[0]
         script = block.split("        run: |\n", 1)[1]
         script = "\n".join(line[10:] for line in script.splitlines())
-        defaults = {"REQUESTED": "0.2.1", "SOURCE_RELEASE": "", "SIGN": "false", "PUBLISH": "false",
+        # PUBLISH 和 PRERELEASE 是前一步 release-ref.py 由 tag 解析出的值：只有 harmony-v tag 的运行发布，-beta.N 是预发布。
+        defaults = {"REQUESTED": "0.2.1", "RELEASE": "0.2.1", "PRERELEASE": "false", "SOURCE_RELEASE": "", "SIGN": "false", "PUBLISH": "false",
                     "APPGALLERY": "none", "TEST_VERSION_ID": "", "TEST_PACKAGE_ID": "",
-                    "GITHUB_REF_NAME": "develop", "GITHUB_OUTPUT": str(Path(self.temp.name) / "output")}
+                    "GITHUB_OUTPUT": str(Path(self.temp.name) / "output")}
         cases = [({}, True), ({"APPGALLERY": "unknown"}, False),
                  ({"TEST_VERSION_ID": "draft-1"}, False), ({"TEST_PACKAGE_ID": "pkg-1"}, False),
                  ({"APPGALLERY": "upload", "SOURCE_RELEASE": "harmony-v0.2.1-beta"}, True),
+                 ({"APPGALLERY": "upload", "SOURCE_RELEASE": "harmony-v0.2.1-beta.3"}, True),
+                 ({"APPGALLERY": "upload", "SOURCE_RELEASE": "harmony-v0.2.1"}, True),
+                 ({"APPGALLERY": "upload", "SOURCE_RELEASE": "harmony-v0.2.1-alpha"}, False),
+                 ({"APPGALLERY": "upload", "SOURCE_RELEASE": "harmony-v0.2.1-beta.0"}, False),
+                 ({"APPGALLERY": "upload", "SOURCE_RELEASE": "harmony-v0x2x1-beta.1"}, False),
                  ({"APPGALLERY": "upload", "TEST_PACKAGE_ID": "pkg-1"}, True),
                  ({"APPGALLERY": "public-test", "TEST_VERSION_ID": "draft-1", "TEST_PACKAGE_ID": "pkg-1"}, True),
                  ({"APPGALLERY": "upload", "TEST_PACKAGE_ID": "pkg-1", "PUBLISH": "true"}, False),
@@ -314,10 +320,10 @@ class AppGalleryTests(unittest.TestCase):
                                         cwd=ROOT, capture_output=True)
                 self.assertEqual(result.returncode == 0, success)
         output = Path(defaults["GITHUB_OUTPUT"])
-        resolved = [({"GITHUB_REF_NAME": "main", "PUBLISH": "true"}, "public-test"),
-                    ({"GITHUB_REF_NAME": "main", "PUBLISH": "false"}, "none"),
-                    ({"GITHUB_REF_NAME": "develop", "PUBLISH": "true"}, "none"),
-                    ({"GITHUB_REF_NAME": "release/harmony-0.2.1", "PUBLISH": "true"}, "none")]
+        resolved = [({"PUBLISH": "true", "PRERELEASE": "false"}, "public-test"),
+                    ({"PUBLISH": "false", "PRERELEASE": "false"}, "none"),
+                    ({"PUBLISH": "true", "PRERELEASE": "true", "RELEASE": "0.2.1-beta.1"}, "none"),
+                    ({"PUBLISH": "false", "PRERELEASE": "true", "RELEASE": "0.2.1-beta.1"}, "none")]
         for changes, mode in resolved:
             with self.subTest(auto=changes):
                 output.write_text("")

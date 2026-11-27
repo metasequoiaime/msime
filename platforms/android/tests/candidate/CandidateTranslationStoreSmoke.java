@@ -59,6 +59,7 @@ public final class CandidateTranslationStoreSmoke {
             retryStore.refresh(List.of("你好"), List.of("en"), 4);
             retryScheduler.runDelayed();
             check(firstRetryCall.await(2, TimeUnit.SECONDS), "first retry request started");
+            retryStore.cancel();
             retryStore.refresh(List.of("你好"), List.of("en"), 4);
             retryScheduler.runDelayed();
             releaseRetryCall.countDown();
@@ -67,6 +68,64 @@ public final class CandidateTranslationStoreSmoke {
         } finally {
             releaseRetryCall.countDown();
             retryWorker.shutdownNow();
+        }
+
+        // 与这一页无关的重绘照样调 refresh：同一页排着时不往后推，正在路上时不作废、不重发。
+        FakeScheduler repeatScheduler = new FakeScheduler();
+        ExecutorService repeatWorker = Executors.newSingleThreadExecutor();
+        AtomicInteger repeatCalls = new AtomicInteger();
+        AtomicInteger repeatArrivals = new AtomicInteger();
+        CountDownLatch repeatStarted = new CountDownLatch(1);
+        CountDownLatch releaseRepeat = new CountDownLatch(1);
+        CandidateTranslationStore repeatStore = new CandidateTranslationStore(
+            (texts, target) -> {
+                repeatCalls.incrementAndGet();
+                repeatStarted.countDown();
+                releaseRepeat.await(2, TimeUnit.SECONDS);
+                return List.of("hello");
+            }, repeatWorker, repeatScheduler, generation -> repeatArrivals.incrementAndGet());
+        try {
+            repeatStore.refresh(List.of("你好"), List.of("en"), 4);
+            Runnable queued = repeatScheduler.delayed.peek();
+            repeatStore.refresh(List.of("你好"), List.of("en"), 4);
+            check(repeatScheduler.delayed.size() == 1 && repeatScheduler.delayed.peek() == queued,
+                "an identical refresh keeps the pending request instead of restarting its delay");
+            repeatScheduler.runDelayed();
+            check(repeatStarted.await(2, TimeUnit.SECONDS), "repeated page request started");
+            repeatStore.refresh(List.of("你好"), List.of("en"), 4);
+            check(repeatScheduler.delayed.isEmpty(), "an identical refresh does not resend a page in flight");
+            releaseRepeat.countDown();
+            repeatWorker.shutdown();
+            check(repeatWorker.awaitTermination(2, TimeUnit.SECONDS), "repeat worker stopped");
+            repeatScheduler.runPosted();
+            check(repeatCalls.get() == 1, "the page was requested once");
+            check("hello".equals(repeatStore.gloss("你好", "en")) && repeatArrivals.get() == 1,
+                "the answer in flight still fills the cache");
+            repeatStore.refresh(List.of("你好"), List.of("en"), 5);
+            check(repeatScheduler.delayed.size() == 1, "a new generation is a new page");
+        } finally {
+            releaseRepeat.countDown();
+            repeatWorker.shutdownNow();
+        }
+
+        FakeScheduler failedScheduler = new FakeScheduler();
+        ExecutorService failedWorker = Executors.newSingleThreadExecutor();
+        AtomicInteger failedCalls = new AtomicInteger();
+        CandidateTranslationStore failedStore = new CandidateTranslationStore(
+            (texts, target) -> {
+                if (failedCalls.incrementAndGet() == 1) throw new java.io.IOException("synthetic failure");
+                return List.of("hello");
+            }, failedWorker, failedScheduler, generation -> { });
+        try {
+            failedStore.refresh(List.of("你好"), List.of("en"), 4);
+            failedScheduler.runDelayed();
+            failedWorker.shutdown();
+            check(failedWorker.awaitTermination(2, TimeUnit.SECONDS), "failed worker stopped");
+            failedScheduler.runPosted();
+            failedStore.refresh(List.of("你好"), List.of("en"), 4);
+            check(failedScheduler.delayed.size() == 1, "a failed page is asked again on the next refresh");
+        } finally {
+            failedWorker.shutdownNow();
         }
 
         FakeScheduler normalizationScheduler = new FakeScheduler();
@@ -376,11 +435,74 @@ public final class CandidateTranslationStoreSmoke {
         check(!clearedStore.boundTo(null) && !clearedStore.boundTo("1:a"), "an unbound store belongs to no account");
         clearedStore.bindTo("1:a");
         check(clearedStore.boundTo("1:a") && !clearedStore.boundTo("2:a"), "boundTo only reads the binding");
+
+        // 账号绑定的核对（CandidateTranslationBinding#holds）：发出前对不上就不发，回答到达后对不上就不收；两种都通知主线程、放开签名。
+        String[] account = {"1:a"};
+        int[] fenceReads = {0};
+        AtomicInteger broken = new AtomicInteger();
+        AtomicInteger fencedCalls = new AtomicInteger();
+        AtomicInteger fencedArrivals = new AtomicInteger();
+        FakeScheduler fenceScheduler = new FakeScheduler();
+        ExecutorService fenceWorker = Executors.newSingleThreadExecutor();
+        CandidateTranslationStore fenced = new CandidateTranslationStore(
+            (texts, target) -> {
+                fencedCalls.incrementAndGet();
+                return List.of("hello");
+            }, fenceWorker, fenceScheduler, generation -> fencedArrivals.incrementAndGet());
+        fenced.bindTo("1:a");
+        fenced.fence(bound -> {
+            fenceReads[0]++;
+            return bound != null && bound.equals(account[0]);
+        }, broken::incrementAndGet);
+        try {
+            account[0] = "2:b";
+            fenced.refresh(List.of("你好"), List.of("en"), 7);
+            fenceScheduler.runDelayed();
+            awaitIdle(fenceWorker);
+            fenceScheduler.runPosted();
+            check(fencedCalls.get() == 0, "no request is sent for an account that is no longer bound");
+            check(broken.get() == 1, "a broken fence is reported on main");
+            fenced.refresh(List.of("你好"), List.of("en"), 7);
+            check(fenceScheduler.delayed.size() == 1, "the page is asked again after the fence broke");
+            fenceScheduler.delayed.clear();
+            fenced.cancel();
+
+            account[0] = "1:a";
+            fenceReads[0] = 0;
+            CandidateTranslationStore.Fence switching = bound -> {
+                fenceReads[0]++;
+                return fenceReads[0] == 1 && bound.equals(account[0]);
+            };
+            fenced.fence(switching, broken::incrementAndGet);
+            fenced.refresh(List.of("你好"), List.of("en"), 8);
+            fenceScheduler.runDelayed();
+            awaitIdle(fenceWorker);
+            fenceScheduler.runPosted();
+            check(fencedCalls.get() == 1, "the request was sent while the account matched");
+            check(fenced.gloss("你好", "en") == null && fencedArrivals.get() == 0,
+                "an answer that arrives after the account changed is not cached");
+            check(broken.get() == 2, "the switch during the request is reported");
+
+            fenced.fence(bound -> bound.equals(account[0]), broken::incrementAndGet);
+            fenced.refresh(List.of("你好"), List.of("en"), 9);
+            fenceScheduler.runDelayed();
+            awaitIdle(fenceWorker);
+            fenceScheduler.runPosted();
+            check("hello".equals(fenced.gloss("你好", "en")) && fencedArrivals.get() == 1,
+                "a request whose account holds before and after is cached");
+        } finally {
+            fenceWorker.shutdownNow();
+        }
         System.out.println("Android candidate translation store: stale request fencing passed");
     }
 
+    /** 等单线程 worker 把已排的任务跑完。 */
+    private static void awaitIdle(ExecutorService worker) throws Exception {
+        worker.submit(() -> { }).get(2, TimeUnit.SECONDS);
+    }
+
     private static class FakeScheduler implements CandidateTranslationStore.Scheduler {
-        private final Queue<Runnable> delayed = new ArrayDeque<>();
+        final Queue<Runnable> delayed = new ArrayDeque<>();
         private final Queue<Runnable> posted = new ArrayDeque<>();
 
         @Override public void post(Runnable action) { posted.add(action); }

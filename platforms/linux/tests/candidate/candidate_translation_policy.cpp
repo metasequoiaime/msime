@@ -11,6 +11,17 @@ int main() {
   assert(translation_reserved_lines("en", "en") == 1);
   assert(translation_reserved_lines("xx", "ja") == 1);
   assert(translation_reserved_lines("xx", "yy") == 1);
+  // classicui 的横排候选条按整页最高的一行撑高：只给高亮行加占位行会把整条候选条顶成两行、序号掉到第二行（#11821）。占位行只有竖排才加，横排一行都不加；横排的释义也接在同一行。
+  using msime::linux_host::classicui_gloss_placeholder_lines;
+  using msime::linux_host::classicui_gloss_inline;
+  assert(classicui_gloss_placeholder_lines(false, 1) == 0);
+  assert(classicui_gloss_placeholder_lines(false, 2) == 0);
+  assert(classicui_gloss_placeholder_lines(true, 0) == 0);
+  assert(classicui_gloss_placeholder_lines(true, 1) == 1);
+  assert(classicui_gloss_placeholder_lines(true, 2) == 2);
+  assert(classicui_gloss_inline(false));
+  assert(!classicui_gloss_inline(true));
+
   using msime::linux_host::split_translation_gloss;
   assert((split_translation_gloss("apple; fruit") ==
           std::vector<std::string>{"apple", "fruit"}));

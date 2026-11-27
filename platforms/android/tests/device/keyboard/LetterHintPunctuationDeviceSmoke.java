@@ -210,6 +210,14 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
             stage = "opposite down swipe opens options";
             gestureOption("w", false, "down", "W", false);
             expect("？W");
+            // 滑回取消（#11822）：上滑出角标后回到起点，松手什么都不输入，也不弹选项；再滑出去又输入角标。
+            stage = "a swipe back to the start cancels the hint";
+            pathSwipe("v", -20, 0);
+            expect("？W");
+            assertNoOptions();
+            stage = "a cancelled swipe types the hint when it goes out again";
+            pathSwipe("v", -20, 0, -20);
+            expect("？W？");
 
             for (String direction : new String[] {"up", "down"}) {
                 configureSwipe(false, "down", true, false);
@@ -229,7 +237,20 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
             stage = "a swipe past the 30 dp swipe distance enters the hint";
             simpleSwipe("v", "up", 36);
             expect("？");
+            // 纵移超过 14 dp 却没滑到「滑动距离」、还移出了键帽：仍是一次点按，不丢键（#11822，与 14/18 键相同）。
+            swipeDistance = 48;
+            configureSwipe(true, "up", true, false);
+            stage = "a 40 dp swipe off the key under a 48 dp distance still types the letter";
+            simpleSwipe("v", "up", 40);
+            expect("v");
+            assertNoOptions();
             swipeDistance = null;
+            // 纵向位移要大于横向（#11822，与 14/18 键相同）：横 16 dp、上 15 dp 的斜移是点按。
+            configureSwipe(true, "up", true, false);
+            stage = "a diagonal move keeps the letter";
+            slantedSwipe("v", 16, -15);
+            expect("v");
+            assertNoOptions();
             configureSwipe(false, "down", true, true);
             stage = "disabled swipes preserve long hold and paired punctuation";
             gestureOption("j", true, "up", "（", false);
@@ -373,6 +394,36 @@ public final class LetterHintPunctuationDeviceSmoke extends DeviceSmoke {
             MotionEvent.obtain(started, started + 20, MotionEvent.ACTION_MOVE, keyBounds.centerX(), endY, 0),
             MotionEvent.obtain(started, started + 40, MotionEvent.ACTION_UP, keyBounds.centerX(), endY, 0)};
         injectQuickly(events);
+    }
+
+    /**
+     * 从 `letter` 键中心按下，依次纵向移动到 `offsetsDp`（相对按下点，向下为正）后在最后一点抬起。多段移动逐个同步注入：一次排进四个以上事件时 API 28 上这次按压可能什么都没输入（14/18 键的同类辅助方法，2026-11-07）；每段约 40 ms，整次远短于长按时长。
+     */
+    private void pathSwipe(String letter, float... offsetsDp) throws Exception {
+        Rect keyBounds = bounds(awaitStableBounds(described("字母 " + letter.toUpperCase(java.util.Locale.ROOT))));
+        float density = getTargetContext().getResources().getDisplayMetrics().density;
+        long started = SystemClock.uptimeMillis();
+        inject(started, MotionEvent.ACTION_DOWN, keyBounds.centerX(), keyBounds.centerY());
+        float y = keyBounds.centerY();
+        for (float offset : offsetsDp) {
+            y = keyBounds.centerY() + offset * density;
+            inject(started, MotionEvent.ACTION_MOVE, keyBounds.centerX(), y);
+        }
+        inject(started, MotionEvent.ACTION_UP, keyBounds.centerX(), y);
+        automation.waitForIdle(300, 3000);
+    }
+
+    /** 从 `letter` 键中心斜着移动（横 `dxDp`、纵 `dyDp`，向下为正）后抬起；事件一起排进输入队列，理由见 {@link #simpleSwipe}。 */
+    private void slantedSwipe(String letter, float dxDp, float dyDp) throws Exception {
+        Rect keyBounds = bounds(awaitStableBounds(described("字母 " + letter.toUpperCase(java.util.Locale.ROOT))));
+        long started = SystemClock.uptimeMillis();
+        float density = getTargetContext().getResources().getDisplayMetrics().density;
+        float endX = keyBounds.centerX() + dxDp * density;
+        float endY = keyBounds.centerY() + dyDp * density;
+        injectQuickly(
+            MotionEvent.obtain(started, started, MotionEvent.ACTION_DOWN, keyBounds.centerX(), keyBounds.centerY(), 0),
+            MotionEvent.obtain(started, started + 20, MotionEvent.ACTION_MOVE, endX, endY, 0),
+            MotionEvent.obtain(started, started + 40, MotionEvent.ACTION_UP, endX, endY, 0));
     }
 
     /** 把一次手势的全部事件一起排进输入队列再等界面空闲，理由见 {@link #simpleSwipe}。 */

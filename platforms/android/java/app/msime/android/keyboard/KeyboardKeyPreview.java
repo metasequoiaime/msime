@@ -18,6 +18,8 @@ public final class KeyboardKeyPreview extends View {
     public static final float HEIGHT_DP = 54f;
     public static final float OVERLAP_DP = 6f;
     public static final float TEXT_SP = 30f;
+    /** 符号滑动取消时（#11822）字的不透明度：与设置页置灰的控件相同（`ViewPolicy.setEnabledWithAlpha` 的 0.38）。 */
+    public static final float DIMMED_TEXT_ALPHA = 0.38f;
     private static final float TOP_RADIUS_DP = 12f;
     private static final float BOTTOM_RADIUS_DP = 8f;
     private static final float SHADOW_MARGIN_DP = 12f;
@@ -29,6 +31,7 @@ public final class KeyboardKeyPreview extends View {
     private final RectF rect = new RectF();
     private final float[] radii = new float[8];
     private String label = "";
+    private boolean dimmed;
     private int bubbleWidth;
     private int bubbleHeight;
 
@@ -40,6 +43,11 @@ public final class KeyboardKeyPreview extends View {
         text.setTextAlign(Paint.Align.CENTER);
         outline.setStyle(Paint.Style.STROKE);
         ViewPolicy.hide(this);
+    }
+
+    /** 气泡视图连上下阴影边距的高度（dp），即它在父容器里占的高度。 */
+    public static float outerHeightDp() {
+        return HEIGHT_DP + SHADOW_MARGIN_DP * 2;
     }
 
     /** 气泡宽度：键宽的 138%，权重大于 1.2 的键 150%。 */
@@ -76,6 +84,7 @@ public final class KeyboardKeyPreview extends View {
     public void show(String value, float keyLeft, float keyTop, float keyWidth, float weight,
             float parentWidth) {
         label = TextPolicy.emptyIfNull(value);
+        dimmed = false;
         float width = bubbleWidth(keyWidth, weight);
         float height = DimensionPolicy.floatPixels(getContext(), HEIGHT_DP);
         float margin = DimensionPolicy.floatPixels(getContext(), SHADOW_MARGIN_DP);
@@ -102,6 +111,15 @@ public final class KeyboardKeyPreview extends View {
     }
 
     public String label() { return label; }
+
+    /** 符号滑动滑回取消时把字画淡，表示松手不输入；再滑出去时恢复（#11822）。每次 {@link #show} 都恢复成不淡。 */
+    public void setDimmed(boolean value) {
+        if (dimmed == value) return;
+        dimmed = value;
+        invalidate();
+    }
+
+    public boolean dimmed() { return dimmed; }
 
     public void hide() {
         ViewPolicy.hide(this);
@@ -130,7 +148,10 @@ public final class KeyboardKeyPreview extends View {
         if (label.isEmpty()) return;
         ViewPolicy.setTextSize(text, KeyboardTypographyPolicy.keySp(getContext(), TEXT_SP));
         Paint.FontMetrics metrics = text.getFontMetrics();
+        int alpha = text.getAlpha();
+        if (dimmed) text.setAlpha(Math.round(alpha * DIMMED_TEXT_ALPHA));
         canvas.drawText(label, rect.centerX(), rect.centerY() - (metrics.ascent + metrics.descent) / 2f,
             text);
+        text.setAlpha(alpha);
     }
 }

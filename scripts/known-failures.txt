@@ -12,7 +12,7 @@
 # because the typescript phase only runs where apps/desktop/node_modules is
 # installed - on a checkout without it the phase is skipped and an empty
 # baseline looks like a pass. With the dependencies installed, six tests fail,
-# and they fail identically on origin/develop, so they are debt rather than a
+# and they fail identically on the base branch (origin/develop when measured, now origin/main), so they are debt rather than a
 # regression. They are listed at the end of this file.
 # windows-server fails on the click assertion in server_smoke.cpp, and does so
 # for the environment rather than the code. Measured, not guessed: the window

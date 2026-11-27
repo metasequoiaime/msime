@@ -11,6 +11,7 @@ import androidx.annotation.Nullable;
 import app.msime.android.AppEdition;
 import app.msime.android.FirstRunPreparation;
 import app.msime.android.AndroidLocalSettings;
+import app.msime.android.CandidateSourceMark;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.HttpBodyPolicy;
 import app.msime.android.InputFeatureToggle;
@@ -371,6 +372,10 @@ public final class TypingPage extends ReloadingDetailPage {
         InputFeatureToggle cloud = InputFeatureToggle.CLOUD_CANDIDATES;
         chinese.toggle(cloud.title(), null, preferences.optBoolean(cloud.key(), cloud.enabledByDefault()),
             checked -> savePreferences(values -> values.put(cloud.key(), checked))).help("联网获取当前拼写的候选");
+        // 共享偏好 `candidate_cloud_badge`，与 Windows「显示云候选来源角标」同一个字段，缺值按开。
+        chinese.toggle("显示云候选标记", null, preferences.optBoolean(CandidateSourceMark.CLOUD_PREFERENCE, true),
+            checked -> savePreferences(values -> values.put(CandidateSourceMark.CLOUD_PREFERENCE, checked)))
+            .help("关闭后只隐藏云候选后面的标记，候选和选词不变");
         cloudProviderSettings(target, preferences);
         // 临时日语读日文词典；词典没在本机时 host-api 会关掉它，键盘菜单里也置灰，这里给出下载入口。和桌面一样，不会因为它自己去下载。
         if (edition.temporaryJapanese() && !state.packs().contains(KeyboardScheme.JAPANESE_PACK)) {
@@ -420,7 +425,8 @@ public final class TypingPage extends ReloadingDetailPage {
         InputFeatureToggle gloss = InputFeatureToggle.CANDIDATE_ENGLISH_GLOSS;
         boolean glossOn = preferences.optBoolean(gloss.key(), gloss.enabledByDefault());
         String targetLanguage = InputViewValuePolicy.textOr(preferences, "translation_target_language", "en");
-        translation.toggle("离线英文释义", null,
+        // 开关管所有目标语言的离线释义，不只英语；名字与隐私页同一行共用 InputFeatureToggle 的标题。
+        translation.toggle(gloss.title(), null,
             glossOn, checked -> savePreferences(values -> values.put(gloss.key(), checked),
                 () -> { if (checked) ensureGlosses(targetLanguage, state); })).help("给候选词标注离线释义；英语释义随应用自带，其他目标语言要下载离线释义词典");
         InputFeatureToggle pronunciation = InputFeatureToggle.CANDIDATE_PRONUNCIATION;

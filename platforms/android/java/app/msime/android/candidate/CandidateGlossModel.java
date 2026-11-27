@@ -52,6 +52,16 @@ public final class CandidateGlossModel {
         return request;
     }
 
+    /** The apply_translations payload for glosses already looked up (text to gloss), marked as offline glosses like {@link #decode}. */
+    public static String payload(java.util.Map<String, String> glosses) throws JSONException {
+        JSONArray entries = new JSONArray();
+        for (java.util.Map.Entry<String, String> gloss : glosses.entrySet()) {
+            entries.put(new JSONObject().put("text", gloss.getKey()).put("translation", gloss.getValue())
+                .put("gloss", true));
+        }
+        return entries.toString();
+    }
+
     /** Validate the native envelope before returning an apply_translations payload. 这里每条都是离线释义，标上 `"gloss": true`：候选词翻译的范围是「仅当前高亮」时，共享层把不带标记的回答当作候选词翻译、只画在高亮行，离线释义要每行都画就得带这个标记。 */
     public static Result decode(String response) throws JSONException {
         if (response == null

@@ -185,4 +185,4 @@
 - 提交前请执行 `bash scripts/verify-local.sh --quick`，并按 [开源发布清单](open-source-release.md) 检查敏感文件、来源与通知文件。
 - 六个平台各有独立的发布工作流，手动触发并按各自的 `platforms/<平台>/version.txt` 取版本号。
 
-[Unreleased]: https://github.com/metasequoiaime/msime/compare/develop...HEAD
+[Unreleased]: https://github.com/metasequoiaime/msime/compare/main...HEAD

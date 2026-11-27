@@ -105,10 +105,11 @@ def check_installer_facts(render) -> None:
     check(render.installer_name("1.2.3") == f"{full['installer_base_name']}_v1.2.3.exe", "render.installer_name does not follow the full edition's installer_base_name")
 
     workflow = WORKFLOW.read_text(encoding="utf-8")
-    # A release from main is tagged windows-vX.Y.Z; one from develop or another branch carries -beta or -alpha and is a prerelease, which the package definitions are not rendered from.
-    check('tag="windows-v${RELEASE}"' in workflow and "{'main' {''}" in workflow, "release-windows.yml no longer tags a release from main windows-v${VERSION}; render.TAG_PREFIX follows it")
+    # A final release is published on the pushed windows-vX.Y.Z tag; a windows-vX.Y.Z-beta.N tag is a prerelease, which the package definitions are not rendered from.
+    check('tag="windows-v${RELEASE}"' in workflow and "scripts/release-ref.py --prefix windows-v --version-file platforms/windows/version.txt" in workflow, "release-windows.yml no longer publishes a final release on its windows-v${VERSION} tag; render.TAG_PREFIX follows it")
     check('"dist/$name.sha256"' in workflow, "release-windows.yml no longer uploads <installer>.sha256; render.py reads it")
-    check("'^\\d+\\.\\d+\\.\\d+$'" in workflow and render.VERSION_PATTERN.pattern == r"^\d+\.\d+\.\d+$", "release versions are no longer MAJOR.MINOR.PATCH in both release-windows.yml and render.py")
+    release_ref = (ROOT / "scripts/release-ref.py").read_text(encoding="utf-8")
+    check(r'VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")' in release_ref and render.VERSION_PATTERN.pattern == r"^\d+\.\d+\.\d+$", "release versions are no longer MAJOR.MINOR.PATCH in both release-ref.py (which release-windows.yml resolves them with) and render.py")
 
     # 各包都以 /VERYSILENT /SUPPRESSMSGBOXES 运行安装包，拒绝数据目录时弹普通 MsgBox 会让静默安装（尤其是看不见对话框的 SYSTEM 托管部署）一直挂着；只有 SuppressibleMsgBox 会被压掉，NextButtonClick 返回 False 后静默安装随即退出。
     next_click = re.search(r"(?ms)^function NextButtonClick\(.*?^end;", setup)

@@ -140,7 +140,7 @@ compare() {
 }
 
 # ---- scope ----
-# 以前每次 push 都要等所有平台阶段跑完，于是只改了 crates/dict-builder 的 push 也得为 Linux 容器构建、Android 和 HarmonyOS 检查以及 Windows 测试付出时间。现在 --quick 会算出改动涉及哪些文件，只有其中某个文件属于某个平台阶段的输入时才跑那个阶段。改动是以下几部分的并集：分支离开 origin/develop 以来的全部改动（`origin/develop...HEAD`）、HEAD 离开其上游以来的提交、git 经 stdin 交给 pre-push 钩子的范围（在 .githooks/pre-push 下运行时才有；经 rbuild 运行时 stdin 为空），以及工作树里已修改、已暂存或未跟踪的一切，因为各阶段构建的就是这些。让跳过变得安全的是 origin/develop 这一部分：只有整个分支的改动都触及不到某个阶段时才跳过它，因此从不依赖之前某次 push 已经验证过（那次 push 可能跑在没有 docker、NDK 或 hvigor 的机器上，可能带了 --no-verify，也可能是在已推送的分支上手动跑的 --quick）。在 pre-merge-commit 下，合并进来的文件已暂存，因此经工作树这一部分进入。其中任何一项算不出来时，所有阶段都跑。
+# 以前每次 push 都要等所有平台阶段跑完，于是只改了 crates/dict-builder 的 push 也得为 Linux 容器构建、Android 和 HarmonyOS 检查以及 Windows 测试付出时间。现在 --quick 会算出改动涉及哪些文件，只有其中某个文件属于某个平台阶段的输入时才跑那个阶段。改动是以下几部分的并集：分支离开 origin/main 以来的全部改动（`origin/main...HEAD`）、HEAD 离开其上游以来的提交、git 经 stdin 交给 pre-push 钩子的范围（在 .githooks/pre-push 下运行时才有；经 rbuild 运行时 stdin 为空），以及工作树里已修改、已暂存或未跟踪的一切，因为各阶段构建的就是这些。让跳过变得安全的是 origin/main 这一部分：只有整个分支的改动都触及不到某个阶段时才跳过它，因此从不依赖之前某次 push 已经验证过（那次 push 可能跑在没有 docker、NDK 或 hvigor 的机器上，可能带了 --no-verify，也可能是在已推送的分支上手动跑的 --quick）。在 pre-merge-commit 下，合并进来的文件已暂存，因此经工作树这一部分进入。其中任何一项算不出来时，所有阶段都跑。
 #
 # 错在跳过的那一边代价最大，所以除非确知不需要，否则一个文件就会让这次运行变成「全部跑」：本脚本和契约运行器、已知失败基线、钩子、workspace 和各包的清单与锁文件、任何 CMake 文件、shared/ 和 platforms/common/（每个宿主都编译的 C/C++ 头文件和源文件）、每个原生宿主都链接的 crate（path-trust、client-base、client-core、client-providers、client-services、engine、input-runtime、host-api），以及各版本的资源锁和它们的生成器（resources/components/、resources/editions/、scripts/editions.py：client-core 内嵌了版本锁，Windows、macOS、Linux、Android 和桌面端的打包与暂存也都读它们），这些全都会触发全部阶段，任何删除或重命名、以及下表不认识的任何路径也一样。platforms/、resources/、scripts/ 或 tools/ 下的文件还会触及每一个在自己目录树里点到它名字的区域（见下面的 scope_named_by）：macOS 的 CMake 构建会从 platforms/linux 和 platforms/windows 拷贝文件，HarmonyOS 构建会编译 platforms/windows/third_party/miniaudio，各平台构建会运行 scripts/fetch_voice_runtime.py，核心 crate 用 include_str!/include_bytes! 内嵌资源文件并在运行时解析，所以被其中某个 crate 点名的资源会触发全部阶段。注释行和 Markdown 里出现的名字不算，否则文件头注释引用的文件就会触及一切。crates/engine-wasm 只触及 wasm 目标检查，因为构建它的一切（engine、path-trust、各清单）本来就会触发全部阶段；flake.nix 和 flake.lock 触及 Linux 阶段，那些阶段构建的正是 platforms/linux/nix 下 Nix 打包所包装的东西。.github 只触及 workflow lint：没有哪个平台阶段从它构建，而读取发布 workflow 的契约检查（test-macos-package-resources.py、test-windows-editions.py）总是运行。总是运行的阶段是契约检查、Rust workspace 检查和共享的 Apple 桥接层，它们要么开销小，要么横跨所有区域。
 scope_all=1
@@ -246,7 +246,7 @@ scope_changes() {
       [ "${#local_sha}" -eq 40 ] && [ "${#remote_sha}" -eq 40 ] || return 1
       [ "$local_sha" = "$zero" ] && continue
       if [ "$remote_sha" = "$zero" ]; then
-        base="$(git merge-base origin/develop "$local_sha" 2>/dev/null)" || return 1
+        base="$(git merge-base origin/main "$local_sha" 2>/dev/null)" || return 1
       else
         git cat-file -e "$remote_sha^{commit}" 2>/dev/null || return 1
         base="$remote_sha"
@@ -254,9 +254,9 @@ scope_changes() {
       git diff --name-status --no-renames "$base...$local_sha" || return 1
     done
   fi
-  # The whole branch against develop, not just what this push adds: see "scope" above.
-  git rev-parse --verify -q origin/develop >/dev/null || return 1
-  git diff --name-status --no-renames origin/develop...HEAD || return 1
+  # The whole branch against main, not just what this push adds: see "scope" above.
+  git rev-parse --verify -q origin/main >/dev/null || return 1
+  git diff --name-status --no-renames origin/main...HEAD || return 1
   if upstream="$(git rev-parse --verify -q '@{upstream}' 2>/dev/null)"; then
     git diff --name-status --no-renames "$upstream...HEAD" || return 1
   fi
@@ -418,10 +418,10 @@ elif ! node -e 'process.exit(process.features.typescript ? 0 : 1)' 2>/dev/null; 
 elif [ ! -d "$root/.agents/notes" ]; then
   fail "agent notes: .agents/notes is missing"
 else
-  # 归档封印的 append-only 基准必须是与 origin/develop 的分叉点：脚本默认拿 HEAD 的 manifest
+  # 归档封印的 append-only 基准必须是与 origin/main 的分叉点：脚本默认拿 HEAD 的 manifest
   # 当基准，那样「改已封存笔记、重新封存、同批提交」照样通过，等于没查。拿不到分叉点时
   # （无远端、离线）不导出，脚本自动降级为只对磁盘内容做封印自校验。
-  agent_base="$(git merge-base origin/develop HEAD 2>/dev/null || true)"
+  agent_base="$(git merge-base origin/main HEAD 2>/dev/null || true)"
   # Windows Node 不转换环境变量里的 MSYS 路径，否则会把笔记树当成不存在而空扫。
   if [ "$windows_host" -eq 1 ]; then
     export AGENT_NOTE_ROOT="$(cygpath -w "$root/.agents/notes")"
@@ -1029,7 +1029,7 @@ note "rust fmt (changed files only)"
 # The whole tree is not clean, and reformatting it would collide with every
 # other branch in flight. What matters is that this change does not add to it -
 # so an unformatted file this change touched is a failure, not a printed note.
-changed="$(git diff --name-only origin/develop...HEAD -- '*.rs' 2>/dev/null || true)"
+changed="$(git diff --name-only origin/main...HEAD -- '*.rs' 2>/dev/null || true)"
 if [ -n "$changed" ]; then
   unformatted=""
   for file in $changed; do
@@ -1043,7 +1043,7 @@ if [ -n "$changed" ]; then
     echo "changed Rust files: rustfmt-clean"
   fi
 else
-  echo "no Rust files changed against origin/develop"
+  echo "no Rust files changed against origin/main"
 fi
 
 note "clippy: first-party crates"

@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { ControlledInput } from "./controlled-input";
 import * as style from "./platform-controls-style";
+import { useCredentialFocus } from "./use-credential-focus";
 
 /** A credential field whose value can be revealed to check a pasted key. */
 export function SecretInput({
@@ -18,9 +19,11 @@ export function SecretInput({
 }) {
   const [revealed, setRevealed] = useState(false);
   const describedBy = useId();
+  const { inputRef, release } = useCredentialFocus(!revealed);
   return (
     <span className={`secret-input ${style.secretInput}`}>
       <ControlledInput
+        ref={inputRef}
         className={style.textInput}
         aria-label={label}
         type={revealed ? "text" : "password"}
@@ -38,7 +41,10 @@ export function SecretInput({
         aria-label={revealed ? `隐藏${label}` : `显示${label}`}
         title={revealed ? "隐藏" : "显示"}
         disabled={disabled}
-        onClick={() => setRevealed((current) => !current)}
+        onClick={() => {
+          release();
+          setRevealed((current) => !current);
+        }}
       >
         {revealed ? "隐藏" : "显示"}
       </button>

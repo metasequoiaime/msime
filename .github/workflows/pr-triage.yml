@@ -41,7 +41,7 @@ jobs:
           TITLE: ${{ github.event.pull_request.title }}
         with:
           script: |
-            // Squash merges use the pull request title as the commit subject, so the title is what lands in develop's history and in the release-please changelog.
+            // Squash merges use the pull request title as the commit subject, so the title is what lands in main's history and in the release-please changelog.
             const marker = '<!-- pr-triage:title -->';
             const pattern = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^()\s]+\))?(!)?: \S/;
             const typeLabels = { feat: 'enhancement', fix: 'bug' };

@@ -178,6 +178,19 @@ pub fn linux_native_canvas_renderer(document: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// 运行中的 Linux 宿主是 iBus（状态文件的 `{"host": "ibus", ...}`，每次启动都写，见 platforms/linux 的 `publish_candidate_panel_status`）。候选维护四键只在 iBus 宿主里实现，Fcitx5 没有，所以 `candidate_maintenance_shortcuts` 不按平台给，由这份报告决定。
+pub fn linux_ibus_host(document: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(document)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("host")
+                .and_then(|host| host.as_str())
+                .map(|host| host == "ibus")
+        })
+        .unwrap_or(false)
+}
+
 /// What the surrounding host can actually do. The shared UI renders from this
 /// rather than guessing from `navigator.userAgent`, which previously hid working
 /// controls on Windows and macOS and left 打字统计 dead on every desktop.
@@ -305,6 +318,9 @@ pub struct HostCapabilities {
     /// cache — so a keyboard needs the chords or cannot reach them. Declared rather than inferred
     /// from "draws desktop panels", which is what it used to be read off and is a different fact.
     pub maintenance_shortcuts: bool,
+    /// 宿主实现候选维护四键（置顶 Ctrl+↑、固定到第 1–5 位 Ctrl+Shift+1..5、取消固定 Ctrl+0、删除候选 Ctrl+Del）时为真。只有 Linux 的 iBus 宿主实现：同一个 Linux 设置应用也服务 Fcitx5，所以不按平台给，由运行中的宿主报告后经 `apply_linux_ibus_host` 打开；其余桌面与触屏宿主没有实现。缺省按不提供处理。
+    #[serde(default)]
+    pub candidate_maintenance_shortcuts: bool,
     /// The host reserves the Option/Alt+Shift+H chord for the character width, so the switch that
     /// gives it back to the application belongs on its settings page.
     pub fullwidth_chord: bool,
@@ -426,7 +442,7 @@ pub struct HostCapabilities {
     pub caps_lock_language_switch: bool,
     /// 宿主的快捷模式只从实体键盘的 Shift+字母进入，所以「Shift+字母进入快捷模式」总开关（`LocalModePreferences::shift_letter_entry`）在这里有意义。触屏键盘从菜单打开快捷模式，走的也是 Engine 的同一个入口，不提供这个开关，以免关掉后菜单失灵。
     pub shift_letter_entry_switch: bool,
-    /// 宿主把快捷短语编码追加到普通候选。Windows、macOS 和 Linux 提供，其他宿主仍从 K 模式进入。
+    /// 宿主把快捷短语编码追加到普通候选。Windows、macOS、Linux 和 HarmonyOS 提供，其他宿主仍从 K 模式进入。
     pub quick_phrase_candidates: bool,
     /// 宿主提供「移动光标后编辑光标后的部分」（偏好 `caret_edit_suffix`）：实体键盘能把组字光标移进拼音中间，候选窗画模式提示。三个桌面宿主提供；host-api 在其他宿主上不把偏好交给 Engine，设置页也不列出它。
     pub caret_edit_suffix: bool,
@@ -555,6 +571,14 @@ impl HostCapabilities {
         self.expand_candidates = true;
         self.candidate_preedit_font = true;
         self.candidate_selection_appearance = true;
+    }
+
+    /// 运行中的 Linux 宿主报告自己是 iBus（[`linux_ibus_host`]）时，速查页列出它实现的候选维护四键。
+    pub fn apply_linux_ibus_host(&mut self) {
+        if self.platform != HostPlatform::Linux {
+            return;
+        }
+        self.candidate_maintenance_shortcuts = true;
     }
 
     /// Capabilities as they stand today for each shipped host. Slices that add a
@@ -811,6 +835,8 @@ impl HostCapabilities {
             // Harmony reaches this through its form-factor projection of `panel_windows`, which
             // the page still consults, so it is not named here and its behaviour is unchanged.
             maintenance_shortcuts: platform.is_desktop() || platform == HostPlatform::Android,
+            // 只有 Linux 的 iBus 宿主实现了这四键，Fcitx5 没有：由运行中的宿主报告（`apply_linux_ibus_host`），不按平台给。其余桌面尚未接入，触屏宿主靠长按手势。
+            candidate_maintenance_shortcuts: false,
             // macOS 从上线起就占用这个组合键；Android 宿主的 Alt+Shift+H 读同一个偏好；Windows 的 TSF 在中文模式下同样认 Alt+Shift+H。其他宿主不绑定它。
             fullwidth_chord: matches!(
                 platform,
@@ -895,13 +921,14 @@ impl HostCapabilities {
             // 三个桌面宿主都在自己的按键路径上分辨 Caps Lock 的轻点和长按：macOS 用 IOKit 撤回大写锁定，Windows 用 SendInput 再按一次，Linux 在 X11 会话里用 XKB 撤回（Wayland 会话里由合成器持有锁定状态，宿主撤不回，那里轻点照常是大写锁定）。
             caps_lock_language_switch: platform.is_desktop(),
             shift_letter_entry_switch: platform.is_desktop(),
-            // Windows、macOS、Linux 和 Android 的宿主建会话时请求 `quick_phrase_candidates`。
+            // Windows、macOS、Linux、Android 和 HarmonyOS 的宿主建会话时请求 `quick_phrase_candidates`。
             quick_phrase_candidates: matches!(
                 platform,
                 HostPlatform::Windows
                     | HostPlatform::Macos
                     | HostPlatform::Linux
                     | HostPlatform::Android
+                    | HostPlatform::Harmony
             ),
             // 三个桌面宿主的候选窗都画「候选编辑：光标后」提示，设置在共享设置页（macOS、Linux）和 Windows 的原生设置里。
             caret_edit_suffix: platform.is_desktop(),

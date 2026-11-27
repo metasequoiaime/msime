@@ -6,6 +6,11 @@ if ! command -v rg >/dev/null 2>&1; then
   echo "ripgrep (rg) is required by the Android host contract checks" >&2
   exit 1
 fi
+# 下面那一半才是这个宿主的大头：服务、键盘、面板和二十几个策略类都要对着 SDK 的 android.jar 编译，它们的冒烟要在一个桌面 JVM 上跑。只有 JRE 不够，而 macOS 的 `/usr/bin/java` 只是个会打印 "Unable to locate a Java Runtime" 的桩：没有这段前置检查时，第一次 `java` 调用会在几千行之后被 `set -e` 带走，什么也看不到（#11886）。所以在跑一堆检查之前就失败，而不是跑完才失败。
+if ! javac -version >/dev/null 2>&1 || ! java -version >/dev/null 2>&1; then
+  echo "platforms/android/check-host.sh needs a working JDK (javac and java, not macOS's /usr/bin stubs); add one to PATH, for example PATH=\"\$HOME/opt/openjdk/bin:\$PATH\"" >&2
+  exit 1
+fi
 # 管道下游的 `rg -q` 一律换成它：先把标准输入整个读完，再交给 `rg -q` 判断。`rg -q` 读到第一处命中就退出，上游的 printf、sed 或 rg 若还有没写完的输出，再写就收到 SIGPIPE（`printf: write error: Broken pipe`），在 pipefail 下整条管道返回失败，于是同一份源码时过时不过，取决于上游分几次写、下游何时退出。变量本身直接用 here-string（`rg -q pattern <<< "$var"`），不用经过管道。scripts/test-gate-pipe-early-exit.py 会拦下新写的 `| rg -q`。
 rg_q_stdin() {
   local input
@@ -310,21 +315,9 @@ if ! rg -q 'CandidateAppearance\.STRIP_CHIP_MIN_WIDTH_DP' <<< "$style_body" \
   echo "Candidate strip buttons must keep only the touch minimum width, not the skin's desktop itemMinWidth" >&2
   exit 1
 fi
-# 双拼触点纠错坐上首选的显式标记（#10018）：字段怎么读、读屏补什么、候选字和注释取什么颜色、不带标记的行颜色和改动前一样，都由 CandidateCorrectionMarkPolicySmoke 覆盖；接线在 InputMethodService 和 ImeCandidates 里，JVM 冒烟碰不到，这里钉住：候选条（含固定槽位）的 updateCandidateButton 和展开面板的 expandedCandidateButton 都经 CandidateCorrectionMarkPolicy 读 View JSON 候选上的字段，把结果交给 candidateLabel，并把「，已纠正」接进读屏描述；candidateLabel 是否建 span、候选字和注释的颜色都经这个策略决定，候选字的标记色只在策略给出时盖上，并且同一段加且只加一道下划线（首选 chip 上候选字本来就是强调色，只换颜色看不出来）；不带 corrected 的四参数重载传 false，翻译义项等其他调用方不会被标记。所有纠错行（`corrected`）的候选字经 markedWord 在后面画 *，两处都要接上。
+# 双拼触点纠错坐上首选的显式标记（#10018）：字段怎么读、读屏补什么、候选字和注释取什么颜色、不带标记的行颜色和改动前一样，都由 CandidateCorrectionMarkPolicySmoke 覆盖；候选条和展开面板两条建按钮路径是否真的画出 *、标记色和「，已纠正」，由设备上的 CandidateSourceMarkDeviceChecks（StaleCandidateDeviceSmoke -e source-marks true）在真实按钮上核对。这里只钉 candidateLabel 内部：是否建 span、候选字和注释的颜色都经这个策略决定，候选字的标记色只在策略给出时盖上，不加下划线（首选 chip 上候选字本来就是强调色，只换颜色）；不带 corrected 的四参数重载传 false，翻译义项等其他调用方不会被标记。
 service_source="$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"
-update_body=$(sed -n '/^    void updateCandidateButton(Button button, JSONObject candidate, int slot, int visibleSlot) {$/,/^    }$/p' "$service_source")
-expanded_body=$(sed -n '/^    Button expandedCandidateButton(JSONObject candidate) {$/,/^    }$/p' \
-  "$repo_root/platforms/android/java/app/msime/android/core/ImeCandidates.java")
 label_body=$(sed -n '/^                                        boolean highlighted, boolean corrected) {$/,/^    }$/p' "$service_source")
-for body in "$update_body" "$expanded_body"; do
-  if ! rg -q 'CandidateCorrectionMarkPolicy\.confident\(candidate\.opt\(CandidateCorrectionMarkPolicy\.FIELD\)\)' <<< "$body" \
-    || ! rg -q 'candidateLabel\([^;]*, corrected\)\)' <<< "$body" \
-    || ! rg -q 'CandidateCorrectionMarkPolicy\.accessibilitySuffix\(corrected\)' <<< "$body" \
-    || ! rg -q 'CandidateCorrectionMarkPolicy\.markedWord\(text, (MSIMEInputService\.)?candidateCorrected\(candidate\)\)' <<< "$body"; then
-    echo "Candidate strip and expanded panel must mark a confident shuangpin correction in colour and in the spoken description" >&2
-    exit 1
-  fi
-done
 plain_label_body=$(sed -n '/^                                        boolean highlighted) {$/,/^    }$/p' "$service_source")
 if ! rg -q 'CandidateCorrectionMarkPolicy\.plainLabel\(prefix, annotation, corrected\)' <<< "$label_body" \
   || ! rg -q 'Integer mark = CandidateCorrectionMarkPolicy\.wordMark\(candidateAppearance, highlighted, corrected\);' <<< "$label_body" \
@@ -1525,7 +1518,7 @@ if ! rg -qF 'boolean languageLeft = s.languageKeyLeft;' "$bottom_row_file" \
   echo "Android must lay the bottom rows, the borrowed number pads and the tall-return strip by touch_language_key_side, rebuild the tall-return frame when it changes, list 中/英键放在空格左边 in every 按键布局 segment, draw the heatmap with it and index it in settings search" >&2
   exit 1
 fi
-# 14/18 键字母键宽度（#11051，`touch_fourteen_key_letter_widths`）：分法和占位格朝外补的半键距由 FourteenKeyLetterWidthsSmoke 覆盖，占位格的按下归属由 KeyPressAreaDeviceChecks 覆盖。这里钉住键盘的接线：冷启动和实时偏好都按宽松读取取值，进 touchGeometryKey 和 SKIN_HINT_KEYS（冷启动第一帧就按用户的宽度画），render 按 letterWidthsStale 重建；三排的份额取自 FourteenKeyLetterWidths.plan，占位格是指定了所属键的 KeyboardSpacer，补的半键距随键距就地重新套用。
+# 14/18 键字母键宽度（#11051，`touch_fourteen_key_letter_widths`）：分法由 FourteenKeyLetterWidthsSmoke 覆盖（键宽按格量，见 KeyRowLayout，占位格不再补键距），占位格的按下归属由 KeyPressAreaDeviceChecks 覆盖。这里钉住键盘的接线：冷启动和实时偏好都按宽松读取取值，进 touchGeometryKey 和 SKIN_HINT_KEYS（冷启动第一帧就按用户的宽度画），render 按 letterWidthsStale 重建；三排的份额取自 FourteenKeyLetterWidths.plan，占位格是指定了所属键的 KeyboardSpacer。
 fourteen_rows_body=$(sed -n '/    private void rebuildFourteenKeyRows() {$/,/^    }$/p' "$letter_rows")
 if ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
     | rg_q_stdin -F 'fourteenKeyLetterWidths = fourteenKeyLetterWidthsFrom(preferences);' \
@@ -1535,10 +1528,7 @@ if ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    
   || ! rg -qF '|| imeLetterRows.letterWidthsStale()' "$account_service" \
   || ! rg_q_stdin -F 'FourteenKeyLetterWidths.plan(rows, letterWeight, edgeWeight, widths.geometry())' <<< "$fourteen_rows_body" \
   || ! rg_q_stdin -F 'pad.setOwner(previousKey);' <<< "$fourteen_rows_body" \
-  || ! rg_q_stdin -F 'leadingPad.setOwner(keyButton);' <<< "$fourteen_rows_body" \
-  || ! rg_q_stdin -F 'pad.setOuterHalfGaps(previousKey == null, padHalfGaps);' <<< "$fourteen_rows_body" \
-  || ! sed -n '/    void applyKeyboardGeometry(View node) {$/,/^    }$/p' "$android_java/core/ImeStyler.java" \
-    | rg_q_stdin -F 'params.setMargins(spacer.leftMargin(halfGap), 0, spacer.rightMargin(halfGap), 0);'; then
+  || ! rg_q_stdin -F 'leadingPad.setOwner(keyButton);' <<< "$fourteen_rows_body"; then
   echo "Android must read touch_fourteen_key_letter_widths at startup and live, remember it in SKIN_HINT_KEYS, rebuild the 14/18-key rows when it changes, take their weights from FourteenKeyLetterWidths.plan and give the row-2 pads an owning key" >&2
   exit 1
 fi
@@ -1614,15 +1604,6 @@ if ! rg -q 's\.imeLetterRows\.bindNineKeySuperscriptShortcut\(exclamation, last\
   echo "Android nine-key ！ must swipe out 0 with the fixed up-swipe of the 123 / #+= ！, without reading the retired 九键滑动输入数字 setting" >&2
   exit 1
 fi
-# 拼音九键格子上的长按数字画在右上角，字号和上边距与 26 键字母的角标相同（KeyHintButton 的 CORNER_HINT_SP、CORNER_HINT_TOP_DP，基线按 ascent 算），右边单独向内收至 12 dp，给圆角和胶囊键帽的顶部曲线让出空间；iOS 的 keyNumberHint 仍是上 3、右 5。绘制在 onDraw 里，JVM 冒烟碰不到，这里钉住它使用专用常量，而不是让数字贴到圆角外。
-nine_key_digit_draw=$(sed -n '/protected void onDraw(Canvas canvas) {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/keyboard/NineKeyDigitButton.java")
-for pattern in 'KeyHintButton\.CORNER_HINT_SP' 'KeyHintButton\.CORNER_HINT_TOP_DP\) - metrics\.ascent' \
-    'getWidth\(\) - DimensionPolicy\.floatPixels\(getContext\(\), DIGIT_HINT_RIGHT_DP\)'; do
-  if ! rg -q "$pattern" <<< "$nine_key_digit_draw"; then
-    echo "The Android nine-key digit hint must sit in the top-right corner exactly like the letter-key corner hint (KeyHintButton): missing $pattern" >&2
-    exit 1
-  fi
-done
 # 数字角标与字母角标同色：皮肤的 hint 色，不用强调色（原生皮肤下是系统蓝，压在每个键上太显眼）。
 if ! rg -q 'digitButton\.setDigitColor\(color\(target\.hint\(\)\)\)' "$repo_root/platforms/android/java/app/msime/android/core/ImeStyler.java"; then
   echo "The Android nine-key digit hint must use the skin's hint colour like the letter-key corner hint" >&2
@@ -2024,14 +2005,8 @@ for smoke in "${smoke_classes[@]}"; do
   fi
 done
 echo "Ran ${#smoke_classes[@]} Android JVM smokes"
-# 设备测试包只在 `tests/device/smoke.sh` 里构建，而那要模拟器，CI 从不跑它；它的源文件清单是手写的，应用类挪进新的辅助类后没人补，曾经攒到 21 个编译错误，整个设备套件都构建不出来。这里按同一份清单只做编译，漏了类就在这一步失败。
-device_sources=()
-while IFS= read -r source; do
-  [[ -z $source || $source == \#* ]] || device_sources+=("$repo_root/$source")
-done < "$repo_root/platforms/android/tests/device/editor-sources.txt"
-mkdir -p "$output_dir/device"
-javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir/device" "${device_sources[@]}"
-echo "Compiled ${#device_sources[@]} Android device-suite sources"
+# 设备测试包只在 `tests/device/smoke.sh` 里构建，而那要模拟器，CI 从不跑它；曾经攒到 21 个编译错误，整个设备套件都构建不出来。这里用打包时同一个脚本只做编译：设备测试引用到的应用类由 javac 自动找来，引用到编不了的类就在这一步失败。
+bash "$repo_root/platforms/android/tests/device/compile-sources.sh" "$android_jar" "$output_dir/device"
 # 设备测试包里编进了 NativeClient，却没有 libmsime_android.so：targetPackage 是测试包自己（app.msime.android.test）的 instrumentation 跑在测试包的进程里，第一次碰到 NativeClient 就是 UnsatisfiedLinkError。要经 JNI 调 Rust 的设备冒烟得以产品包为目标，跑进应用进程，那里的库路径带着应用的原生库（测试包的类排在前面，见 CloudClipboardDriverDeviceSmoke）。BackendAccountSessionDeviceSmoke 的释义用例曾经这样只编译过、一上设备就失败。这里按 jdeps 给出的类引用从每个这样的 instrumentation 往下找，能走到 NativeClient 就失败，并打印那条引用链。
 device_self_targets=$(rg -o -r '$1' 'instrumentation android:name="([^"]+)" android:targetPackage="app\.msime\.android\.test"' \
   "$repo_root/platforms/android/tests/device/AndroidManifest.xml" || true)

@@ -7,7 +7,7 @@ use super::dictionary::ShuangpinDictionary;
 use super::query::{
     detect_active_double_helpcode_length, fuzzy_initial_spellings, is_complete_input,
     raw_length_for_effective_prefix, remove_manual_delimiters, segment_input,
-    to_quanpin_segmentation, trim_trailing_letters_preserve_delimiters,
+    standalone_direct_helpcode, to_quanpin_segmentation, trim_trailing_letters_preserve_delimiters,
 };
 use super::utils::{cvt_single_sp_to_pinyin, get_full_help_codes, is_all_complete_pinyin};
 use super::ShuangpinProfile;
@@ -297,7 +297,9 @@ fn active_helpcode_query(
     request: &QueryRequest,
     profile: &ShuangpinProfile,
 ) -> Option<HelpcodeQuery> {
-    if !request.enable_shuangpin_helpcode || !request.shuangpin_helpcode_modes.direct {
+    if !request.enable_shuangpin_helpcode
+        || !(request.shuangpin_helpcode_modes.direct || standalone_direct_helpcode(request))
+    {
         return None;
     }
     let raw = &request.raw_input;
@@ -521,6 +523,7 @@ impl ShuangpinEngine {
             .set_rescoring_context(&request.rescoring_context);
         self.dictionary
             .set_autocorrect_types(request_autocorrect_types(request));
+        self.dictionary.set_fuzzy_pinyin(request.fuzzy_pinyin);
 
         let raw = &request.raw_input;
         if raw.bytes().all(|byte| byte == b'\'') {

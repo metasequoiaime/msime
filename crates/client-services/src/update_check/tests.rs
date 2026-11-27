@@ -643,7 +643,7 @@ fn channel_request(platform: &str, current_version: &str, channel: &str) -> Upda
 /// 带 `msime-build` 标记的发布，`prerelease` 照 `release-*.yml`：带后缀的都是预发布。
 fn marked_release(tag: &str, run: u64, assets: Value) -> Value {
     let mut release = release(tag, assets);
-    let channel = if tag.ends_with("-beta") {
+    let channel = if tag.contains("-beta") {
         "beta"
     } else if tag.ends_with("-alpha") {
         "alpha"
@@ -796,7 +796,11 @@ fn the_beta_channel_takes_only_exact_beta_tags() {
     // 只有 alpha 和别的预发布：测试版通道里只剩正式版。
     for tag in [
         "windows-v1.5.0-alpha",
-        "windows-v1.5.0-beta.1",
+        "windows-v1.5.0-beta.0",
+        "windows-v1.5.0-beta.01",
+        "windows-v1.5.0-beta.",
+        "windows-v1.5.0-beta.1.2",
+        "windows-v1.5.0-beta.x",
         "windows-v1.5.0-beta2",
         "windows-v1.5.0-rc-beta-x",
         "windows-1.5.0-beta",
@@ -821,6 +825,49 @@ fn the_beta_channel_takes_only_exact_beta_tags() {
     assert_eq!(
         selected(&releases, "windows", UpdateChannel::Beta),
         Some(("1.3.0".into(), UpdateChannel::Stable, Some(750)))
+    );
+}
+
+#[test]
+fn the_beta_channel_takes_numbered_beta_tags_in_run_order() {
+    // main 上推的测试版 tag 是 -beta.N：同一版本号的几个测试版按运行 ID 排先后，随后的正式版运行 ID 最大。
+    let releases = [
+        marked_release("windows-v1.4.0-beta.2", 820, windows_assets("1.4.0")),
+        marked_release("windows-v1.4.0-beta.1", 810, windows_assets("1.4.0")),
+        marked_release("windows-v1.3.0", 750, windows_assets("1.3.0")),
+    ];
+    assert_eq!(
+        selected(&releases, "windows", UpdateChannel::Beta),
+        Some(("1.4.0".into(), UpdateChannel::Beta, Some(820)))
+    );
+    let beta =
+        select_channel_release(&releases, "windows", None, None, UpdateChannel::Beta).unwrap();
+    assert_eq!(
+        beta.release_url,
+        format!("{PAGE}/tag/windows-v1.4.0-beta.2")
+    );
+    assert_eq!(
+        beta.installer_name.as_deref(),
+        Some("MetasequoiaIME-Full_Setup_v1.4.0.exe")
+    );
+    // 稳定版通道看不到它们。
+    assert_eq!(
+        selected(&releases, "windows", UpdateChannel::Stable),
+        Some(("1.3.0".into(), UpdateChannel::Stable, Some(750)))
+    );
+    // 两位数的编号不按字符串排：beta.10 的运行在 beta.9 之后。
+    let releases = [
+        marked_release("windows-v1.4.0-beta.9", 890, windows_assets("1.4.0")),
+        marked_release("windows-v1.4.0-beta.10", 900, windows_assets("1.4.0")),
+        marked_release("windows-v1.4.0", 950, windows_assets("1.4.0")),
+    ];
+    assert_eq!(
+        selected(&releases, "windows", UpdateChannel::Beta),
+        Some(("1.4.0".into(), UpdateChannel::Stable, Some(950)))
+    );
+    assert_eq!(
+        selected(&releases[..2], "windows", UpdateChannel::Beta),
+        Some(("1.4.0".into(), UpdateChannel::Beta, Some(900)))
     );
 }
 

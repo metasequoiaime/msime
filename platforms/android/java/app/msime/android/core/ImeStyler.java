@@ -189,12 +189,6 @@ final class ImeStyler {
             int vertical = s.halfSpacingPixels(s.touchRowSpacingTenths);
             params.setMargins(horizontal, vertical, horizontal, vertical);
             node.setLayoutParams(params);
-        } else if (node instanceof KeyboardSpacer spacer
-                && spacer.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams params) {
-            // 占位格（宽窄第二排两端、26 键第二排的缩进）不是键，只朝外补这一排少扣的键距（KeyboardSpacer#setOuterHalfGaps），26 键的缩进不补。
-            int halfGap = s.halfSpacingPixels(layoutKeySpacingTenths());
-            params.setMargins(spacer.leftMargin(halfGap), 0, spacer.rightMargin(halfGap), 0);
-            spacer.setLayoutParams(params);
         }
         if (node instanceof android.view.ViewGroup) {
             android.view.ViewGroup group = (android.view.ViewGroup) node;
@@ -207,13 +201,13 @@ final class ImeStyler {
         s.imePanels.applyReplyGeometry();
         if (s.keyRows == null) return;
         applyKeyboardGeometry(s.keyRows);
-        applyKeyboardHeight(s.keyRows);
+        s.imePanelLayout.applyKeyRows(s.keyRows);
         // 无键帽符号栏的底轨也依赖行距；几何偏好变化后重新套用内缩，保持它与相邻键帽的上下边缘一致。
         s.imeLayoutRows.applySidebarRail();
         // 功能行是键行的兄弟而不是其中一行，按同一网格状态分摊高度；九宫格加高时底行保持默认高度，键帽照样带键距。
         if (s.actionRow != null) {
             applyKeyboardGeometry(s.actionRow);
-            applyKeyboardHeight(s.actionRow);
+            s.imePanelLayout.applyKeyRows(s.actionRow);
             s.actionRow.requestLayout();
         }
         // 设计的键区左右外边距 6 dp 量到键的边缘；键自己带半个键距的外边距，所以容器只补差值。
@@ -236,49 +230,14 @@ final class ImeStyler {
     /** 侧边数字键盘（{@link ImeSidePad}）按主键区的键距、行距、高度角色和左右外边距排一遍。 */
     void applySidePadGeometry(View pad) {
         applyKeyboardGeometry(pad);
-        applyKeyboardHeight(pad);
+        s.imePanelLayout.applyKeyRows(pad);
         ViewPolicy.setHorizontalPaddingPreservingVertical(pad, BoundsPolicy.nonNegative(
             s.pixels(KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP) - s.halfSpacingPixels(layoutKeySpacingTenths())));
         pad.requestLayout();
     }
 
-    void applyKeyboardHeight(View node) {
-        applyKeyboardHeight(node, KeyboardHeightPolicy.windowHeightAdjustment(
-            s.touchKeyboardHeightAdjustment, s.getResources().getConfiguration().screenHeightDp));
-    }
-
-    /** {@code adjustment} 是当前窗口里实际要画的调整量（{@link KeyboardHeightPolicy#windowHeightAdjustment}），整棵树用同一个值。 */
-    private void applyKeyboardHeight(View node, int adjustment) {
-        Object tag = node.getTag();
-        if (tag instanceof MSIMEInputService.KeyboardHeightRole) {
-            MSIMEInputService.KeyboardHeightRole role = (MSIMEInputService.KeyboardHeightRole) tag;
-            // 九宫格加高只扩大上方键区，其余布局及缩小量仍四行均分；总高始终为四行默认键高加整份调整。
-            boolean nineKeyGrid = s.imeLayoutRows.nineKeyGridDrawn()
-                && (role.bottomRow || role.nineKeyGrid);
-            int heightDp;
-            if (role.bottomRow) {
-                heightDp = role.baseHeight + KeyboardHeightPolicy.bottomRowAdjustment(adjustment, nineKeyGrid);
-            } else {
-                int share = role.withBottomRow ? adjustment : KeyboardHeightPolicy.keyRowsAdjustment(adjustment, nineKeyGrid);
-                heightDp = KeyboardHeightPolicy.adjustedRowHeight(role.baseHeight, share, role.rowCount, role.rowIndex);
-            }
-            int height = s.pixels(heightDp);
-            height += s.halfSpacingPixels(s.touchRowSpacingTenths) * 2 * role.rowSpacings;
-            if (node.getLayoutParams() != null) {
-                android.view.ViewGroup.LayoutParams params = node.getLayoutParams();
-                params.height = height;
-                node.setLayoutParams(params);
-            }
-        }
-        if (node instanceof android.view.ViewGroup) {
-            android.view.ViewGroup group = (android.view.ViewGroup) node;
-            for (int index = 0; index < group.getChildCount(); index++)
-                applyKeyboardHeight(group.getChildAt(index), adjustment);
-        }
-    }
-
     void adjustFixedHeight(View view, int baseHeight) {
-        view.setTag(new MSIMEInputService.KeyboardHeightRole(baseHeight, 1, 0, false));
+        view.setTag(new KeyboardHeightRole(baseHeight, 1, 0, false));
     }
 
     /**
@@ -290,13 +249,13 @@ final class ImeStyler {
 
     /** 占 {@code rows} 行键高的整块（九键网格连同侧栏），分摊底行以外的键盘高度调整，并按行数加上行距。 */
     void adjustRowBlockHeight(View view, int rows) {
-        view.setTag(new MSIMEInputService.KeyboardHeightRole(
+        view.setTag(new KeyboardHeightRole(
             KeyboardGeometry.KEY_ROW_HEIGHT_DP * rows, 1, 0, rows));
     }
 
     /** 连同底行位置一起占用的整块（日语九键、注音九键没有底行，四行都在块里）：四行键高、四份行距，拿整份键盘高度调整，与其他布局总高相同。 */
     void adjustBottomRowBlockHeight(View view) {
-        view.setTag(MSIMEInputService.KeyboardHeightRole.threeRowsWithBottomRow());
+        view.setTag(KeyboardHeightRole.threeRowsWithBottomRow());
     }
 
     void styleButton(Button button, boolean action) { styleButton(button, action, s.skin); }
@@ -368,6 +327,8 @@ final class ImeStyler {
             }
             if (press != null) press.rememberFace(target, role, selected, density);
         }
+        // 不在键组里的图标键（回车）自己画角标，按同一个键帽轮廓挪进键帽；键组里的键从键组的环境拿轮廓（ImeKeyFaces）。
+        if (button instanceof KeyboardIconKey icon) icon.setKeyOutline(KeyOutline.forSkin(target, density));
         ViewPolicy.setTextColor(button, color(foreground));
         if (button instanceof KeyHintButton hintButton) {
             hintButton.setHintColor(color(target.accent()));
@@ -526,7 +487,8 @@ final class ImeStyler {
         boolean floating = s.overlayDrawn();
         int rootColor = floating || s.editorPreviewExpanded() ? Color.TRANSPARENT : color(s.skin.background());
         // 「键盘调整」打开期间窗口铺满（#10025），与 API 28 一样只在键区所在的底部横带画键盘底色：上方透明露出应用，平板居中键区两侧仍是键盘底色。
-        if (s.stableDockedWindow() || s.keyboardAdjustActive) {
+        // 停靠在 29+ 时面板上方多了一段透明高度（MSIMEInputService.headroomWindow），同样只在面板这一横条画底色。
+        if (s.stableDockedWindow() || s.keyboardAdjustActive || s.headroomWindow()) {
             dockedBackground.setColor(color(s.skin.background()));
             ViewPolicy.setBackground(s.keyboardRoot, dockedBackground);
             s.keyboardRoot.invalidate();
@@ -670,7 +632,7 @@ final class ImeStyler {
             s.keyboardSurface.setLayoutParams(LayoutPolicy.frameParamsPx(
                 s.pixels(FloatingKeyboardPolicy.widthDp(configuration.screenWidthDp)),
                 FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.LEFT));
-            ViewPolicy.setElevation(s.keyboardSurface, s.pixels(10));
+            ViewPolicy.setElevation(s.keyboardSurface, s.pixels(ImeOverlayHost.PANEL_ELEVATION_DP));
             s.keyboardSurface.setOutlineProvider(floatingOutline);
             s.keyboardSurface.setClipToOutline(true);
             return;
@@ -685,7 +647,8 @@ final class ImeStyler {
                 : s.stableDockedWindow() || s.keyboardAdjustActive ? FrameLayout.LayoutParams.WRAP_CONTENT
                 : FrameLayout.LayoutParams.MATCH_PARENT,
             Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        s.imePanelLayout.applyHeadroom(params);
         s.keyboardSurface.setLayoutParams(params);
-        ViewPolicy.setElevation(s.keyboardSurface, widthDp == 0 ? 0 : s.pixels(10));
+        ViewPolicy.setElevation(s.keyboardSurface, widthDp == 0 ? 0 : s.pixels(ImeOverlayHost.PANEL_ELEVATION_DP));
     }
 }

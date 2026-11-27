@@ -169,3 +169,31 @@ test("关闭混输总开关也禁用快捷短语及调频，并保留两项选�
     expect(control.disabled).toBe(false);
   }
 });
+
+test("原生入口打开置顶后，现有调频开关置灰并保留选择", () => {
+  const onChange = vi.fn();
+  const stored = {
+    ...preferences,
+    quick_phrase: true,
+    quick_phrase_first: true,
+    quick_phrase_frequency: true,
+  };
+  const { rerender } = render(
+    <MixedInputMoreRows preferences={stored} quickPhraseCandidates onChange={onChange} />,
+  );
+  const frequency = screen.getByRole("switch", { name: /^快捷短语参与调频/ }) as HTMLInputElement;
+  expect(frequency.checked).toBe(true);
+  expect(frequency.disabled).toBe(true);
+  frequency.click();
+  expect(onChange).not.toHaveBeenCalled();
+
+  rerender(
+    <MixedInputMoreRows
+      preferences={{ ...stored, quick_phrase_first: false }}
+      quickPhraseCandidates
+      onChange={onChange}
+    />,
+  );
+  expect(frequency.checked).toBe(true);
+  expect(frequency.disabled).toBe(false);
+});

@@ -371,7 +371,7 @@ inline FloatingToolbarHit floating_toolbar_hit(const FloatingToolbarLayout &layo
   return {std::nullopt, layout.handle.contains(x, y)};
 }
 
-// 工具栏本体左上角的根窗口坐标（设备像素），规则与 macOS 的 SizedToolbarFrame 相同：没拖过时放在工作区右下角、离右边和下边各 default_margin；拖过的位置照用，只是收进工作区四边各 restored_margin 以内。工作区比工具栏还小时贴左上。
+// 工具栏本体左上角的根窗口坐标，Wayland 则在独立文件中存右下边距（设备像素），规则与 macOS 的 SizedToolbarFrame 相同：没拖过时放在工作区右下角、离右边和下边各 default_margin；拖过的位置照用，只是收进工作区四边各 restored_margin 以内。工作区比工具栏还小时贴左上。
 inline WaveOverlayPosition floating_toolbar_position(std::optional<WaveOverlayPosition> saved, int plate_width,
                                                      int plate_height, WaveOverlayWorkArea work, int default_margin,
                                                      int restored_margin) {
@@ -387,18 +387,20 @@ inline WaveOverlayPosition floating_toolbar_position(std::optional<WaveOverlayPo
   return {std::clamp(saved->x, minimum_x, maximum_x), std::clamp(saved->y, minimum_y, maximum_y)};
 }
 
-// 记住的位置存在状态目录的 floating-toolbar-position.json（{"x":…,"y":…}，工具栏本体左上角的根窗口坐标），与 Windows 的 floating_toolbar_position.json 一样只属于这台机器的显示器布局，不进同步到云端的共享偏好。读不懂的文件当作没有记过，工具栏回到默认的右下角。
+// 记住的位置存在状态目录的 floating-toolbar-position.json（{"x":…,"y":…}，工具栏本体左上角的根窗口坐标，Wayland 则在独立文件中存右下边距），与 Windows 的 floating_toolbar_position.json 一样只属于这台机器的显示器布局，不进同步到云端的共享偏好。读不懂的文件当作没有记过，工具栏回到默认的右下角。
 inline constexpr const char *kFloatingToolbarPositionFile = "floating-toolbar-position.json";
 
 // 状态目录按版本分开（$XDG_STATE_HOME/<client_directory>，没有时是 ~/.local/state/<client_directory>），与候选面板的接管记录（PanelRestoreRecord.h）同一个目录；两个都不是绝对路径时不记位置。
 inline std::optional<std::string> floating_toolbar_position_path(const char *xdg_state_home, const char *home,
-                                                                 std::string_view client_directory) {
+                                                                 std::string_view client_directory,
+                                                                 bool wayland = false) {
   const auto absolute = [](const char *path) { return path && *path == '/'; };
   std::string directory;
   if (absolute(xdg_state_home)) directory = xdg_state_home;
   else if (absolute(home)) directory = std::string(home) + "/.local/state";
   else return std::nullopt;
-  return directory + "/" + std::string(client_directory) + "/" + kFloatingToolbarPositionFile;
+  return directory + "/" + std::string(client_directory) + "/" +
+         (wayland ? "floating-toolbar-wayland-position.json" : kFloatingToolbarPositionFile);
 }
 
 inline std::optional<WaveOverlayPosition> parse_floating_toolbar_position(std::string_view text) {

@@ -2,16 +2,16 @@ name: macOS package
 
 # macOS 发布包的打包检查：发布包只带核心词库，日文词典、五笔码表、粤拼/注音词库和手写模型由 App 按需下载。这里确认核心词库的暂存规则、按需资源包仍能按锁文件下载，并在 Apple 芯片的 runner 上真打一次未签名的 universal pkg 安装包、展开核对它的结构，让打包脚本的问题在发布当天之前暴露出来。
 #
-# 这不是分支保护要求的检查，也不在 PR 上跑：打包是合进 develop 之后的事，功能分支只需要编译和测试（见 .agents/notes/implemented/process/2026-10-09-no-packaging-on-pull-requests.md）。推到 develop 时在文件内部算这次推送的改动范围，没碰打包输入的推送里后面的 job 被 `if:` 跳过、上报 skipped。每周一次的定时运行不看路径，资源包地址失效最多隔一周就会报出来。
+# 这不是分支保护要求的检查，也不在 PR 上跑：打包是合进 main 之后的事，功能分支只需要编译和测试（见 .agents/notes/implemented/process/2026-10-09-no-packaging-on-pull-requests.md）。推到 main 时在文件内部算这次推送的改动范围，没碰打包输入的推送里后面的 job 被 `if:` 跳过、上报 skipped。每周一次的定时运行不看路径，资源包地址失效最多隔一周就会报出来。
 
 on:
   push:
-    branches: [develop]
+    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: "41 19 * * 0"
 
-# 不设 concurrency：develop 上一次推送碰了打包输入、紧接着的推送没碰时，取消前一次就等于这次改动从没打过包。没碰打包输入的运行十几秒就结束。
+# 不设 concurrency：main 上一次推送碰了打包输入、紧接着的推送没碰时，取消前一次就等于这次改动从没打过包。没碰打包输入的运行十几秒就结束。
 
 permissions:
   contents: read
@@ -107,7 +107,7 @@ jobs:
           test -f "$staged/helpcodes/helpcode.txt"
           cargo run --quiet --locked -p msime-client-core --example verify_resources -- --omit-on-demand --platform macos "$staged"
           du -sk "$staged"
-      # 下面的 package job 只打 full；发布时按顺序打全部版本，前一个版本失败后面的就根本没被查过。这里按发布的规则把每个版本的 EngineResources 各暂存一次，用 check_app 同一个脚本核对锁定的核心词库预算，版本锁或暂存规则让哪个版本超限，在 develop 上就报出来。
+      # 下面的 package job 只打 full；发布时按顺序打全部版本，前一个版本失败后面的就根本没被查过。这里按发布的规则把每个版本的 EngineResources 各暂存一次，用 check_app 同一个脚本核对锁定的核心词库预算，版本锁或暂存规则让哪个版本超限，在 main 上就报出来。
       - name: Check every edition against its core-dictionary budget
         run: |
           set -euo pipefail

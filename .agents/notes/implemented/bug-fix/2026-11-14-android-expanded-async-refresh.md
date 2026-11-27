@@ -14,6 +14,7 @@ Status: implemented
 
 ## Existing notes audit
 
+- [展开面板开着时晚到的候选等收起或刷新](2026-11-23-android-expanded-panel-holds-late-rows.md)部分取代本笔记：「完全停止面板打开期间的重排和在线候选」被否决的理由由等待提示回答，面板开着时停顿重排和云/AI 候选改为等收起或刷新；快照同步、旧身份拒绝和换代回顶部保留，双方互链。
 - [移动端部分选词保留面板](../../implemented/bug-fix/2026-10-25-mobile-expanded-partial-selection.md)部分重叠，其中为限制 #9193 范围而保留的“普通网格异步回包时收起”在本 issue 的授权范围内被取代；部分选词、打字与退格规则保留，双方互链。
 - [完整候选同步视图](../../implemented/bug-fix/2026-10-15-android-expanded-candidate-view.md)部分重叠，沿用全列表会推进代次的契约。
 - [过期候选回调](../../implemented/bug-fix/2026-10-14-android-stale-candidate-callbacks.md)保留身份围栏，不能因保留面板而放宽。

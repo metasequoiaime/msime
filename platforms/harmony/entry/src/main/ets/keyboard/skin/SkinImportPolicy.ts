@@ -19,7 +19,31 @@
 /** Long enough for any real skin, short enough that the path stays within the filesystem's limit. */
 const MAX_NAME_LENGTH: number = 64;
 
+export interface SkinImportFeedback {
+  publish: boolean;
+  message: string;
+}
+
 export class SkinImportPolicy {
+  /** 取消不通知；成功后提示手动强制刷新，避免同名图片保留缓存。 */
+  static feedback(
+    ok: boolean, value: string | undefined, error: string | undefined, sharingAvailable: boolean
+  ): SkinImportFeedback {
+    if (!ok) return { publish: false, message: error || "导入皮肤失败" };
+    if (!value) return { publish: false, message: "" };
+    if (!sharingAvailable) {
+      return { publish: false, message: "皮肤已导入设置页，请点击刷新皮肤；当前无法同步到输入法" };
+    }
+    return { publish: true, message: "皮肤已导入，请点击刷新皮肤后选择" };
+  }
+
+  /** 原生库区分皮肤校验失败和存储失败，避免把存储问题说成格式错误。 */
+  static importError(code: string): string {
+    if (code === "skin_name" || code === "skin_manifest") {
+      return "皮肤格式有误：请选择含 skin.toml 的文件夹，文件夹名须与文件内 id 一致";
+    }
+    return "导入皮肤失败";
+  }
   /**
    * The folder name to import under, or null when the pick cannot be used.
    *

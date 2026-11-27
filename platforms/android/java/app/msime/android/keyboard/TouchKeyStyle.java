@@ -128,15 +128,15 @@ public final class TouchKeyStyle {
         }
 
         /**
-         * 这一刻画出来的字母层底行用哪种样式。中文 26 键（标准 26 键键面上的中文方案，含全拼、双拼、五笔、粤拼等）读 26 键样式；英文模式、韩文和其他语言的 26 键保留标准底行；14 键与 18 键读 14 键样式；拼音九键与笔画（共用九键外框）读九键样式；其余键面（手写、注音、日文假名）没有可选样式。
+         * 这一刻画出来的字母层底行用哪种样式。中文方案的 26 键（含英文模式下沿用该方案的 26 键键面）读 26 键样式；韩文和其他语言的 26 键保留标准底行；14 键与 18 键读 14 键样式；拼音九键与笔画（共用九键外框）读九键样式；其余键面（手写、注音、日文假名）没有可选样式。
          *
          * @param touchLayout {@link KeyboardLayout} 的界面常量
          * @param scheme View 报告的方案编号，未知时为 -1（按中文算，见 {@link KeyboardLayout#chineseFace}）
-         * @param english 宿主处在英文模式
+         * @param english 宿主处在英文模式；中文方案的样式选择不因该状态改变
          */
         public Row forLayout(int touchLayout, int scheme, boolean english) {
             if (touchLayout == KeyboardLayout.STANDARD_TOUCH_LAYOUT)
-                return KeyboardLayout.chineseFace(scheme, english) ? twentySix : Row.STANDARD;
+                return KeyboardLayout.chineseFace(scheme, false) ? twentySix : Row.STANDARD;
             if (touchLayout == KeyboardLayout.FOURTEEN_KEY_LAYOUT || touchLayout == KeyboardLayout.EIGHTEEN_KEY_LAYOUT)
                 return fourteen;
             if (touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT || touchLayout == KeyboardLayout.STROKE_LAYOUT)
@@ -145,7 +145,7 @@ public final class TouchKeyStyle {
         }
 
         /**
-         * 工具栏隐藏或按钮全关时，工具栏那一行要不要留着：中文 26 键的长空格样式把 符 放在工具栏上，所以这块键盘的中文键面是中文 26 键、用户给 26 键选了长空格时一直留着。只看用户的样式和这块键盘的中文键面，不看此刻的中/英：同一块键盘切到英文时英文 26 键画自己的标准底行、工具栏上没有 符，但这一行照样留着，来回切换时键盘高度不跳。
+         * 工具栏隐藏或按钮全关时，工具栏那一行要不要留着：中文 26 键的长空格样式把 符 放在工具栏上，所以这块键盘的中文键面是中文 26 键、用户给 26 键选了长空格时一直留着。只看用户的样式和这块键盘的中文键面，不看此刻的中/英：同一块键盘切到英文时仍沿用长空格样式，工具栏上没有 符，但这一行照样留着，来回切换时键盘高度不跳。
          *
          * @param chineseTouchLayout 这块键盘处在中文时画的键面（{@link KeyboardLayout} 的界面常量；英文模式下是切到英文之前的那块）
          * @param scheme View 报告的方案编号，未知时为 -1

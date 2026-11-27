@@ -1,7 +1,7 @@
 # Copyright 2026 Gentoo Authors
 # Distributed under the terms of the GNU General Public License v2
 
-# 跟踪 develop 的 live ebuild。按版本发布的 ebuild 由 platforms/linux/packaging/gentoo/render.py 从同目录的 msime.ebuild.in 渲染，构建步骤两份一致，改一份时另一份一起改；步骤本身对应 platforms/linux/package-container.sh。
+# 跟踪 main 的 live ebuild。按版本发布的 ebuild 由 platforms/linux/packaging/gentoo/render.py 从同目录的 msime.ebuild.in 渲染，构建步骤两份一致，改一份时另一份一起改；步骤本身对应 platforms/linux/package-container.sh。
 
 EAPI=8
 
@@ -14,7 +14,7 @@ inherit cargo cmake git-r3 optfeature python-single-r1 xdg
 DESCRIPTION="Metasequoia IME (水杉输入法): Chinese input method for Fcitx5 and IBus"
 HOMEPAGE="https://github.com/metasequoiaime/msime"
 EGIT_REPO_URI="https://github.com/metasequoiaime/msime.git"
-EGIT_BRANCH="develop"
+EGIT_BRANCH="main"
 
 # 本项目 GPL-3，其中输入引擎（crates/engine、crates/path-trust）是 MPL-2.0；随包的第三方数据与运行库：sherpa-onnx 与 OpenCC（Apache-2.0）、引擎复现的 libc++ 排序（Apache-2.0-with-LLVM-exceptions）、ONNX Runtime 与 nlohmann/json（MIT）、手写模型与 libchewing-data（LGPL-2.1）、rime-stroke（LGPL-3）、rime-cantonese（CC-BY-4.0）、拆字表（CC-BY-3.0）、拆字读音与符号分组的 Unicode 数据（Unicode-3.0）、离线释义（CC-BY-SA-4.0）、libhangul 汉字表与 Zinnia、librime-octagram（BSD）、darts-clone（BSD-2）、行政区划（WTFPL-2）。live ebuild 不逐个列出 crate 的许可证，按版本发布的 ebuild 由 pycargoebuild 补上。
 LICENSE="GPL-3 Apache-2.0 Apache-2.0-with-LLVM-exceptions BSD BSD-2 CC-BY-3.0 CC-BY-4.0 CC-BY-SA-4.0 LGPL-2.1 LGPL-3 MIT MPL-2.0 Unicode-3.0 WTFPL-2"

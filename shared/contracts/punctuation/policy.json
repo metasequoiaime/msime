@@ -1,5 +1,5 @@
 {
-  "contractVersion": 5,
+  "contractVersion": 6,
   "simple": [
     { "input": ",", "output": "，" },
     { "input": ".", "output": "。" },
@@ -18,6 +18,23 @@
     { "input": "_", "output": "——" },
     { "input": "{", "output": "「" },
     { "input": "}", "output": "」" }
+  ],
+  "japanese": [
+    { "input": ",", "output": "、" },
+    { "input": "\\", "output": "、" },
+    { "input": ".", "output": "。" },
+    { "input": "[", "output": "「" },
+    { "input": "]", "output": "」" },
+    { "input": "{", "output": "『" },
+    { "input": "}", "output": "』" },
+    { "input": "/", "output": "・" },
+    { "input": "~", "output": "〜" },
+    { "input": "?", "output": "？" },
+    { "input": "!", "output": "！" },
+    { "input": "(", "output": "（" },
+    { "input": ")", "output": "）" },
+    { "input": ":", "output": "：" },
+    { "input": ";", "output": "；" }
   ],
   "alternating": [
     { "input": "\"", "opening": "“", "closing": "”" },

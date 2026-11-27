@@ -575,11 +575,11 @@ void translationPreferenceChangesIncludeAccount() {
   require(FcitxState::translationPreferencesChanged(before, after),
           "改翻译范围要作废进行中的翻译请求和记下的回答");
 }
-// 「仅当前高亮」的高亮行（视图的 translation_reserved）：原生画布拿到要留的释义行数，classicui 在回答到之前用不上屏的全角空格行占住译文的位置；别的行、已有译文的行和不预留时都不加。
+// 「仅当前高亮」的高亮行（视图的 translation_reserved）：原生画布拿到要留的释义行数，classicui 在回答到之前用不上屏的全角空格行占住译文的位置；别的行、已有译文的行和不预留时都不加。横排（#11821）不加占位行，释义也接在同一行，整条候选条始终一行。
 void reservedTranslationRow() {
-  const auto word = [](Json candidate, int reserved) {
+  const auto word = [](Json candidate, int reserved, bool vertical = true) {
     candidate["id"] = Json{{"session", 1}, {"generation", 1}, {"index", 0}};
-    return FcitxCandidate(nullptr, candidate, false, false, std::string(), 0, 0, reserved);
+    return FcitxCandidate(nullptr, candidate, false, false, std::string(), 0, 0, reserved, {}, vertical);
   };
   const auto shown = [](const FcitxCandidate &candidate) -> const fcitx::Text & {
     return static_cast<const fcitx::CandidateWord &>(candidate).text();
@@ -590,19 +590,26 @@ void reservedTranslationRow() {
   require(shown(waiting).toString() == "你\n\u3000" && shown(waiting).splitByLine().size() == 2 &&
               shown(waiting).formatAt(shown(waiting).size() - 1) ==
                   fcitx::TextFormatFlags(fcitx::TextFormatFlag::DontCommit),
-          "classicui 用一行不上屏的占位留住还没到的译文");
+          "竖排 classicui 用一行不上屏的占位留住还没到的译文");
   require(waiting.text() == "你", "占位不进上屏文字");
   require(shown(word(Json{{"text", "你"}, {"translation_reserved", true}}, 2)).splitByLine().size() == 3,
           "两种目标语言留两行");
   const auto answered = word(Json{{"text", "你"}, {"translation", "you"}, {"translation_reserved", true}}, 1);
   require(shown(answered).toString() == "你\nyou" && answered.display().reserved_gloss_lines == 1,
-          "译文到了就不再加占位");
+          "竖排译文到了就不再加占位");
   const auto other = word(Json{{"text", "拟"}}, 1);
   require(shown(other).toString() == "拟" && other.display().reserved_gloss_lines == 0,
           "非高亮行不留");
   const auto off = word(Json{{"text", "你"}, {"translation_reserved", true}}, 0);
   require(shown(off).toString() == "你" && off.display().reserved_gloss_lines == 0,
           "没有译文服务和离线释义时不留");
+  const auto horizontal = word(Json{{"text", "你"}, {"translation_reserved", true}}, 1, false);
+  require(shown(horizontal).toString() == "你" && shown(horizontal).splitByLine().size() == 1,
+          "横排不留占位行，避免整条候选条变高、序号掉到第二行");
+  const auto horizontalAnswered = word(Json{{"text", "你"}, {"translation", "you"}, {"translation_reserved", true}}, 1, false);
+  require(shown(horizontalAnswered).toString() == "你 · you" && shown(horizontalAnswered).splitByLine().size() == 1,
+          "横排把释义接在候选字后面同一行");
+  require(horizontalAnswered.text() == "你", "横排的释义也不进上屏文字");
 }
 
 // 「显示读音」：读音在它那一行释义下面单独一行，classicui 和原生画布拿到同一份；没有释义时不画读音，选词的文字不带它。
@@ -1390,6 +1397,54 @@ int cloudClipboardResultFencing() {
   return 0;
 }
 
+// 连续打字时每次视图更新都会再调一次 `scheduleAsyncPoll()`；已排好的轮询不能被一直往后推，否则按键间隔短于 250ms 时异步结果永远等不到推进。
+int asyncPollFiresWhileRescheduled() {
+  char temporary[] = "/tmp/msime-fcitx-async-poll-XXXXXX";
+  const auto *directory = mkdtemp(temporary);
+  require(directory != nullptr, "创建合成异步轮询测试目录");
+  for (const auto *name : {"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR"})
+    setenv(name, directory, 1);
+  {
+    char program[] = "msime-async-poll-test";
+    char disabled[] = "--disable=all";
+    char *args[] = {program, disabled, nullptr};
+    fcitx::Instance instance(2, args);
+    instance.initialize();
+    FixtureContext ic(instance.inputContextManager());
+    ic.focusIn();
+    auto &loop = instance.eventLoop();
+    FcitxState state(ic, nullptr, loop, false);
+    // 一个一直没完成的偏好读取让轮询保持有事可做；`pollAsyncState()` 每跑一次都会清掉 `composition_async_dirty_`，以此计数。
+    std::promise<Json> never;
+    state.preferences_job_ = never.get_future().share();
+    int ticks = 0;
+    int polls = 0;
+    // 每 100ms 模拟一次按键：标记视图已变、再排一次轮询，共 1.2 秒。
+    auto typing = loop.addTimeEvent(
+        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 100'000, 1000,
+        [&](fcitx::EventSourceTime *timer, uint64_t) {
+          if (ticks > 0 && !state.composition_async_dirty_) ++polls;
+          if (++ticks > 12) {
+            timer->setEnabled(false);
+            loop.exit();
+            return true;
+          }
+          state.composition_async_dirty_ = true;
+          state.scheduleAsyncPoll();
+          timer->setNextInterval(100'000);
+          timer->setOneShot();
+          return true;
+        });
+    loop.exec();
+    require(polls >= 3, "连续按键反复排轮询时，250ms 一拍的异步轮询仍要按时触发");
+    state.preferences_job_ = {};
+    never.set_value(Json());
+  }
+  std::filesystem::remove_all(directory);
+  std::cout << "Fcitx5 连续按键下异步轮询按时触发回归通过\n";
+  return 0;
+}
+
 int candidateRuntimeFontUnits() {
   char pattern[] = "/tmp/msime-font-runtime-XXXXXX";
   const auto *directory = mkdtemp(pattern);
@@ -1422,6 +1477,7 @@ int main(int argc, char **argv) {
   try {
     if (argc == 2 && std::string(argv[1]) == "--font-runtime") return candidateRuntimeFontUnits();
     if (argc == 2 && std::string(argv[1]) == "--cloud-clipboard") return cloudClipboardResultFencing();
+    if (argc == 2 && std::string(argv[1]) == "--async-poll") return asyncPollFiresWhileRescheduled();
     if (argc == 2 && std::string(argv[1]) == "--theme-priority") return candidateThemePriority();
     if (argc == 2 && std::string(argv[1]) == "--theme-canvas") return candidateThemeCanvas();
 #ifdef MSIME_FCITX5_HINT_FONT
@@ -2133,6 +2189,29 @@ int main(int argc, char **argv) {
       require(press(FcitxKey_comma) && ic.committed == beforePage && state->composingOrCandidates(),
               "启用逗号翻页时应保留既有导航行为");
       press(FcitxKey_Escape);
+
+      state->preferences_["cross_commit_spacing"] = true;
+      const auto spacedCandidate = [&](std::string text, unsigned cursor, unsigned anchor) {
+        ic.committed.clear();
+        ic.surroundingText().setText(text, cursor, anchor);
+        compose();
+        require(press(FcitxKey_space), "跨次空格检查未上屏中文候选");
+        return ic.committed;
+      };
+      require(spacedCandidate("A", 1, 1) == " 你好", "中文候选应与已上屏的英文隔开");
+      require(spacedCandidate("A ", 2, 2) == "你好", "已有空格时不重复插入");
+      require(spacedCandidate("AB", 1, 2) == "你好", "替换选区时保留原样");
+      state->preferences_["cross_commit_spacing_excluded_apps"] = Json::array({"MSIME-TEST"});
+      require(spacedCandidate("A", 1, 1) == "你好", "被排除的应用保留原样");
+      state->preferences_.erase("cross_commit_spacing_excluded_apps");
+      require(state->toggleInputMode(), "跨次空格检查未切换到英文");
+      ic.committed.clear();
+      ic.surroundingText().setText("中", 1, 1);
+      require(press(FcitxKey_a) && ic.committed == " a", "中文后的首个英文键应带空格");
+      ic.surroundingText().setText("中 a", 3, 3);
+      require(!press(FcitxKey_b) && ic.committed == " a", "英文单词后续按键应继续直通");
+      ic.surroundingText().invalidate();
+      require(!press(FcitxKey_c) && ic.committed == " a", "前文不可用时英文键直接交给应用");
       state->close();
       removeFixtureTree(directory);
       std::cout << "Fcitx5 提交前后文时序与逗号导航回归通过\n";

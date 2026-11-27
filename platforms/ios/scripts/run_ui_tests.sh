@@ -4,7 +4,7 @@ set -euo pipefail
 # The runner ci-ios.yml calls for the three iOS jobs. It reads its scope from the environment rather than from arguments because all three jobs invoke it the same way and differ only in what they set.
 #
 #   MSIME_TEST_SCOPE=pr           the unit suites, minus the cases that need ML Kit  (job: iOS Simulator)
-#   MSIME_TEST_SCOPE=all          same, on the pull request that promotes develop to main
+#   MSIME_TEST_SCOPE=all          same, on every run that is not a pull request (pushes to main, dispatches)
 #   MSIME_TEST_SCOPE=handwriting  only the cases that need ML Kit                    (job: iOS Handwriting)
 #   MSIME_TEST_SHARD=heavy        the interface suite                                (job: iOS Simulator (settings and skins))
 #   MSIME_TEST_SHARD=rest|<empty> everything the heavy shard does not take
@@ -20,20 +20,15 @@ scope=${MSIME_TEST_SCOPE:-pr}
 shard=${MSIME_TEST_SHARD:-}
 derived_data=${MSIME_IOS_DERIVED_DATA:-build/ios-derived}
 project=${MSIME_IOS_PROJECT:-build/ios/MSIMEClient.xcodeproj}
+# 调用方可再补一批 -skip-testing 目标（空格分隔）。上游 CI 不设这个变量，行为不变；fork 用它跳过
+# 依赖 App Group entitlement 的语音用例——fork 的测试宿主没签名、没 entitlement，跑这些必挂。
+extra_skip=${MSIME_TEST_SKIP_EXTRA:-}
 
 # The three cases that assert on real ink: the SDK ships no simulator slice for arm64, so only the Intel job can link them. This list is the single definition of that line -- the unit scopes skip exactly these, the handwriting scope runs exactly these, so the two cannot drift apart.
 recognition_cases=(
   MSIMESharedTests/HandwritingTests/testRealChineseInkRecognition
   MSIMESharedTests/HandwritingTests/testCommonCharactersFromPenTrajectories
   MSIMESharedTests/HandwritingTests/testCandidateSelectionInsertsOnlyAfterConfirmation
-)
-
-# Two cases fail the first time anything compiles and runs this suite, and both need a product answer rather than a CI one: the space key measures 50pt where the test wants 79.2, and a shuangpin preedit reload is refused. They are tracked in #678.
-#
-# Skipping them is a deliberate trade against "do not skip failing tests". The alternative is leaving `iOS Simulator` as it was -- a required check that reserves a macos-15 runner for 95 minutes to print one line -- until someone answers two layout questions. Roughly three hundred cases start gating the product today instead, and these two are named here rather than commented out of the suite, so removing the skip is a one-line change once #678 is settled.
-known_failures=(
-  MSIMEKeyboardTests/NineKeyKeyboardTests/testKeyLayoutsKeepNineKeyHeight
-  MSIMEKeyboardTests/CandidateOptionsSettingsTests/testReloadHandsShuangpinPreeditToTheLiveSession
 )
 
 if [[ ! -d "$project" ]]; then
@@ -100,7 +95,11 @@ for scheme in "${schemes[@]}"; do
   mkdir -p "$(dirname "$result_bundle")"
   # Only MSIMEClientTests contains the handwriting cases; passing -skip-testing for a target a scheme does not build makes xcodebuild fail outright.
   if [[ "$scheme" == MSIMEClientTests ]]; then
-    for case_name in "${recognition_cases[@]}" "${known_failures[@]}"; do
+    for case_name in "${recognition_cases[@]}"; do
+      arguments+=(-skip-testing:"$case_name")
+    done
+    # 调用方（fork workflow）通过 MSIME_TEST_SKIP_EXTRA 补的额外跳过目标，也只属于这个 scheme。
+    for case_name in $extra_skip; do
       arguments+=(-skip-testing:"$case_name")
     done
   fi

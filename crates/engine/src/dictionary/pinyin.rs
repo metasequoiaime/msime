@@ -24,6 +24,7 @@ use crate::pinyin::syllables::{
     intact_pinyin_set, is_intact, is_prefix, prefix_pinyin_set,
 };
 
+mod nine_key_completions;
 mod shuangpin_lattice;
 
 pub const BUSY_TIMEOUT: Duration = Duration::from_millis(250);

@@ -1,24 +1,23 @@
 name: CodeQL
-# CodeQL 的语言与触发分层。发往 main 的 PR、推送到 main、每日定时和手动触发都跑 Linux 上的四种语言（Actions、C/C++、Python、Rust）；Rust 覆盖引擎、client-core 和 host-api 里 clippy 与 cargo audit 都看不到的部分（含 500 多处 FFI `unsafe`）。Swift 分析要占用一台 macos-15 约一小时，而仓库只有五台，所以它只在每日定时和手动触发时跑，理由与 ci-macos.yml 在 push 时不构建相同。
+# CodeQL 的语言与触发分层。推送发版 tag、每日定时和手动触发都跑 Linux 上的四种语言（Actions、C/C++、Python、Rust）；Rust 覆盖引擎、client-core 和 host-api 里 clippy 与 cargo audit 都看不到的部分（含 500 多处 FFI `unsafe`）。Swift 分析要占用一台 macos-15 约一小时，而仓库只有五台，所以它只在每日定时和手动触发时跑，理由与 ci-macos.yml 在 push 时不构建相同。
 #
-# 发往 develop 的 PR 和推送到 develop 都不扫：develop 上同时开着几十个 PR，每个 PR 每次推送都起四条 CodeQL 腿（Rust 一次约 11 分钟），排队占满 runner 却不挡合并。develop 的覆盖由每日定时扫描负责，发版时 develop 合进 main 的那个 PR 再完整扫一遍。
+# PR 和推送到 main 都不扫：main 上同时开着几十个 PR，每个 PR 每次推送都起四条 CodeQL 腿（Rust 一次约 11 分钟），排队占满 runner 却不挡合并；合并进 main 的推送一天也有几十次。以前这条规则针对的是 develop，发往 main 的发布 PR 和 main 上的推送才扫；只剩 main 以后，发版的信号是推送的 tag，所以改为在发版 tag 上完整扫一遍，main 的日常覆盖由每日定时扫描负责。
 #
-# 这个 workflow 只负责在 PR 与关键分支上产出分析结果；是否作为合并门禁由仓库 ruleset 单独配置，目前 main 与 develop 的 ruleset 里没有 CodeQL 或 code scanning 规则。workflow 定义 signal，repository policy 决定它是否成为 gate，两层不要混为一谈。
+# 这个 workflow 只负责在发版 tag 与默认分支上产出分析结果；是否作为合并门禁由仓库 ruleset 单独配置，目前 main 的 ruleset 里没有 CodeQL 或 code scanning 规则。workflow 定义 signal，repository policy 决定它是否成为 gate，两层不要混为一谈。
 on:
-  # 只有推送到 main 才重扫：main 上的推送是发布信号。develop 不在这里，理由见文件顶部。
+  # 只有推送发版 tag 才在定时之外重扫：tag 是发布信号。列的是各平台应用和引擎（msime-engine、msime-engine-capi、web-engine）发版的 tag 前缀；script-sdk、pack-tool 等不随应用发出的 tag 不在这里。理由见文件顶部。
   push:
-    branches:
-      - main
-    # 纯文档改动不扫：CodeQL 对 Markdown 没有价值，而 Rust 一次约 11 分钟。CodeQL 不是必需检查，按路径跳过不会让 PR 卡在等一个永远不来的报告上（必需检查被路径过滤掉才需要 ci-docs.yml 那样的补位）。
-    paths-ignore:
-      - '**/*.md'
-      - docs/**
-  pull_request:
-    branches:
-      - main
-    paths-ignore:
-      - '**/*.md'
-      - docs/**
+    tags:
+      - android-v*
+      - ios-v*
+      - macos-v*
+      - linux-v*
+      - windows-v*
+      - windows7-v*
+      - harmony-v*
+      - web-engine-v*
+      - msime-engine-v*
+      - msime-engine-capi-v*
   schedule:
     # 每天 00:00（Asia/Tokyo，UTC+09:00）。
     - cron: '0 15 * * *'
@@ -27,9 +26,8 @@ permissions:
   contents: read
 concurrency:
   group: codeql-${{ github.event_name }}-${{ github.ref }}
-  # 只有 PR 取消上一轮：PR 上的新提交让旧扫描失去意义。main 上的推送是分支安全记录，旧提交的扫描
-  # 不该被新提交抢掉。
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # 不取消上一轮：每个 tag 和每次定时扫描都是一份安全记录，旧的扫描不该被新的抢掉。
+  cancel-in-progress: false
 jobs:
   analyze:
     name: CodeQL / ${{ matrix.language }}
@@ -52,13 +50,13 @@ jobs:
       - name: Install Rust
         if: matrix.language == 'rust'
         run: rustup toolchain install
-      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+      - uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         with:
           languages: ${{ matrix.language }}
           # `none` 不做完整构建就建库（Rust 走 rust-analyzer，会处理 build.rs 与宏，但不编译整个
           # 工作区）；C/C++ 的分析是原生构建 CI 的补充而不是替代。
           build-mode: none
-      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+      - uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         with:
           category: '/language:${{ matrix.language }}'
 
@@ -111,7 +109,7 @@ jobs:
           set -euo pipefail
           python3 scripts/fetch_voice_runtime.py --platform ios
           (cd platforms/ios && xcodegen generate -s project.yml -p .)
-      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+      - uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         with:
           languages: swift
           build-mode: manual
@@ -125,7 +123,7 @@ jobs:
           -derivedDataPath build/codeql-ios CODE_SIGNING_ALLOWED=NO
           ARCHS=arm64 ONLY_ACTIVE_ARCH=YES
           SWIFT_ENABLE_EXPLICIT_MODULES=NO CLANG_ENABLE_EXPLICIT_MODULES=NO build
-      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+      - uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         with:
           category: '/language:swift'
       - name: Show what the Swift extractor reported

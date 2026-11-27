@@ -318,6 +318,7 @@ test("Android fuzzy-pinyin first enable seeds every rule once", async () => {
     "in-ing",
     "ian-iang",
     "uan-uang",
+    "un-ong",
   ]) {
     expect(
       (screen.getByRole("checkbox", { name: `模糊音规则 ${id}` }) as HTMLInputElement).checked,
@@ -342,6 +343,7 @@ test("Android fuzzy-pinyin first enable seeds every rule once", async () => {
           "in-ing",
           "ian-iang",
           "uan-uang",
+          "un-ong",
         ],
         seeded: true,
       },
@@ -6898,7 +6900,7 @@ test("help, about and feedback pages expose their Windows content and actions", 
   fireEvent.click(screen.getByRole("button", { name: "开源许可协议" }));
   await waitFor(() =>
     expect(openExternalUrl).toHaveBeenCalledWith(
-      "https://github.com/metasequoiaime/msime/blob/develop/LICENSE",
+      "https://github.com/metasequoiaime/msime/blob/main/LICENSE",
     ),
   );
 
@@ -6995,7 +6997,7 @@ test("Android help and about pages use mobile instructions and project links", a
   fireEvent.click(screen.getByRole("button", { name: "开源许可协议" }));
   await waitFor(() =>
     expect(openExternalUrl).toHaveBeenCalledWith(
-      "https://github.com/metasequoiaime/msime/blob/develop/LICENSE",
+      "https://github.com/metasequoiaime/msime/blob/main/LICENSE",
     ),
   );
   fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));
@@ -7107,7 +7109,7 @@ test("macOS support pages use client project and privacy links", async () => {
   fireEvent.click(screen.getByRole("button", { name: "开源许可协议" }));
   await waitFor(() =>
     expect(openExternalUrl).toHaveBeenCalledWith(
-      "https://github.com/metasequoiaime/msime/blob/develop/LICENSE",
+      "https://github.com/metasequoiaime/msime/blob/main/LICENSE",
     ),
   );
   fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));

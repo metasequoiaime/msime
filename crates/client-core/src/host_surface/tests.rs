@@ -560,14 +560,14 @@ fn capabilities_round_trip_and_reject_unknown_keys() {
 }
 
 #[test]
-fn windows_requests_quick_phrase_candidates_with_desktop_hosts() {
+fn desktop_and_harmony_request_quick_phrase_candidates() {
     for (platform, expected) in [
         (HostPlatform::Windows, true),
         (HostPlatform::Macos, true),
         (HostPlatform::Linux, true),
         (HostPlatform::Android, true),
         (HostPlatform::Ios, false),
-        (HostPlatform::Harmony, false),
+        (HostPlatform::Harmony, true),
     ] {
         assert_eq!(
             HostCapabilities::for_platform(platform).quick_phrase_candidates,
@@ -1336,4 +1336,46 @@ fn custom_helpcode_trigger_is_offered_by_hosts_that_route_spelling_symbols() {
             "{platform:?}"
         );
     }
+}
+
+#[test]
+fn candidate_maintenance_shortcuts_follow_the_ibus_host_report() {
+    // 只有 Linux 的 iBus 宿主实现了这四键；平台本身不声明，Fcitx5 宿主的报告也不打开它。
+    for platform in [
+        HostPlatform::Linux,
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        assert!(
+            !HostCapabilities::for_platform(platform).candidate_maintenance_shortcuts,
+            "{platform:?}"
+        );
+    }
+    // platforms/linux 的 candidate_panel_status_document("ibus", ...) 写出的两种行。
+    for document in [
+        "{\"host\":\"ibus\",\"limit\":\"gnome_shell\"}\n",
+        "{\"host\":\"ibus\",\"limit\":null}\n",
+    ] {
+        assert!(linux_ibus_host(document), "{document}");
+    }
+    for document in [
+        "{\"host\":\"fcitx5\",\"limit\":null,\"renderer\":\"native_canvas\"}\n",
+        r#"{"host":"fcitx5","limit":"kimpanel"}"#,
+        r#"{"limit":null}"#,
+        r#"{"host":7}"#,
+        "not json",
+        "",
+    ] {
+        assert!(!linux_ibus_host(document), "{document}");
+    }
+    let mut linux = HostCapabilities::for_platform(HostPlatform::Linux);
+    linux.apply_linux_ibus_host();
+    assert!(linux.candidate_maintenance_shortcuts);
+    let mut windows = HostCapabilities::for_platform(HostPlatform::Windows);
+    let before = windows.clone();
+    windows.apply_linux_ibus_host();
+    assert_eq!(windows, before);
 }

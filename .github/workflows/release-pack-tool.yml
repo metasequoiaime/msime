@@ -1,19 +1,21 @@
 name: Release msime-pack
 
-# 构建脚本插件的作者工具 msime-pack（crates/pack-tool）：macOS universal（arm64 和 x86_64 两份合成一个）、Windows x64、Linux x64（musl 静态链接，不挑发行版的 glibc 版本），只有 publish 为 true 时才发布为 pack-tool-vX.Y.Z release。作者照 docs/plugins.md「从零写一个插件」下载它，不用克隆仓库。
+# 构建脚本插件的作者工具 msime-pack（crates/pack-tool）：macOS universal（arm64 和 x86_64 两份合成一个）、Windows x64、Linux x64（musl 静态链接，不挑发行版的 glibc 版本），在 pack-tool-v tag 上发布为这个 tag 的 release。作者照 docs/plugins.md「从零写一个插件」下载它，不用克隆仓库。
 #
-# 按触发分支加后缀，同各平台的 Release 工作流（AGENTS.md「发版」）：main 不加，develop 加 -beta，其他分支加 -alpha；带后缀的一律是 prerelease。tag 以 pack-tool-v 开头，应用内的更新检查只认 <平台>-v 前缀（crates/client-services/src/update_check.rs），不会把它当成某个平台的版本；也从不标为 latest，仓库的「最新发布」留给应用。发出去的 release 不替换：同一个 tag 已经存在时失败，要修正就发一个新版本号。
+# 发版就是在 main 上推 pack-tool-vX.Y.Z（正式版）或 pack-tool-vX.Y.Z-beta.N（测试版，prerelease）tag，同各平台的 Release 工作流（AGENTS.md「发版」）。scripts/release-ref.py 核对被打 tag 的提交在 origin/main 上（打包工具的版本号不在仓库里，只取自 tag）。在别的 ref 上手动触发只构建；ref 是已有的 tag 时与推送它相同。tag 以 pack-tool-v 开头，应用内的更新检查只认 <平台>-v 前缀（crates/client-services/src/update_check.rs），不会把它当成某个平台的版本；也从不标为 latest，仓库的「最新发布」留给应用。发出去的 release 不替换：这个 tag 已经有 release 时失败，要修正就推一个新版本号的 tag。
 #
 # macOS 的二进制只有链接器给的 ad-hoc 签名，没有 Developer ID 签名和公证：用浏览器下载的要先去掉隔离属性（xattr -d com.apple.quarantine msime-pack），发布说明里写着。
 on:
+  push:
+    tags: ['pack-tool-v*']
   workflow_dispatch:
     inputs:
-      version: {description: "Semantic version of the msime-pack release (pack-tool-vX.Y.Z); empty takes the highest existing pack-tool-v release plus one patch, or 0.1.0 for the first", required: false, default: "", type: string}
-      publish: {description: "Publish the build as a pack-tool-v release (otherwise it is only uploaded as a workflow artifact)", required: false, default: false, type: boolean}
+      version: {description: "Semantic version of a build that is not on a tag; empty takes the highest existing pack-tool-v release plus one patch, or 0.1.0 for the first. On a tag it must be empty or equal the tag's version", required: false, default: "", type: string}
+      publish: {description: "Publish when the ref is a pack-tool-v tag (a run on any other ref only uploads workflow artifacts)", required: false, default: true, type: boolean}
 permissions: {contents: read}
 concurrency: {group: release-pack-tool, cancel-in-progress: false}
 jobs:
-  # 先定下提交和版本号：三个平台的构建和发布用同一个提交，分支在运行期间前进也不受影响。
+  # 先定下提交、版本号和发不发布：三个平台的构建和发布用同一个提交，分支在运行期间前进也不受影响。
   version:
     runs-on: depot-ubuntu-24.04
     timeout-minutes: 5
@@ -21,26 +23,40 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ github.sha }}", persist-credentials: false}
       - id: resolve
-        env: {REQUESTED: "${{ inputs.version }}"}
+        env: {REQUESTED: "${{ inputs.version }}", PUBLISH_INPUT: "${{ inputs.publish }}", GH_TOKEN: "${{ github.token }}"}
         run: |
           set -euo pipefail
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          # Every existing pack-tool-v tag on the remote (suffixed prereleases are not counted for the automatic bump).
+          # On a tag the version and the -beta.N come from the tag. GITHUB_OUTPUT is cleared for release-ref.py so that this step writes the outputs once, after the automatic version below.
+          resolved="$(GITHUB_OUTPUT='' python3 scripts/release-ref.py --prefix pack-tool-v --requested "$REQUESTED")"
+          release="$(sed -n 's/^release=//p' <<< "$resolved")"
+          prerelease="$(sed -n 's/^prerelease=//p' <<< "$resolved")"
+          publish="$(sed -n 's/^publish=//p' <<< "$resolved")"
+          REQUESTED="$(sed -n 's/^version=//p' <<< "$resolved")"
+          # Every existing pack-tool-v tag on the remote (suffixed prereleases are not counted for the automatic bump of a build that is not on a tag).
           tags=$(git ls-remote --tags --refs "https://github.com/${GITHUB_REPOSITORY}.git" 'pack-tool-v*' | sed 's|.*refs/tags/pack-tool-v||')
           if [[ -z "$REQUESTED" ]]; then
             latest=$(printf '%s\n' "$tags" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 || true)
             if [[ -z "$latest" ]]; then REQUESTED=0.1.0; else IFS=. read -r major minor patch <<< "$latest"; REQUESTED="${major}.${minor}.$((patch + 1))"; fi
             echo "No version given; using $REQUESTED (highest existing: ${latest:-none})"
+            release="$REQUESTED"
           fi
           [[ "$REQUESTED" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be X.Y.Z, got '$REQUESTED'" >&2; exit 1; }
-          case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac
-          release="${REQUESTED}${suffix}"
-          if printf '%s\n' "$tags" | grep -qxF "$release"; then echo "pack-tool-v$release already exists; releases are never replaced" >&2; exit 1; fi
-          { echo "release=$release"; if [[ -n "$suffix" ]]; then echo "prerelease=true"; else echo "prerelease=false"; fi; } >> "$GITHUB_OUTPUT"
+          # 推上来的 tag 本身已经存在；发出去的 release 不替换，这个 tag 已经有 release 时直接失败。
+          if [[ "$publish" == true ]]; then
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/pack-tool-v${release}")
+            case "$code" in
+              404) ;;
+              200) echo "pack-tool-v$release already has a release; releases are never replaced" >&2; exit 1 ;;
+              *) echo "GitHub answered $code for the pack-tool-v$release release" >&2; exit 1 ;;
+            esac
+          fi
+          { echo "release=$release"; echo "prerelease=$prerelease"; echo "publish=$publish"; } >> "$GITHUB_OUTPUT"
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
       release: ${{ steps.resolve.outputs.release }}
       prerelease: ${{ steps.resolve.outputs.prerelease }}
+      publish: ${{ steps.resolve.outputs.publish }}
 
   build:
     needs: version
@@ -128,7 +144,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: ${{ inputs.publish }}
+    if: ${{ needs.version.outputs.publish == 'true' }}
     needs: [version, package]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -156,4 +172,5 @@ jobs:
           } > "$notes"
           flags=(--latest=false)
           if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease); fi
-          gh release create "$tag" dist/* --target "$SHA" --title "msime-pack $RELEASE" --notes-file "$notes" "${flags[@]}"
+          # The release goes on the pushed tag; --verify-tag refuses to create a tag that is not there.
+          gh release create "$tag" dist/* --verify-tag --title "msime-pack $RELEASE" --notes-file "$notes" "${flags[@]}"

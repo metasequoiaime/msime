@@ -32,7 +32,7 @@ class FakeGitHub:
         self.issues = {}
         self.labels = []
 
-    def add_run(self, run_id, number, conclusion, workflow="Nightly builds", event="schedule", branch="develop", attempt=1):
+    def add_run(self, run_id, number, conclusion, workflow="Nightly builds", event="schedule", branch="main", attempt=1):
         path = {"Nightly builds": ".github/workflows/nightly.yml", "Core CI": ".github/workflows/ci.yml"}[workflow]
         self.runs[run_id] = {
             "id": run_id, "run_number": number, "run_attempt": attempt, "conclusion": conclusion, "name": workflow,
@@ -483,6 +483,9 @@ class RedBuild(unittest.TestCase):
         conclusions = re.search(r"fromJSON\('(\[[^']*\])'\), github\.event\.workflow_run\.conclusion\)", text)
         self.assertIsNotNone(conclusions)
         self.assertEqual(sorted(json.loads(conclusions.group(1))), sorted(TRACKER.DECISIVE), "the workflow and the script must agree on which conclusions decide anything")
+        # The trigger filter, the job condition and the script must name the same branch; otherwise runs on the tracked branch never reach the script, or the script discards every run it receives.
+        self.assertIn(f"    branches: [{TRACKER.BRANCH}]\n", text)
+        self.assertIn(f"github.event.workflow_run.head_branch == '{TRACKER.BRANCH}' &&", text)
 
 
 class ApkSize(unittest.TestCase):

@@ -3,6 +3,7 @@ package app.msime.android.test;
 import android.app.Activity;
 import android.app.Instrumentation;
 import android.os.Bundle;
+import android.view.View;
 import android.view.inputmethod.InputConnection;
 import android.widget.Button;
 import java.io.File;
@@ -63,7 +64,7 @@ public final class CandidateExpansionDeviceSmoke extends Instrumentation {
                 Method command = nativeType.getMethod("command", long.class, int.class);
                 Method apply = method(type, "apply", String.class);
                 Method glosses = method(type, "scheduleCandidateGlosses");
-                Method pick = method(type, "selectVisibleCandidate", Button.class, int.class);
+                Method pick = method(type, "selectVisibleCandidate", Button.class);
                 Method open = method(type, "openCandidatePanel");
                 Method nativeView = nativeType.getMethod("view", long.class);
                 // 固定种子的合成字母在首道双拼里包含暂扣候选，禁止替换为用户输入。
@@ -110,7 +111,13 @@ public final class CandidateExpansionDeviceSmoke extends Instrumentation {
                         current = (JSONObject) field(type, "view").get(service);
                         if (current.getJSONArray("candidates").length() == 0) break;
                         stage = "repeated candidate selection " + mode + ":" + choice;
-                        pick.invoke(service, new Button(getTargetContext()), 0);
+                        // 点按只认画出来的那个候选（#11816）：先把当前第一个候选记到按钮上，模拟渲染绑定的那一步。
+                        Button button = new Button(getTargetContext());
+                        @SuppressWarnings("unchecked")
+                        java.util.Map<View, JSONObject> drawn =
+                            (java.util.Map<View, JSONObject>) field(type, "drawnCandidates").get(service);
+                        drawn.put(button, current.getJSONArray("candidates").getJSONObject(0));
+                        pick.invoke(service, button);
                         check(field(type, "session").getLong(service) == session, "selection preserves session");
                         glosses.invoke(service);
                     }

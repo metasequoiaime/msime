@@ -906,7 +906,7 @@ $("helpcode").addEventListener("change", (e) => {
   applyOptions().then(() => focusEditor());
 });
 
-// 页面跟着 develop 部署，用的却是 demo/package.json 钉住的那版 SDK：那版还没有的方案不显示，升级 SDK 后自动出现。
+// 页面跟着 main 部署，用的却是 demo/package.json 钉住的那版 SDK：那版还没有的方案不显示，升级 SDK 后自动出现。
 for (const button of document.querySelectorAll('[data-option="scheme"] button')) button.hidden = !SCHEMES.includes(button.dataset.value);
 
 if (matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches) {

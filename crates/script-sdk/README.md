@@ -30,7 +30,7 @@ msime-script-sdk = "0.1"
 
 ## 文档
 
-清单、能力、钩子、限制、隐私规则和 `msime-pack` 的用法见 msime 仓库的 [docs/plugins.md「脚本插件」一节](https://github.com/metasequoiaime/msime/blob/develop/docs/plugins.md)。编号只会追加，不会改值；每个常量和 import 都有测试对照输入法的运行时逐项核对。
+清单、能力、钩子、限制、隐私规则和 `msime-pack` 的用法见 msime 仓库的 [docs/plugins.md「脚本插件」一节](https://github.com/metasequoiaime/msime/blob/main/docs/plugins.md)。编号只会追加，不会改值；每个常量和 import 都有测试对照输入法的运行时逐项核对。
 
 ## 许可证
 

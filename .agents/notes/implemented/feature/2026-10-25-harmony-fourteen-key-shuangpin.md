@@ -14,7 +14,7 @@ HarmonyOS 手机和平板沿用共享偏好 `touch_shuangpin_layout`，提供双
 
 设置预览为双拼 14/18 键绘制独立的 `L;` 键面。全拼、双拼以外的方案不继承拼音组码网格。
 
-14/18 键全拼或双拼的两字母键（14 键 `QW ER TY UI OP AS DF GH JK ZX CV BN`，18 键 `WE RT IO SD FG JK XC BN`）支持左右横滑限定字母（#11040），规则与 [Android](2026-10-24-eighteen-key-exact-swipe.md) 和 [iOS](2026-10-25-ios-eighteen-key.md) 相同：横向位移超过 24 vp 且大于纵向 1.5 倍，左滑取左字母、右滑取右字母，以大写精确标记交给 `pressGridKey`。24 vp 与 Android 的 24 dp、iOS 的 24 pt 是同一物理尺寸，换算方式与 `SwipeHintPolicy` 把 Android 的 14 dp 写成 14 vp 相同。判定放在纯 TypeScript 的 `input/EighteenKeySwipePolicy.ts`，按键字母分别跟踪按压，两个拇指按两个键互不影响；`KeyboardView` 把这些键的 `onTouch`、`onClick` 和长按喂给它。拖动时键面改画选中的字母，用 `KeyOptions.swipeLetters` 在绘制时现算，不进 `ForEach` 的键标识，正按着的键不会被重建。越过阈值后这次按压不再是点按：回到起点、同一键上的第二根手指或系统取消都不输入，反向拖过另一侧可以重选；长按先生效时不再横滑，横滑先接管时长按不再弹出字母。抬手那一点也判一次，快速一甩只在抬手时过阈值的同样取那个字母。五笔 14 键和单字母键继续只点按。
+14/18 键全拼或双拼的两字母键（14 键 `QW ER TY UI OP AS DF GH JK ZX CV BN`，18 键 `WE RT IO SD FG JK XC BN`）支持左右横滑限定字母（#11040），规则与 [Android](2026-10-24-eighteen-key-exact-swipe.md) 和 [iOS](2026-10-25-ios-eighteen-key.md) 相同：横向位移超过 24 vp 且大于纵向 1.5 倍，左滑取左字母、右滑取右字母，以大写精确标记交给 `pressGridKey`。24 vp 与 Android 的 24 dp、iOS 的 24 pt 是同一物理尺寸，换算方式与 `SwipeHintPolicy` 把 Android 的 14 dp 写成 14 vp 相同。判定放在纯 TypeScript 的 `input/EighteenKeySwipePolicy.ts`，按键字母分别跟踪按压，两个拇指按两个键互不影响；`KeyboardView` 把这些键的 `onTouch`、`onClick` 和长按喂给它。拖动时键面改画选中的字母，用 `KeyOptions.swipeLetters` 在绘制时现算，不进 `ForEach` 的键标识，正按着的键不会被重建。越过阈值后这次按压不再是点按：回到起点、同一键上的第二根手指或系统取消都不输入，反向拖过另一侧可以重选；长按先生效时不再横滑，横滑先接管时长按不再生效。长按现在直接输入角标、不再弹出字母（组字中先经 `commitRaw` 结束组字），按压状态改由 `GridKeyGesturePolicy` 和 `GridKeyTouchController` 承担，见[14/18 键角标](2026-11-07-fourteen-eighteen-key-corner-symbols.md)。抬手那一点也判一次，快速一甩只在抬手时过阈值的同样取那个字母。五笔 14 键和单字母键继续只点按。
 
 ArkUI 对同一个键的 `onClick` 与抬手 `onTouch` 谁先到达没有契约，所以点击带着自己的窗口坐标问一次策略：先到的一方按抬手位置作出判定，后到的一方只照这个判定行事，同一次按压不会既输入字母又输入整组。全拼 18 键、14 键和单字母键（含 `L;`）只点按。18 键键面没有滑行输入、角标滑动或光标横滑，横滑不与它们争抢；统计与点按、长按记在同一个 `Eighteen*` 键位上。
 
@@ -33,7 +33,7 @@ ArkUI 对同一个键的 `onClick` 与抬手 `onTouch` 谁先到达没有契约�
 
 双拼用户在鸿蒙上可以独立选择 14/18 键，并在切换双拼 profile、重启会话和回到中文时保留选择。键表、长按和候选交互继续与全拼键面共享，减少了重复实现；代价是 HarmonyOS 需要同时维护共享偏好字段、宿主网格门控和设置预览三处投影。旧版鸿蒙客户端不认识新偏好值时会按其既有兼容策略回落到 26 键，当前版本的本地选择不会改变其他方案或桌面键盘。
 
-横滑让鸿蒙与 Android、iOS 在 #11040 上一致，14/18 键全拼和双拼都可以不经长按弹窗直接限定字母，也不结束当前组字。代价是两个字母的键多了一层触摸状态：点击路径要先问 `EighteenKeySwipeGesture`，以后给这些键加别的手势时要一并考虑点击与抬手的先后。逻辑测试只驱动纯策略，ArkUI 真实事件的分发顺序、手感和系统边缘手势的冲突仍需设备确认。
+横滑让鸿蒙与 Android、iOS 在 #11040 上一致，14/18 键全拼和双拼都可以不经长按弹窗直接限定字母，也不结束当前组字。代价是两个字母的键多了一层触摸状态：点击路径要先问这次按压的手势状态（现在是 `GridKeyGesturePolicy`），以后给这些键加别的手势时要一并考虑点击与抬手的先后。逻辑测试只驱动纯策略，ArkUI 真实事件的分发顺序、手感和系统边缘手势的冲突仍需设备确认。
 
 ## Verification
 

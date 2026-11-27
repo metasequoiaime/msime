@@ -29,6 +29,8 @@ extension UIColor {
 //
 // 带标题栏时（默认）面板独自盖住整个键盘：顶部是品牌标志、拼写、候选数和收起箭头。不带标题栏时（`showsHeader: false`）面板用满候选条下方的按键区，拼写和收起箭头由候选条保留，不另放底部按钮。
 //
+// 传 `expandsInPlace: true` 时面板改为铺在候选条那一行上，看起来是候选栏原地向下展开：右侧多一条窄列放收起、手写、删除，网格止于那一列，候选条那一行的内容由键盘控制器清空。卡片与系统样式共用这条布局，区别只在格子怎么画（卡片是按键式的面与边框，系统样式是纯文字、选中格照候选条首选块画）。
+//
 // 传入 `columns` 时是全拼九键的三栏面板：左边拼音栏、中间候选网格、右边功能键，同样位于按键区；读音留在上面的候选栏里，所以不画标题栏，返回和退格在右栏里，也不画底栏。
 final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionViewDataSource {
   static let minimumCellWidth: CGFloat = 64
@@ -39,6 +41,19 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
   private static let annotatedSpan = 2
   private static let cellInsets = NSDirectionalEdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8)
 
+  /// 系统样式的固定列数：系统的拼音面板在 375pt 宽的机器上就是六列。
+  static let systemColumns = 6
+  /// 系统样式的格子高度与间隔。格子只有字，所以比按键式的 44pt 高一点、间隔小一点，一屏正好六行。
+  static let systemCellHeight: CGFloat = 46
+  static let systemCellSpacing: CGFloat = 2
+  static let systemCellInsets = NSDirectionalEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 4)
+  /// 原地展开时右侧那一窄列：收起、手写、删除三个按钮竖着排。卡片与系统样式共用。
+  static let inlineTrailingColumnWidth: CGFloat = 44
+
+  private var style: CandidatePanelStylePreference.Style
+  /// 展开后的面板就铺在候选条那一行上，看起来是候选栏原地向下展开。卡片与系统样式共用这条布局，只有格子的画法不同。
+  private let inlineLayout: Bool
+
   private var candidates: [String]
   private let candidateScale: CGFloat
   private let candidateFamilies: [String]
@@ -48,6 +63,8 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
   private var aiPlaceholders: Set<Int>
   /// 坐了首选的双拼纠错（`confident_correction`）的下标：字和纠错注释用强调色，读屏在末尾念「已纠正」。
   private var confidentCorrections: Set<Int>
+  /// 引擎改过拼写的候选（`corrected`）的下标：候选字后面画 `*`，注释里的原串已经由键盘控制器去掉（#11844）。
+  private var corrections: Set<Int>
   private let display: (String) -> String
   private let onSelect: (Int) -> Void
   /// 长按候选块：打开释义卡片（#10915），参数是候选在列表里的位置。与候选条共用：在候选条里能看释义、管理词条的长按，展开列表后不应失效。
@@ -64,16 +81,29 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
   private var laidOutWidth: CGFloat = 0
   private var pendingScrollOffset: CGPoint?
   private var headerGap: NSLayoutConstraint?
+  private let onHandwriting: (() -> Void)?
+  private let onDelete: (() -> Void)?
+  /// 删除键上那个滑动手势：键盘控制器把自己的 `backspaceSwipe` 交进来，于是面板里的删除与底部 ⌫ 是同一套——按住往左滑逐格删、往上滑越过待命线松手清空。手势的决定权（起手方向、能不能滑）留在家控制器里，视图只负责挂上去。
+  private let deleteSwipeGesture: UIPanGestureRecognizer?
 
-  /// 宽 `width` 的网格有几列：CSS auto-fill 的列数，即按 64pt 列宽、6pt 间隔能放下几列，至少一列。
-  static func columns(width: CGFloat) -> Int {
-    max(1, Int((width + cellSpacing) / (minimumCellWidth + cellSpacing)))
+  /// 原地展开的卡片网格右边让出了 44pt 的窄列，可用宽度少一条：仍按 64pt 排就只有四列，一屏空得厉害。这里放宽到 58pt——375/390pt 的机器恢复五列，430pt 六列，SE 的 320pt 仍是四列（五列每格才五十来点，放不下两个字）。
+  static let inlineMinimumCellWidth: CGFloat = 58
+
+  /// 宽 `width` 的网格有几列：CSS auto-fill 的列数，即按 `minimumCellWidth` 列宽、6pt 间隔能放下几列，至少一列。系统样式固定六列。
+  static func columns(width: CGFloat, style: CandidatePanelStylePreference.Style = .card,
+                      minimumCellWidth: CGFloat = KeyboardCandidatePanelView.minimumCellWidth) -> Int {
+    if style == .system { return systemColumns }
+    return max(1, Int((width + cellSpacing) / (minimumCellWidth + cellSpacing)))
   }
 
   /// 一个候选占几列：足够容纳 `titleWidth`（第一行宽度加上格子内边距），带注释时至少两列，且不超过一行的总列数。
-  static func span(titleWidth: CGFloat, annotated: Bool, columns: Int, columnWidth: CGFloat) -> Int {
+  ///
+  /// 系统样式例外：那里的格子只按候选本身的宽度跨列，注释不再撑宽。六列下每列才五十来点，注释撑成两列会让一页只剩三格，与系统的一页六格差太远；注释改成跟着格子截断。
+  static func span(titleWidth: CGFloat, annotated: Bool, columns: Int, columnWidth: CGFloat,
+                   style: CandidatePanelStylePreference.Style = .card) -> Int {
     let needed = columnWidth > 0 ? Int(((titleWidth + cellSpacing) / (columnWidth + cellSpacing)).rounded(.up)) : 1
-    return min(columns, max(needed, annotated ? annotatedSpan : 1, 1))
+    let annotatedMinimum = style == .system ? 1 : annotatedSpan
+    return min(columns, max(needed, annotated ? annotatedMinimum : 1, 1))
   }
 
   /// 按顺序把占 `spans` 列的格子装进 `columns` 列的各行，返回每格的行、起始列和实际占的列数。一行剩下的列放不下下一格时换行，与不开启 dense 填充的 CSS 网格一样；换行前那一格拉宽到行尾，网格右边不留空。最后一行不拉宽，一两个候选不会被撑成一整条。Android（`CandidateGridPolicy.place`）与鸿蒙（`ExpandedCandidateLayout.rows`）是同一条规则。
@@ -94,12 +124,17 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
 
   init(candidates: [String], preedit: String, annotations: [KeyboardCandidateAnnotation] = [],
        markers: [[CandidateMarker]] = [], aiPlaceholders: Set<Int> = [], confidentCorrections: Set<Int> = [],
+       corrections: Set<Int> = [],
        candidateScale: CGFloat = 1, preeditScale: CGFloat = 1, candidateFamilies: [String] = [],
        selectedIndex: Int = 0, showsHeader: Bool = true, palette: CandidatePalette? = nil,
        canvas: ExternalCandidateSkin.Canvas? = nil,
        display: @escaping (String) -> String,
        onLongPress: @escaping (Int) -> Void = { _ in },
        onSelect: @escaping (Int) -> Void, onClose: @escaping () -> Void,
+       style: CandidatePanelStylePreference.Style = .card,
+       onHandwriting: (() -> Void)? = nil, onDelete: (() -> Void)? = nil,
+       deleteSwipeGesture: UIPanGestureRecognizer? = nil,
+       expandsInPlace: Bool = false,
        columns: (leading: UIView, trailing: UIView)? = nil) {
     self.candidates = candidates
     self.candidateScale = candidateScale
@@ -108,19 +143,27 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     self.markers = markers
     self.aiPlaceholders = aiPlaceholders
     self.confidentCorrections = confidentCorrections
+    self.corrections = corrections
     self.display = display
     self.onLongPress = onLongPress
     self.onSelect = onSelect
     self.selectedIndex = selectedIndex
     self.showsHeader = showsHeader
+    self.style = style
+    self.onHandwriting = onHandwriting
+    self.onDelete = onDelete
+    self.deleteSwipeGesture = deleteSwipeGesture
     self.palette = palette
+    self.inlineLayout = expandsInPlace && columns == nil
     super.init(frame: .zero)
     self.canvas = canvas
-    minimumContentHeight = Self.cellHeight
+    // 原地展开的面板铺在候选条那一行上，候选条里的内容在它打开期间清空（键盘控制器 `panelCoversCompositionRow`），所以面板自己不铺底色：透出的就是候选条那一行原来的底色，展开前后背景不会变。
+    minimumContentHeight = style == .system && columns == nil ? Self.systemCellHeight : Self.cellHeight
     accessibilityIdentifier = "candidatePanel"
-    // 在按键区里透出键盘自己的背景，与它所替代的按键下方一样。
+    // 在按键区里透出键盘自己的背景，与它所替代的按键下方一样。原地展开时盖住的那一行内容已经清空，同样什么都不铺。
     backgroundColor = canvas?.panelLoaded == true ? .clear : palette?.surface
-      ?? (showsHeader && columns == nil ? skin.keyBackground.withAlphaComponent(0.98) : .clear)
+      ?? (inlineLayout ? .clear
+          : (showsHeader && columns == nil ? skin.keyBackground.withAlphaComponent(0.98) : .clear))
 
     scrollView.translatesAutoresizingMaskIntoConstraints = false
     scrollView.alwaysBounceVertical = false
@@ -146,6 +189,21 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
         columns.trailing.trailingAnchor.constraint(equalTo: candidateContentGuide.trailingAnchor),
         scrollView.leadingAnchor.constraint(equalTo: columns.leading.trailingAnchor, constant: Self.cellSpacing),
         scrollView.trailingAnchor.constraint(equalTo: columns.trailing.leadingAnchor, constant: -Self.cellSpacing),
+        scrollView.topAnchor.constraint(equalTo: candidateContentGuide.topAnchor),
+        scrollView.bottomAnchor.constraint(equalTo: candidateContentGuide.bottomAnchor),
+      ])
+      rebuildChips()
+      return
+    }
+    if inlineLayout {
+      let column = makeTrailingColumn(onClose: onClose)
+      NSLayoutConstraint.activate([
+        column.topAnchor.constraint(equalTo: candidateContentGuide.topAnchor),
+        column.bottomAnchor.constraint(equalTo: candidateContentGuide.bottomAnchor),
+        column.trailingAnchor.constraint(equalTo: candidateContentGuide.trailingAnchor),
+        column.widthAnchor.constraint(equalToConstant: Self.inlineTrailingColumnWidth),
+        scrollView.leadingAnchor.constraint(equalTo: candidateContentGuide.leadingAnchor),
+        scrollView.trailingAnchor.constraint(equalTo: column.leadingAnchor),
         scrollView.topAnchor.constraint(equalTo: candidateContentGuide.topAnchor),
         scrollView.bottomAnchor.constraint(equalTo: candidateContentGuide.bottomAnchor),
       ])
@@ -227,11 +285,65 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     return header
   }
 
+  /// 原地展开时右侧那一窄列：顶部收起、中部手写、底部删除。手写和删除用键盘自己的图标（与工具栏、回车键同一套），不换成系统符号。两种样式共用。
+  private func makeTrailingColumn(onClose: @escaping () -> Void) -> UIView {
+    let column = UIView()
+    column.translatesAutoresizingMaskIntoConstraints = false
+    column.accessibilityIdentifier = "candidatePanelSideColumn"
+    addSubview(column)
+    let close = systemColumnButton(UIImage(systemName: "chevron.up") ?? UIImage(), label: "收起候选",
+                                   identifier: "closeCandidatePanel", action: onClose)
+    column.addSubview(close)
+    NSLayoutConstraint.activate([
+      close.topAnchor.constraint(equalTo: column.topAnchor, constant: 4),
+      close.centerXAnchor.constraint(equalTo: column.centerXAnchor),
+    ])
+    if let onHandwriting {
+      let handwriting = systemColumnButton(KeyboardIcon.handwriting.image(pointSize: 22), label: "手写输入",
+                                           identifier: "candidatePanelHandwriting", action: onHandwriting)
+      column.addSubview(handwriting)
+      NSLayoutConstraint.activate([
+        handwriting.centerXAnchor.constraint(equalTo: column.centerXAnchor),
+        handwriting.centerYAnchor.constraint(equalTo: column.centerYAnchor, constant: -24),
+      ])
+    }
+    if let onDelete {
+      let delete = systemColumnButton(KeyboardIcon.backspace.image(pointSize: 22), label: "删除",
+                                      identifier: "candidatePanelDelete", action: onDelete)
+      // 与底部 ⌫ 同一个手势：按住横滑逐格删、上滑清空。挂在这里的手势由键盘控制器创建并当代理，面板只出按键。
+      if let deleteSwipeGesture {
+        delete.addGestureRecognizer(deleteSwipeGesture)
+        delete.accessibilityHint = "向左滑动连续删除，向上滑动清空输入"
+      }
+      column.addSubview(delete)
+      NSLayoutConstraint.activate([
+        delete.centerXAnchor.constraint(equalTo: column.centerXAnchor),
+        delete.bottomAnchor.constraint(equalTo: column.bottomAnchor, constant: -20),
+      ])
+    }
+    return column
+  }
+
+  private func systemColumnButton(_ image: UIImage, label: String, identifier: String,
+                                  action: @escaping () -> Void) -> UIButton {
+    var configuration = UIButton.Configuration.plain()
+    configuration.image = image
+    configuration.baseForegroundColor = skin.keyForeground
+    configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
+    let button = UIButton(configuration: configuration, primaryAction: UIAction { _ in action() })
+    button.translatesAutoresizingMaskIntoConstraints = false
+    button.accessibilityLabel = label
+    button.accessibilityIdentifier = identifier
+    return button
+  }
+
   func applyAppearance(palette: CandidatePalette?, canvas: ExternalCandidateSkin.Canvas?) {
     self.palette = palette
     self.canvas = canvas
     headerGap?.constant = canvas?.lineGap ?? 4
-    backgroundColor = canvas?.panelLoaded == true ? .clear : palette?.surface ?? (showsHeader ? skin.keyBackground : .clear)
+    // 原地展开时盖住的候选条那一行内容已经清空，面板自己什么都不铺，展开前后的背景就是同一块。
+    backgroundColor = canvas?.panelLoaded == true ? .clear : palette?.surface
+      ?? (inlineLayout ? .clear : showsHeader ? skin.keyBackground : .clear)
     rebuildChips()
     setNeedsLayout()
   }
@@ -245,12 +357,14 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
 
   /// 换成另一代候选，面板不关。九键面板里选拼音、退格或筛选之后回到列表开头；只是 AI 行变了（回答插进第一页最后一格、多出来的接在末尾）时 `keepingScrollPosition` 留在原处，不跳回开头（#6888）。
   func reload(candidates: [String], annotations: [KeyboardCandidateAnnotation], markers: [[CandidateMarker]],
-              aiPlaceholders: Set<Int> = [], confidentCorrections: Set<Int> = [], keepingScrollPosition: Bool = false) {
+              aiPlaceholders: Set<Int> = [], confidentCorrections: Set<Int> = [], corrections: Set<Int> = [],
+              keepingScrollPosition: Bool = false) {
     self.candidates = candidates
     self.annotations = annotations
     self.markers = markers
     self.aiPlaceholders = aiPlaceholders
     self.confidentCorrections = confidentCorrections
+    self.corrections = corrections
     count.text = "\(candidates.count) 个候选"
     if !keepingScrollPosition { scrollView.setContentOffset(.zero, animated: false) }
     rebuildChips()
@@ -287,15 +401,19 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
   }
 
   private func layoutGrid(width: CGFloat) {
-    let padding = Self.gridPadding
-    let spacing = palette?.layout?.itemGap?.dip(fontSize: CandidateFontPreference.font(.body, scale: candidateScale).pointSize) ?? Self.cellSpacing
+    let tight = style == .system
+    let padding = tight ? 0 : Self.gridPadding
+    let spacing = palette?.layout?.itemGap?.dip(fontSize: CandidateFontPreference.font(.body, scale: candidateScale).pointSize)
+      ?? (tight ? Self.systemCellSpacing : Self.cellSpacing)
     let content = max(0, width - padding * 2)
-    let columns = Self.columns(width: content)
+    // 原地展开的卡片网格右边是窄列，列宽下限跟着放宽，见 `inlineMinimumCellWidth`。
+    let columns = Self.columns(width: content, style: style,
+                               minimumCellWidth: !tight && inlineLayout ? Self.inlineMinimumCellWidth : Self.minimumCellWidth)
     let columnWidth = max(0, (content - spacing * CGFloat(columns - 1)) / CGFloat(columns))
     let spans = candidates.indices.map { index in
       let chip = makeChip(candidate: candidates[index], index: index, reusing: measurementChip, interactive: false)
       return Self.span(titleWidth: chip.titleWidth, annotated: chip.glossLines > 0,
-                       columns: columns, columnWidth: columnWidth)
+                       columns: columns, columnWidth: columnWidth, style: style)
     }
     let cells = Self.place(spans: spans, columns: columns)
     var frames = [CGRect](repeating: .zero, count: candidates.count)
@@ -303,15 +421,15 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     while rowStart < cells.count {
       var rowEnd = rowStart + 1
       while rowEnd < cells.count, cells[rowEnd].row == cells[rowStart].row { rowEnd += 1 }
-      var height = Self.cellHeight
+      var height = tight ? Self.systemCellHeight : Self.cellHeight
       for index in rowStart..<rowEnd {
         let chip = makeChip(candidate: candidates[index], index: index, reusing: measurementChip, interactive: false)
-        height = max(height, cellHeight(for: chip, width: cellWidth(span: cells[index].span, columnWidth: columnWidth)))
+        height = max(height, cellHeight(for: chip, width: cellWidth(span: cells[index].span, columnWidth: columnWidth, spacing: spacing)))
       }
       for index in rowStart..<rowEnd {
         let cell = cells[index]
         frames[index] = CGRect(x: padding + CGFloat(cell.column) * (columnWidth + spacing), y: y,
-                               width: cellWidth(span: cell.span, columnWidth: columnWidth), height: height)
+                               width: cellWidth(span: cell.span, columnWidth: columnWidth, spacing: spacing), height: height)
       }
       y += height + spacing
       rowStart = rowEnd
@@ -325,22 +443,25 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     scrollView.setContentOffset(CGPoint(x: 0, y: offset), animated: false)
   }
 
-  private func cellWidth(span: Int, columnWidth: CGFloat) -> CGFloat {
-    columnWidth * CGFloat(span) + Self.cellSpacing * CGFloat(span - 1)
+  private func cellWidth(span: Int, columnWidth: CGFloat, spacing: CGFloat) -> CGFloat {
+    columnWidth * CGFloat(span) + spacing * CGFloat(span - 1)
   }
 
   /// 44pt，或者标题加注释行需要更高时取所需高度：一页中带注释的候选块无论注释到没到，高度都一致。
   private func cellHeight(for chip: CandidateGridButton, width: CGFloat) -> CGFloat {
-    let insets = Self.cellInsets.top + Self.cellInsets.bottom
+    let verticalInsets = style == .system ? Self.systemCellInsets : Self.cellInsets
+    let insets = verticalInsets.top + verticalInsets.bottom
     let lines = chip.titleLineHeight + CGFloat(chip.glossLines) * UIFont.preferredFont(forTextStyle: .caption2).lineHeight
     let measured = chip.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
-    return ceil(max(Self.cellHeight, insets + lines + 2, chip.glossLines > 0 ? measured : 0))
+    let minimum = style == .system ? Self.systemCellHeight : Self.cellHeight
+    return ceil(max(minimum, insets + lines + 2, chip.glossLines > 0 ? measured : 0))
   }
 
   private func makeChip(candidate: String, index: Int, reusing chip: CandidateGridButton,
                         interactive: Bool = true) -> CandidateGridButton {
     let number = index + 1
     let text = display(candidate)
+    let markedText = CandidateCorrectionPolicy.markedWord(text, corrected: corrections.contains(index))
     let annotation = annotations.indices.contains(index) ? annotations[index] : .none
     let marks = markers.indices.contains(index) ? markers[index] : []
     let selected = index == selectedIndex
@@ -351,12 +472,15 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
       ? (selected ? palette?.selectedTranslation ?? palette?.selectedText : nil) ?? palette?.accent ?? skin.accent : secondary
     let paragraph = NSMutableParagraphStyle()
     paragraph.lineBreakMode = .byTruncatingTail
-    paragraph.alignment = .center
+    // 系统样式的格子是纯文字、左对齐；卡片样式每个格子画得像按键，居中才对称。
+    paragraph.alignment = style == .system ? .left : .center
+    let insets = style == .system ? Self.systemCellInsets : Self.cellInsets
     var font = CandidateFontPreference.font(.body, scale: candidateScale, families: candidateFamilies)
+    // 首选（空格会上屏的那个）在候选条里是半粗体，展开网格里同样加粗，高亮的样子前后一致。
     if selected { font = Self.semibold(font) }
-    var title = AttributedString(text, attributes: AttributeContainer([.font: font, .paragraphStyle: paragraph]))
+    var title = AttributedString(markedText, attributes: AttributeContainer([.font: font, .paragraphStyle: paragraph]))
     title += KeyboardViewController.markerRun(marks, color: secondary, scale: candidateScale)
-    let titleWidth = ceil(NSAttributedString(title).size().width) + Self.cellInsets.leading + Self.cellInsets.trailing
+    let titleWidth = ceil(NSAttributedString(title).size().width) + insets.leading + insets.trailing
     let glossLines = annotation.text.isEmpty
       ? 0 : annotation.text.split(separator: "\n", omittingEmptySubsequences: false).count
     if glossLines > 0 {
@@ -369,21 +493,39 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     }
     var configuration = UIButton.Configuration.plain()
     configuration.attributedTitle = title
-    configuration.baseForegroundColor = selected || marks.contains(where: \.pinned) || confidentCorrection
-      ? (selected ? palette?.selectedText : nil) ?? palette?.accent ?? skin.accent : palette?.text ?? skin.keyForeground
+    let system = style == .system
+    if system {
+      // 系统样式的选中格与候选条的首选词块同一套画法（同样的底色、圆角和字色），展开前后高亮不会换样子；其余格子只有文字，钉住和坐首位纠错仍用强调色。
+      configuration.baseForegroundColor = selected
+        ? palette?.selectedText ?? palette?.accent ?? skin.candidateAccent
+        : marks.contains(where: \.pinned) || confidentCorrection
+          ? palette?.accent ?? skin.accent : palette?.text ?? skin.keyForeground
+    } else {
+      configuration.baseForegroundColor = selected || marks.contains(where: \.pinned) || confidentCorrection
+        ? (selected ? palette?.selectedText : nil) ?? palette?.accent ?? skin.accent : palette?.text ?? skin.keyForeground
+    }
     let aiPlaceholder = aiPlaceholders.contains(index)
     if aiPlaceholder { configuration.baseForegroundColor = secondary }
-    configuration.contentInsets = palette?.layout?.chipInsets(fontSize: font.pointSize, fallback: Self.cellInsets) ?? Self.cellInsets
+    configuration.contentInsets = system
+      ? insets : palette?.layout?.chipInsets(fontSize: font.pointSize, fallback: Self.cellInsets) ?? Self.cellInsets
     configuration.background.cornerRadius = skin.cornerRadius
     let nativeStyle = palette?.usesKeyboardStyle ?? true
-    let fill = selected ? palette?.selected ?? skin.accentSoft : nativeStyle ? skin.keyBackground : UIColor.clear
+    // 系统样式的格子只有文字，选中时铺候选条首选词块那块底（桌面调色板与候选条同一条取色规则）；卡片样式是按键面和强调色底。
+    let systemSelectedFill = palette.map { canvas?.panelLoaded == true ? $0.selected : $0.hover } ?? skin.keyBackground
+    // 卡片样式的格子底按设置里的「候选格子不透明度」调淡，调到 0 就只剩文字。选中那一格不跟着淡，否则调低之后看不出哪个是首选。
+    let chipOpacity = style == .card ? CandidatePanelChipOpacityPreference.opacity : 1
+    let keyFace = skin.keyBackground.withAlphaComponent(skin.keyBackground.cgColor.alpha * chipOpacity)
+    let fill = system
+      ? (selected ? systemSelectedFill : UIColor.clear)
+      : selected ? palette?.selected ?? skin.accentSoft : nativeStyle ? keyFace : UIColor.clear
     configuration.background.backgroundColor = fill
-    if selected, let palette, palette.showSelectedBar {
+    if selected, !system, let palette, palette.showSelectedBar {
       configuration.background.customView = CandidateSelectionBarView(color: palette.selectedBar ?? palette.accent, layout: palette.layout, fontSize: font.pointSize)
     }
-    configuration.background.strokeWidth = nativeStyle ? 0 : palette?.layout?.borderWidth ?? 1
-    configuration.background.strokeColor = palette?.border ?? .clear
-    configuration.background.cornerRadius = palette?.layout?.itemRadius ?? canvas?.itemCornerRadius ?? skin.cornerRadius
+    configuration.background.strokeWidth = system ? 0 : nativeStyle ? 0 : palette?.layout?.borderWidth ?? 1
+    configuration.background.strokeColor = system ? .clear : palette?.border ?? .clear
+    configuration.background.cornerRadius = system
+      ? KeyboardViewController.candidateChipRadius : palette?.layout?.itemRadius ?? canvas?.itemCornerRadius ?? skin.cornerRadius
     // 格子随单元格复用，被手指按过的格子再套用 configuration 时 UIKit 会给标题挂 0.25s 的淡入淡出（`CATransition` fade），面板重新载入后新旧两个词叠着渐变。候选按 #10330 立即呈现，换字放在不带动画的块里做完；只用来量尺寸的格子不上屏，不必立即布局。
     UIView.performWithoutAnimation {
       chip.configuration = configuration
@@ -396,8 +538,8 @@ final class KeyboardCandidatePanelView: CandidateCanvasHostView, UICollectionVie
     chip.titleLineHeight = font.lineHeight
     chip.glossLines = glossLines
     chip.titleLineCount = 1 + glossLines
-    // 选中的格子平铺在它的底色上；其余格子都画得像按键，包括阴影。
-    chip.drawsKeyShadow = nativeStyle && !selected && skin.hasShadow
+    // 选中的格子平铺在它的底色上；其余格子都画得像按键，包括阴影。格子底被调淡之后不再带阴影：半透明的按键投一块实心影子会很脏。
+    chip.drawsKeyShadow = !system && nativeStyle && !selected && skin.hasShadow && chipOpacity > 0.99
     chip.accessibilityIdentifier = "panelCandidate-\(number)"
     chip.accessibilityLabel = annotation.accessibilityDescription.isEmpty
       ? "候选词 \(number)：\(text)"

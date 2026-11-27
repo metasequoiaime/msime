@@ -8,6 +8,8 @@ struct CandidatePanelSnapshot: Equatable, Sendable {
     let translation: String
     /// The Engine's display suffix: a helpcode, or the spelling a correction replaced.
     var annotation = ""
+    /// 引擎改过这一行的拼写（View 的 `corrected`）：句子里用 `*` 标出来，注释里打头的原串不再画。
+    var corrected = false
     var source = 0
     var fixedPosition = 0
     let index: UInt64
@@ -68,6 +70,7 @@ struct CandidatePanelSnapshot: Equatable, Sendable {
       let fixedPosition = try optionalInteger(candidate["fixed_position"])
       if !CandidateMarker.isVisible(source: source) { return nil }
       return Entry(text: text, code: code, translation: translation, annotation: annotation,
+                   corrected: candidate["corrected"] as? Bool ?? false,
                    source: source, fixedPosition: fixedPosition, index: index,
                    highlighted: candidate["highlighted"] as? Bool ?? false,
                    confidentCorrection: candidate["confident_correction"] as? Bool ?? false)

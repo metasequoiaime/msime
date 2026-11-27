@@ -8,7 +8,7 @@ name: Cargo audit
 # 什么都没关系：一条早上刚公布的 RustSec 公告会让每个 PR 同时变红，冻结全仓库的合并。所以它不挂在
 # 每个 PR 上，也不做必需检查。它在三种情况下跑：
 #   - 改到 Cargo.lock 或 .cargo/audit.toml 的 PR：给作者关于这次锁变更或忽略策略变更的反馈；
-  #   - 推送到 main：发布信号；
+  #   - 改到 Cargo.lock 或 .cargo/audit.toml 的提交推送到 main：所有改动都直接合进 main，这是合入后的那一次记录；
   #   - 每日定时：对新公告做全量监测。
 on:
   pull_request:
@@ -41,7 +41,7 @@ jobs:
           persist-credentials: false
       # taiki-e/install-action 下载 cargo-audit 的预编译二进制，CI 不编译检查工具本身。action 与工具
       # 版本都固定：升级走单独的 PR，免得新版提高 MSRV 或改变默认行为让无关的 PR 变红。
-      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-audit@0.22.2
       # 只读本仓库的 Cargo.lock，不编译本仓库；公告库要联网拉取，所以这一项不属于离线可跑的 --quick 门禁。

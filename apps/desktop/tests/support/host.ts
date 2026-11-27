@@ -64,6 +64,8 @@ export function testHost(
     shuangpin_preedit: macos,
     shuangpin_keymap_hint: macos || windows || linux,
     maintenance_shortcuts: false,
+    // 只有 Linux 的 iBus 宿主实现了候选维护四键，由运行中的宿主报告后才打开（`apply_linux_ibus_host`），平台本身不声明。
+    candidate_maintenance_shortcuts: false,
     fullwidth_chord: macos,
     voice_provider_settings: !android,
     voice_stream_preedit: !android,

@@ -1021,6 +1021,74 @@ fn shuishan(weight: i64) -> PersonalWord {
 }
 
 #[test]
+fn collection_word_pages_clamp_after_removing_the_last_page() {
+    let mut fixture = Fixture::new();
+    let view = fixture
+        .store
+        .create("合成词库", PersonalWordKind::QuickPhrase)
+        .unwrap();
+    let id = id_of(&view, "合成词库");
+    let rows: Vec<_> = (0..WORDS_PAGE_SIZE + 2)
+        .map(|index| PersonalWord {
+            kind: PersonalWordKind::QuickPhrase,
+            key: "kw".into(),
+            value: format!("合成词条 {index}"),
+            weight: 100,
+        })
+        .collect();
+    fixture.store.add_words(&id, rows.clone()).unwrap();
+    fixture.drain();
+
+    let list = |page| DictionaryCollectionsAction::ListWords {
+        id: id.clone(),
+        page,
+    };
+    let first = fixture
+        .store
+        .perform(list(0), None)
+        .unwrap()
+        .word_page
+        .unwrap();
+    assert_eq!(first.name, "合成词库");
+    assert_eq!(first.page_count, 2);
+    assert_eq!(first.entries, rows[..WORDS_PAGE_SIZE]);
+    let last = fixture
+        .store
+        .perform(list(usize::MAX), None)
+        .unwrap()
+        .word_page
+        .unwrap();
+    assert_eq!(last.page, 1);
+    assert_eq!(last.entries, rows[WORDS_PAGE_SIZE..]);
+
+    let other = fixture
+        .store
+        .create("另一个合成词库", PersonalWordKind::QuickPhrase)
+        .unwrap();
+    fixture
+        .store
+        .add_words(
+            &id_of(&other, "另一个合成词库"),
+            vec![last.entries[0].clone()],
+        )
+        .unwrap();
+    fixture.drain();
+    fixture.store.remove_words(&id, &last.entries).unwrap();
+    fixture.drain();
+    assert!(fixture.has(&last.entries[0]));
+    assert!(!fixture.has(&last.entries[1]));
+    let shrunk = fixture
+        .store
+        .perform(list(1), None)
+        .unwrap()
+        .word_page
+        .unwrap();
+    assert_eq!(shrunk.page, 0);
+    assert_eq!(shrunk.page_count, 1);
+    assert_eq!(shrunk.entries, first.entries);
+}
+
+#[test]
 fn collections_never_overwrite_or_remove_a_word_the_user_already_had() {
     const OWN_WEIGHT: i64 = 4_321;
     const COLLECTION_WEIGHT: i64 = 10_000;

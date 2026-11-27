@@ -79,7 +79,7 @@ const engine = await createMsimeEngine({ scheme: "quanpin", assetBase: "/msime/a
 
 ## 部署到各平台
 
-示例站点和每个平台的配置在仓库的 [`packages/web-engine/examples/static-site`](https://github.com/metasequoiaime/msime/tree/develop/packages/web-engine/examples/static-site)。
+示例站点和每个平台的配置在仓库的 [`packages/web-engine/examples/static-site`](https://github.com/metasequoiaime/msime/tree/main/packages/web-engine/examples/static-site)。
 
 | 平台 | 做法 |
 | --- | --- |

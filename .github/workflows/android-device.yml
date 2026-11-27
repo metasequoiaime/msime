@@ -1,9 +1,9 @@
 name: Android device
-# 在真正的 Android 模拟器上跑：client-base、client-core、client-providers 和 client-services 单测整套，再装 APK 走首次启动、词库准备和输入验收。ci-platforms.yml 在动到 Android 或共享代码的 develop、main 推送上按风险传入 `--pr` 或 `--risk`，PR 改了键盘或设置界面时只在 API 35 上调用一次轻量验收；nightly 使用默认的完整双 API 矩阵，release-android.yml 使用双 API 的 --release 冒烟，失败就不发。
+# 在真正的 Android 模拟器上跑：client-base、client-core、client-providers 和 client-services 单测整套，再装 APK 走首次启动、词库准备和输入验收。ci-platforms.yml 在动到 Android 或共享代码的 main 推送上按风险传入 `--pr` 或 `--risk`，PR 改了键盘或设置界面时只在 API 35 上调用一次轻量验收；nightly 使用默认的完整双 API 矩阵，release-android.yml 使用双 API 的 --release 冒烟，失败就不发。
 #
 # 为什么要有这一步：编译、lint 和 JVM 测试全绿的 0.3.0 在设备上「词库准备失败」（私有目录从 / 起逐级以只读打开，Android 不给应用读 /data）、匿名账号写不进（SELinux 禁止应用建硬链接），Android 9 一打开就崩溃（开屏光晕的径向渐变带主题属性）。这三类问题只有在 Android 上运行才看得见。
 #
-# API 28 是 minSdk（Android 9），35 是常规矩阵的最高级别；API 37 可通过手动矩阵定向复验 Android 17 报告，不加入默认发布矩阵。targetSdk 已是 36。develop 推送的高风险改动使用 smoke.sh --risk，只覆盖安装、真实主输入、资源导入、会话存储和剪贴板存储；完整输入套件留给 nightly；发版使用 --release。API 28 的 --core 仍保留给显式调用；崩溃专项不依赖这些节点，API 28 和 35 都单独跑 crash-only；PR 与 develop 的轻量路径使用 API 35 的 `--pr`，只跑短的键盘与设置链路。
+# API 28 是 minSdk（Android 9），35 是常规矩阵的最高级别；API 37 可通过手动矩阵定向复验 Android 17 报告，不加入默认发布矩阵。targetSdk 已是 36。main 推送的高风险改动使用 smoke.sh --risk，只覆盖安装、真实主输入、资源导入、会话存储和剪贴板存储；完整输入套件留给 nightly；发版使用 --release。API 28 的 --core 仍保留给显式调用；崩溃专项不依赖这些节点，API 28 和 35 都单独跑 crash-only；PR 与 main 推送的轻量路径使用 API 35 的 `--pr`，只跑短的键盘与设置链路。
 on:
   workflow_dispatch:
     inputs:
@@ -20,7 +20,7 @@ on:
         type: string
         default: ''
       matrix:
-        description: 要跑的 API 级别及各自的 smoke.sh 参数（JSON 数组）；缺省是 API 28 的 --core 加 API 35 整套，develop 推送可传 --risk，PR 上传 API 35 的 --pr。
+        description: 要跑的 API 级别及各自的 smoke.sh 参数（JSON 数组）；缺省是 API 28 的 --core 加 API 35 整套，main 推送可传 --risk，PR 上传 API 35 的 --pr。
         required: false
         type: string
         default: '[{"api": 28, "smoke": "--core"}, {"api": 35, "smoke": ""}]'
@@ -31,8 +31,8 @@ jobs:
     name: Android device (API ${{ matrix.api }})
     # 模拟器需要 KVM；普通 Depot GitHub Actions runner 不提供 /dev/kvm，不能用单台探测结果代替平台能力保证。见 .agents/notes/implemented/process/2026-10-30-android-device-kvm-runner.md。此 job 不接触 secrets，APK 使用开发密钥。
     runs-on: ubuntu-24.04
-    # 冷构建后整套验收已接近 90 分钟；验收步骤单独限时，给日志上传和退出留出余量。
-    timeout-minutes: 120
+    # 冷构建到整套验收实测已经用满 120 分钟：11-25 nightly 的验收步骤自己就跑了 89 分钟，11-26 手动完整运行在这 90 分钟上限处被掐断、尾部几个套件没跑到。验收步骤单独限时，给日志上传和退出留出余量。
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
@@ -149,7 +149,7 @@ jobs:
           mkdir -p target/resources
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources --locked -- target/resources)"
           bash platforms/android/build-apk.sh "$resource_dir"
-      # 崩溃链路独立于完整输入冒烟；普通 UI 套件失败或耗时过长时也必须留下真实故障门禁结果。此前运行在 4 分钟内完成；10 分钟上限加上约 17 分钟的构建和下一步的 90 分钟，仍在 job 的 120 分钟以内。
+      # 崩溃链路独立于完整输入冒烟；普通 UI 套件失败或耗时过长时也必须留下真实故障门禁结果。此前运行在 4 分钟内完成；10 分钟上限加上约 21–25 分钟的构建和下一步的 110 分钟，仍在 job 的 150 分钟以内。
       - name: Verify crash reporting before the full input smoke
         if: ${{ matrix.smoke != '--pr' && matrix.smoke != '--key-faces' && matrix.smoke != '--theme' }}
         timeout-minutes: 10
@@ -161,7 +161,8 @@ jobs:
       # 上一步崩溃专项已经装过一次 265 MB 的 APK 并启动过应用，smoke.sh 再用 install -r 覆盖安装时，包管理器要在旧 APK、它的 dex 产物和首启准备好的数据之外再腾出一份新 APK 的空间。API 35 的 /data 余量本来就紧，2026-11-05 #10934 的 API 35 两次在这里报 INSTALL_FAILED_INSUFFICIENT_STORAGE: Failed to override installation location，验收一项没跑就停了，同一个 APK 在 API 28 和另一次重跑里都装得上。完整冒烟本来就按全新安装写（smoke.sh 里会跳过首启引导），这里先卸掉崩溃专项留下的安装再装，前后各打一次 /data 的余量，下次再报空间不足时日志里有数可查。
       - name: Install, prepare resources and accept input on the AVD
         if: ${{ matrix.smoke != '--crash-only' }}
-        timeout-minutes: 90
+        # 默认完整套件在 API 35 上跑了 89 分钟（11-25 nightly），90 分钟上限下没有余量，任何轻微变慢都会被掐断。
+        timeout-minutes: 110
         run: |
           set -euo pipefail
           mkdir -p target/android

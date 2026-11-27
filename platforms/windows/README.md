@@ -112,7 +112,7 @@ CI 的 `windows-settings` 作业（Windows native settings）在「Build and tes
 
 Windows 平台的实现源码在 `src/` 下；`tsf/`、`msimeui/`、`tests/`、`installer/` 各自守着协议、UI、测试与打包的边界，`experiments/` 放不进产品的验证工具。平台根目录放构建文件、脚本、清单和文档。
 
-`powershell -NoProfile -File platforms/windows/experiments/desktop-ownership.ps1` 在 Windows 上检查 #9439 所需的桌面对象与窗口线程归属：只创建并销毁两个合成桌面及隐藏窗口，不切换输入桌面，也不操作真实输入法。结果还检查同名实例互斥量跨桌面的冲突，以及合成子进程的线程归属和桌面对象身份。原生测试 `windows-client-desktop` 调用产品使用的归属解析器，`windows-desktop-candidates` 验证候选 UI 路由、所属线程的显式绘制、读锁争用、失焦收起与窗口销毁；私有桌面未激活时跳过鼠标翻页。系统对象实验不能替代产品候选、跨进程 TSF 或真实编辑器的多桌面验收；实现边界与待验收项见[路由决策](../../.agents/notes/implemented/feature/2026-10-24-windows-desktop-candidate-routing.md)。
+`powershell -NoProfile -File platforms/windows/experiments/desktop-ownership.ps1` 在 Windows 上检查 #9439 所需的桌面对象与窗口线程归属：只创建并销毁两个合成桌面及隐藏窗口，不切换输入桌面，也不操作真实输入法。结果还检查同名实例互斥量跨桌面的冲突，以及合成子进程的线程归属和桌面对象身份。原生测试 `windows-client-desktop` 调用产品使用的归属解析器，`windows-desktop-candidates` 验证候选 UI 路由、所属线程的显式绘制、读锁争用、失焦收起与窗口销毁；私有桌面未激活时跳过鼠标翻页。票据认证通过而客户端桌面解析不到的低完整性宿主（Windows 搜索框等）退到 Server 自己所在的桌面，认证不通过的票据不画候选。系统对象实验不能替代产品候选、跨进程 TSF 或真实编辑器的多桌面验收；实现边界与待验收项见[路由决策](../../.agents/notes/implemented/feature/2026-10-24-windows-desktop-candidate-routing.md)与[低完整性回落](../../.agents/notes/implemented/bug-fix/2026-11-24-windows-low-integrity-candidate-desktop-fallback.md)。
 
 `common/` 只收 TSF DLL 与 Server 两侧都要编译的协议头：`PipeMetadata.h`（主管道元数据位）、`AuxMessage.h`（Aux 管道消息的编码与解析）、`TsfFocusLeaseProtocol.h`（焦点租约帧）、`KeyEventSendResult.h`（按键写入结果的三分类；`tsf/IPC/KeyEventSendResult.h` 只是把它以 DLL 原有的全局名转出来）和 `StateDirectory.h`（状态目录的解析顺序：本版本的数据目录环境变量（full 是 `METASEQUOIA_IME_FULL_DATA_DIR`）、本版本 HKLM 键在 64 位视图下的 `DataDir`、`%LOCALAPPDATA%\<本版本的状态目录>`（full 是 `MSIME-Client`），两个进程各自解析，但必须落到同一个根；`crates/host-windows` 的 `server_state_directory` 是它的 Rust 副本，`scripts/test-windows-state-dir-parity.py` 核对两边都从版本表取这些名字；WinUI 设置窗口 `settings/main.cpp` 从开始菜单启动、没有 Server 注入的状态目录时也用它找到 Server 的状态根）。`tsf/` 只能以相对路径（`../common/`、`../../common/`）引用这里的头文件，不得再伸进 `src/`；Server 侧经全局 include 路径按文件名引用。往这里加头文件等于扩大 DLL ↔ Server 的契约，只放两侧确实共用的定义。
 
@@ -823,7 +823,7 @@ Win7 使用独立版本源 `platforms/windows/version-win7.txt`；现代 Windows
 
 Win7 验收基线为 Windows 7 SP1 x64，已安装 KB4474419、KB4490628、KB2921916，使用受信任测试签名和开启 UIAccess 的最终安装包。安装、升级保留合成数据、嵌套迁移、双架构 COM／TSF、看门狗、ACL 和显式卸载均通过；最终安装路径中的设置系统对话框打开／取消、x64 与 x86 系统记事本的真实拼音按键、可见候选与“你好”提交通过，Server 持续运行，英文出厂默认值保持。
 
-独立 Win7 SP1 x86 已通过完整安装、升级保留合成数据、嵌套迁移、卸载和重启后系统记事本真实输入；直通实体 USB 双向音频设备的同源 Server 录音、播放渲染、提示音，以及安装核心的 16 kHz 单声道采集均通过，未保存麦克风内容或作人工音质评价。生产服务使用隔离合成账号验证匿名注册、服务与社区目录、AI、AI 翻译，以及真实云词库新增、完整备份和恢复；原生 ASR 与润色针对合成语音或合成句子获得非空结果。部分在线测试经显式代理访问 HTTPS，不代表直连、普通账号交互登录或全部模型均通过。现代 Windows 的同源完整包回归和各项证据见[产品构建记录](../../.agents/notes/implemented/feature/2026-10-24-windows7-product-build.md)。正式版由 `release-windows7.yml` 在 `main` 手动触发并开启 `publish`，发布页提供两个安装包、各自摘要和 `SHA256SUMS`；未签名包不提供 `UIAccess`，需按发布页核对摘要。
+独立 Win7 SP1 x86 已通过完整安装、升级保留合成数据、嵌套迁移、卸载和重启后系统记事本真实输入；直通实体 USB 双向音频设备的同源 Server 录音、播放渲染、提示音，以及安装核心的 16 kHz 单声道采集均通过，未保存麦克风内容或作人工音质评价。生产服务使用隔离合成账号验证匿名注册、服务与社区目录、AI、AI 翻译，以及真实云词库新增、完整备份和恢复；原生 ASR 与润色针对合成语音或合成句子获得非空结果。部分在线测试经显式代理访问 HTTPS，不代表直连、普通账号交互登录或全部模型均通过。现代 Windows 的同源完整包回归和各项证据见[产品构建记录](../../.agents/notes/implemented/feature/2026-10-24-windows7-product-build.md)。正式版由推送到 `main` 上的 `windows7-vX.Y.Z` tag 触发 `release-windows7.yml` 发布，发布页提供两个安装包、各自摘要和 `SHA256SUMS`；未签名包不提供 `UIAccess`，需按发布页核对摘要。
 
 ### 离线翻译依赖的路径长度
 

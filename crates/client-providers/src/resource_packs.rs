@@ -33,7 +33,7 @@ const GRAMMAR_HEADER_BYTES: usize = 44;
 const GRAMMAR_MAX_UNITS: usize = 400_000_000;
 const GRAMMAR_MAGIC: &[u8] = b"Rime::Grammar/";
 const GRAMMAR_CATALOG_URL: &str =
-    "https://raw.githubusercontent.com/metasequoiaime/msime/develop/resources/grammar-models.catalog.json";
+    "https://raw.githubusercontent.com/metasequoiaime/msime/main/resources/grammar-models.catalog.json";
 const GRAMMAR_CATALOG_LIMIT: u64 = 1024 * 1024;
 #[cfg(test)]
 const EMBEDDED_GRAMMAR_CATALOG: &str =
@@ -64,7 +64,7 @@ pub struct GrammarModelUpdate {
     pub size: u64,
 }
 
-/// 每个语法模型只接受来自编译期固定的上游 Release 的下载地址。在线目录取自 `develop` 分支，摘要和地址出自同一份文件，所以目录本身证明不了来源；这里把来源钉死在上游仓库，目录被改坏时最多只能指向同一仓库的另一个 Release 附件，不能指向任意主机。
+/// 每个语法模型只接受来自编译期固定的上游 Release 的下载地址。在线目录取自 `main` 分支，摘要和地址出自同一份文件，所以目录本身证明不了来源；这里把来源钉死在上游仓库，目录被改坏时最多只能指向同一仓库的另一个 Release 附件，不能指向任意主机。
 fn grammar_release_prefix(id: &str) -> Option<&'static str> {
     match id {
         "wanxiang" => Some("https://github.com/amzxyz/rime-wanxiang-data/releases/download/"),
@@ -241,7 +241,7 @@ fn installed_grammar_sha256(state_root: &Path, pack: ResourcePack) -> Option<Str
 
 /// 安装用的模型目录。在线目录直连 raw.githubusercontent.com，国内网络常常读不到，而模型文件本身可以走用户镜像和项目镜像；目录读不到或被整份作废时，改用编译进来的锁文件，不让目录这一步挡住整次安装（#10761）。只用于用户发起的安装，主动检查更新仍要求读到在线目录，否则会把锁文件里的旧版本当成更新。
 ///
-/// 只有这个模型还没装（`installed_sha256` 为 `None`），或者装着的正是锁文件里那份字节时才退回；装着别的版本时照旧返回目录错误。「下载更新」和首次下载走的是同一个安装入口，在线目录会随 develop 前进，而锁文件随版本固定，装着的可能比锁文件新，摘要又看不出先后，退回会悄悄把它换成锁文件里的旧版本还报成功。
+/// 只有这个模型还没装（`installed_sha256` 为 `None`），或者装着的正是锁文件里那份字节时才退回；装着别的版本时照旧返回目录错误。「下载更新」和首次下载走的是同一个安装入口，在线目录会随 main 前进，而锁文件随版本固定，装着的可能比锁文件新，摘要又看不出先后，退回会悄悄把它换成锁文件里的旧版本还报成功。
 ///
 /// 锁文件里万象 LTS 的摘要可能已经落后于上游原地替换的文件，这时下载完会按摘要不符失败，和没有目录时一样不会装上未审过的字节。
 fn grammar_catalog_for_install(
