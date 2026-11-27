@@ -4,6 +4,7 @@ import android.os.Build;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
+import app.msime.android.CandidateSourceMarkSpan;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -191,8 +192,9 @@ public final class AiCandidateSeatDeviceSmoke extends DeviceSmoke {
         for (int index = 0; index < node.getChildCount(); index++) collect(node.getChild(index), slots);
     }
 
+    /** 候选按钮文字的第一行；云和 AI 候选的来源标记以 {@link CandidateSourceMarkSpan#PLACEHOLDER} 占位插在候选字后面（#11820），比较候选字时去掉。 */
     private static String firstLine(CharSequence text) {
-        String value = text.toString();
+        String value = text.toString().replace(CandidateSourceMarkSpan.PLACEHOLDER, "");
         int newline = value.indexOf('\n');
         return newline < 0 ? value : value.substring(0, newline);
     }

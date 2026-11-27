@@ -1,4 +1,5 @@
 #include "../src/candidates/PairedPunctuation.h"
+#include "../src/candidates/PairedCaretForward.h"
 
 #include <cassert>
 #include <optional>
@@ -35,39 +36,64 @@ int main() {
   assert(tracker.size() == PairedPunctuationTracker::kMaxDepth);
 
   tracker.clear();
-  assert(paired_closing_for_key('"', false, tracker, false) == "”");
-  assert(paired_closing_for_key('\'', false, tracker, false) == "’");
-  assert(paired_closing_for_key(')', false, tracker, false) == "）");
-  assert(paired_closing_for_key(']', false, tracker, false) == "】");
-  assert(paired_closing_for_key('}', false, tracker, false) == "}");
-  assert(paired_closing_for_key('}', true, tracker, false) == "｝");
+  assert(paired_closing_for_key('"', false, tracker, false, false) == "”");
+  assert(paired_closing_for_key('\'', false, tracker, false, false) == "’");
+  assert(paired_closing_for_key(')', false, tracker, false, false) == "）");
+  assert(paired_closing_for_key(']', false, tracker, false, false) == "】");
+  assert(paired_closing_for_key('}', false, tracker, false, false) == "}");
+  assert(paired_closing_for_key('}', true, tracker, false, false) == "｝");
   // 契约第 5 版：中文标点下 `{` 补出的是」，栈顶是」时 `}` 跨过它，全角开关不影响。
   tracker.push("」");
-  assert(paired_closing_for_key('}', false, tracker, false) == "」");
-  assert(paired_closing_for_key('}', true, tracker, false) == "」");
-  assert(tracker.consume(*paired_closing_for_key('}', true, tracker, false), "」", true));
+  assert(paired_closing_for_key('}', false, tracker, false, false) == "」");
+  assert(paired_closing_for_key('}', true, tracker, false, false) == "」");
+  assert(tracker.consume(*paired_closing_for_key('}', true, tracker, false, false), "」", true));
   assert(tracker.empty());
-  assert(!paired_closing_for_key(',', false, tracker, false));
+  // 日语方案的 `[` 出「、`{` 出『：补完后按 `]`/`}` 要跨过刚补的右半，不再插入一个。
+  tracker.push("」");
+  assert(paired_closing_for_key(']', false, tracker, false, true) == "」");
+  assert(tracker.consume(*paired_closing_for_key(']', false, tracker, false, true), "」", true));
+  assert(tracker.empty());
+  tracker.push("』");
+  assert(paired_closing_for_key('}', false, tracker, false, true) == "』");
+  assert(tracker.consume(*paired_closing_for_key('}', false, tracker, false, true), "』", true));
+  assert(tracker.empty());
+  // 日语下 `[` 补出的」不被 `}`（日文是』）或引号键跨过；引号键在日文表里走全角回退，与」』对不上。
+  tracker.push("」");
+  assert(paired_closing_for_key('}', false, tracker, false, true) == "}");
+  assert(paired_closing_for_key('\'', false, tracker, true, true) == "’");
+  tracker.clear();
+  tracker.push("』");
+  assert(paired_closing_for_key('"', false, tracker, true, true) == "”");
+  tracker.clear();
+  // 中文下 `{` 补出的」只由 `}` 跨过：`]` 照常出】、〗，`}` 不认』。
+  tracker.push("」");
+  assert(paired_closing_for_key(']', false, tracker, false, false) == "】");
+  assert(paired_closing_for_key(']', false, tracker, true, false) == "】");
+  tracker.clear();
+  tracker.push("』");
+  assert(paired_closing_for_key('}', false, tracker, false, false) == "}");
+  tracker.clear();
+  assert(!paired_closing_for_key(',', false, tracker, false, false));
   // 弯引号样式下 `{` 你好 `'`：`'` 出的是‘’，不能跨过 `{` 补出的」；consume 不符就清空栈，`'` 照常开一对新的。
   tracker.push("」");
-  assert(paired_closing_for_key('\'', false, tracker, false) == "’");
-  assert(!tracker.consume(*paired_closing_for_key('\'', false, tracker, false), "」", true));
+  assert(paired_closing_for_key('\'', false, tracker, false, false) == "’");
+  assert(!tracker.consume(*paired_closing_for_key('\'', false, tracker, false, false), "」", true));
   assert(tracker.empty());
   // 直角引号与空心括号：栈顶是这个键的另一组后半个时跨过它。
   tracker.push("」");
-  assert(paired_closing_for_key('\'', false, tracker, true) == "」");
-  assert(paired_closing_for_key('"', false, tracker, true) == "”");
+  assert(paired_closing_for_key('\'', false, tracker, true, false) == "」");
+  assert(paired_closing_for_key('"', false, tracker, true, false) == "”");
   tracker.push("』");
-  assert(paired_closing_for_key('"', false, tracker, true) == "』");
+  assert(paired_closing_for_key('"', false, tracker, true, false) == "』");
   tracker.push("〗");
-  assert(paired_closing_for_key(']', false, tracker, true) == "〗");
+  assert(paired_closing_for_key(']', false, tracker, true, false) == "〗");
   assert(tracker.consume("〗", "〗", true));
-  assert(tracker.consume(*paired_closing_for_key('"', false, tracker, true), "』", true));
-  assert(tracker.consume(*paired_closing_for_key('\'', false, tracker, true), "」", true));
+  assert(tracker.consume(*paired_closing_for_key('"', false, tracker, true, false), "』", true));
+  assert(tracker.consume(*paired_closing_for_key('\'', false, tracker, true, false), "」", true));
   assert(tracker.empty());
   // 直角引号样式下栈顶是‘’那一组（样式在一对开着时换掉）仍跨过’。
   tracker.push("’");
-  assert(paired_closing_for_key('\'', false, tracker, true) == "’");
+  assert(paired_closing_for_key('\'', false, tracker, true, false) == "’");
   tracker.clear();
   for (std::size_t index = 0; index < PairedPunctuationTracker::kMaxDepth + 3;
        ++index)
@@ -108,6 +134,13 @@ int main() {
     assert(paired_closing_from_text(text) == std::optional<std::string>("」"));
     text = "你好「";
     assert(normalize_punctuation_pair(text, Mode::Brace) && text == "你好「」");
+    // 日语方案的 `[` 出「、`{` 出『，宿主按末尾实际落地的字补另一半。
+    text = "你好「";
+    assert(normalize_punctuation_pair(text, Mode::Bracket) && text == "你好「」");
+    assert(paired_closing_from_text(text) == std::optional<std::string>("」"));
+    text = "『";
+    assert(normalize_punctuation_pair(text, Mode::Brace) && text == "『』");
+    assert(paired_closing_from_text(text) == std::optional<std::string>("』"));
     // `}` 出的」不是 `{` 的前半个，不补。
     text = "」";
     assert(!normalize_punctuation_pair(text, Mode::Brace) && text == "」");
@@ -136,6 +169,36 @@ int main() {
     text = "(";
     assert(!normalize_punctuation_pair(text, Mode::Bracket) && text == "(");
     assert(!normalize_punctuation_pair(text, Mode::Unpaired));
+  }
+  {
+    // 光标退让的转发：只有 Wayland 且 Shift 还按着才排队，其余立即发。
+    using msime::linux_host::PairedCaretForward;
+    assert((!PairedCaretForward{false, false}.defer()));
+    assert((!PairedCaretForward{false, true}.defer()));
+    assert((!PairedCaretForward{true, false}.defer()));
+    assert((PairedCaretForward{true, true}.defer()));
+    // 转发的方向键用 evdev 扫描码，不依赖 IBus 键位表文件，也不会是客户端不认的 0。
+    static_assert(msime::linux_host::paired_caret_keycode(true) == 105);
+    static_assert(msime::linux_host::paired_caret_keycode(false) == 106);
+  }
+  {
+    // 排队的方向键：取走后队列为空；换焦点或重置时清空，不会漏到下一个输入框。
+    msime::linux_host::PairedCaretQueue<unsigned> queue;
+    assert(queue.empty());
+    queue.push(1);
+    queue.push(2);
+    assert((queue.take() == std::vector<unsigned>{1, 2}));
+    assert(queue.empty());
+    // 净移动：左移为负，左右抵消；Shift 按着连打 `(` `)` 排下的是一左一右，逻辑光标回到原处。
+    queue.push(1);
+    assert(queue.net_offset(1) == -1);
+    queue.push(2);
+    assert(queue.net_offset(1) == 0);
+    (void)queue.take();
+    assert(queue.net_offset(1) == 0);
+    queue.push(3);
+    queue.clear();
+    assert(queue.empty() && queue.take().empty());
   }
   return 0;
 }

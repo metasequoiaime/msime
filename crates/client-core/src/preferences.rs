@@ -2051,6 +2051,10 @@ pub struct Preferences {
     /// 五笔拼音混输：五笔候选之后接着列出同一串字母的全拼候选，五笔编码打不出时直接出拼音候选。
     #[serde(default)]
     pub wubi_mixed_pinyin: bool,
+    /// 五笔自造词落库时的初始权重档（`input.wubi_phrase_placement`）：`bottom` 沉底（默认，同码已有行最小权重 −1），`top` 置顶（同码已有行最大权重 + 1，86/98 各表独立算；只管入库这一次，之后照常参与调频）。缺键按默认读，默认时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
+    #[serde(default, skip_serializing_if = "is_default_wubi_phrase_placement")]
+    pub wubi_phrase_placement: WubiPhrasePlacement,
     /// 五笔用 86、98 还是新世纪码表；个人词条和学习记录也按它分开存。
     #[serde(default)]
     pub wubi_profile: WubiProfile,
@@ -2198,6 +2202,10 @@ pub struct Preferences {
         skip_serializing_if = "is_default_touch_nine_key_flick_threshold"
     )]
     pub touch_nine_key_flick_threshold: u16,
+    /// 全拼九键的精确拼写模式，默认关闭。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub touch_nine_key_precise: bool,
     /// 仅 Android 使用，其他宿主原样保留。
     #[serde(default)]
     pub android_text_trackpad: TextTrackpadPreferences,
@@ -3257,6 +3265,32 @@ fn is_default_candidate_font_weight(value: &CandidateFontWeight) -> bool {
     *value == CandidateFontWeight::default()
 }
 
+fn is_default_wubi_phrase_placement(value: &WubiPhrasePlacement) -> bool {
+    *value == WubiPhrasePlacement::default()
+}
+
+/// 五笔自造词落库时的初始权重档。`bottom` 沉底（默认，同码已有行最小权重 −1），`top` 置顶
+/// （同码已有行最大权重 + 1，86/98 各表独立算；只管入库这一次，之后照常参与调频）。
+#[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum WubiPhrasePlacement {
+    #[default]
+    Bottom,
+    Top,
+}
+
+impl WubiPhrasePlacement {
+    /// 文档和账号设置里的写法，不认识的值为 `None`。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "bottom" => Some(Self::Bottom),
+            "top" => Some(Self::Top),
+            _ => None,
+        }
+    }
+}
+
 #[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -3660,14 +3694,21 @@ pub struct MixedInputPreferences {
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub symbols: bool,
-    /// 快捷短语混进普通候选（Windows `utility.quick_phrase_candidates`，出厂关）：普通组字的编码精确等于某条快捷短语的编码时，短语混进普通候选：没有学习记录时落在首页最后几格（普通候选不满一页时接在它们之后），学过之后按 `quick_phrase_frequency` 学下来的位置。只对声明 `HostCapabilities::quick_phrase_candidates` 的宿主（Windows、macOS、Linux、HarmonyOS）生效；三个桌面宿主此前无条件混入，所以缺这个键的旧文档读作开；新装默认关，与 Windows 出厂一致，开着时不写进文档。
+    /// 快捷短语混进普通候选（Windows `utility.quick_phrase_candidates`，出厂关）：普通组字的编码精确匹配时加入短语。三个桌面宿主以前无条件混入，旧文档缺键读作开；Android 旧文档缺键读作关，开关的两种取值都要明确保存。各宿主的新装默认关。
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
-    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    #[serde(
+        default = "legacy_quick_phrase_mixed_input",
+        skip_serializing_if = "omit_quick_phrase_mixed_input"
+    )]
     pub quick_phrase: bool,
     /// 快捷短语参与调频（Windows `utility.quick_phrase_frequency`，出厂开）：常越过整组快捷短语选别的候选时整组后退，最多退到首页末位；选中组内短语时整组前移。默认开，与 Windows 出厂一致；只在混输打开时起作用，缺这个键的旧文档读作开。
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
     pub quick_phrase_frequency: bool,
+    /// 把普通候选里编码完全匹配的快捷短语组放到最前。默认关，缺字段沿用原有落位。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub quick_phrase_first: bool,
 }
 
 impl Default for MixedInputPreferences {
@@ -3683,8 +3724,17 @@ impl Default for MixedInputPreferences {
             symbols: true,
             quick_phrase: false,
             quick_phrase_frequency: true,
+            quick_phrase_first: false,
         }
     }
+}
+
+fn legacy_quick_phrase_mixed_input() -> bool {
+    !cfg!(target_os = "android")
+}
+
+fn omit_quick_phrase_mixed_input(value: &bool) -> bool {
+    legacy_quick_phrase_mixed_input() && *value
 }
 
 /// 中文状态下首页默认展示的英文候选数（Windows `cn_en_mixed_input_first_page_count` 的出厂值）。
@@ -4029,6 +4079,9 @@ pub struct KeybindingPreferences {
     /// macOS 单按 Shift 只在可确认的可编辑焦点生效；依赖辅助功能权限，默认关闭。
     #[serde(default)]
     pub switch_language_shift_requires_editable: bool,
+    /// macOS 单按 Shift 从中文切到英文后，本次英文状态里的字母直接输出大写，再次切换或从其它入口改变中英文时恢复普通英文。默认关闭，缺字段的旧文档读成关闭；只有 macOS 宿主读它，界面随 macOS 原生设置迁移接入。
+    #[serde(default)]
+    pub shift_tap_uppercase_english: bool,
     #[serde(default)]
     pub switch_language_ctrl: bool,
     /// Linux 已默认处理这个组合键；关闭时交还应用，不改输入法框架的全局绑定。
@@ -4365,6 +4418,7 @@ impl Default for KeybindingPreferences {
         Self {
             switch_language_shift: true,
             switch_language_shift_requires_editable: false,
+            shift_tap_uppercase_english: false,
             switch_language_ctrl: false,
             switch_language_ctrl_space: true,
             switch_language_ctrl_alt_space: true,
@@ -4828,6 +4882,7 @@ impl Default for Preferences {
             wubi_z_wildcard: false,
             wubi_fifth_code_top_commit: true,
             wubi_mixed_pinyin: false,
+            wubi_phrase_placement: WubiPhrasePlacement::default(),
             wubi_profile: WubiProfile::default(),
             touch_keyboard_layout: TouchKeyboardLayout::default(),
             touch_keyboard_split_portrait: false,
@@ -4863,6 +4918,7 @@ impl Default for Preferences {
             touch_language_key_side: TouchLanguageKeySide::default(),
             touch_nine_key_swipe_digits: TouchNineKeySwipeDigits::default(),
             touch_nine_key_flick_threshold: TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT,
+            touch_nine_key_precise: false,
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),
@@ -5000,6 +5056,8 @@ pub enum FuzzyPinyinRule {
     IanIang,
     #[serde(rename = "uan-uang")]
     UanUang,
+    #[serde(rename = "un-ong")]
+    UnOng,
 }
 
 impl FuzzyPinyinRule {
@@ -5016,6 +5074,7 @@ impl FuzzyPinyinRule {
             Self::InIng => 1 << 8,
             Self::IanIang => 1 << 9,
             Self::UanUang => 1 << 10,
+            Self::UnOng => 1 << 11,
         }
     }
 }
@@ -6878,6 +6937,7 @@ impl PreferencesStore {
                 FuzzyPinyinRule::InIng,
                 FuzzyPinyinRule::IanIang,
                 FuzzyPinyinRule::UanUang,
+                FuzzyPinyinRule::UnOng,
             ]
             .into_iter()
             .collect();
@@ -7276,6 +7336,14 @@ fn settle_newer_values_on_read(document: &mut serde_json::Value) {
             .is_some_and(|value| WubiProfile::parse(value).is_none())
         {
             *profile = "wubi86".into();
+        }
+    }
+    if let Some(placement) = document.pointer_mut("/preferences/wubi_phrase_placement") {
+        if placement
+            .as_str()
+            .is_some_and(|value| WubiPhrasePlacement::parse(value).is_none())
+        {
+            *placement = "bottom".into();
         }
     }
     if let Some(layout) = document.pointer_mut("/preferences/korean/layout") {

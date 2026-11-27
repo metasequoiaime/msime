@@ -66,6 +66,8 @@ pub(super) struct InputSession {
     pub quick_phrase_candidates: bool,
     /// 快捷短语参与调频（`SessionOptions::quick_phrase_frequency`）：追加进普通候选的整组短语有槽位，越过它选普通候选让整组后退、选中组内短语让整组前移。
     pub quick_phrase_frequency: bool,
+    /// 用户选择把混输的快捷短语组放在普通候选最前面。
+    pub quick_phrase_first: bool,
     /// 宿主的每页候选数（`SessionOptions::first_page_rows`），0 归一成 1；快捷短语组调频的后退封顶（首页末位）用它算。
     pub first_page_rows: usize,
     pub clock: Clock,
@@ -159,7 +161,9 @@ pub(super) struct InputSession {
 
 impl InputSession {
     /// Everything `Session::new` applies, in the reference order.
-    pub fn new(options: &SessionOptions) -> Result<Self> {
+    ///
+    /// 直接在堆上构造：`Box::new` 把结构体字面量放进那块分配，调用方不必先在栈上摆一份 16 KiB 的临时值。宿主在小栈的输入线程上激活输入法时（见 `host_options_small_stack`），这份临时值就是压垮线程栈的那一步。
+    pub fn new(options: &SessionOptions) -> Result<Box<Self>> {
         if options
             .helpcode_trigger_key
             .is_some_and(|key| !b";/\\`=".contains(&key))
@@ -194,10 +198,11 @@ impl InputSession {
             options.vietnamese_input_method,
             options.vietnamese_tone_style,
         );
-        let mut session = Self {
+        let mut session = Box::new(Self {
             queries: CandidateQueries::new(&paths, profile),
             quick_phrase_candidates: options.quick_phrase_candidates,
             quick_phrase_frequency: options.quick_phrase_frequency,
+            quick_phrase_first: options.quick_phrase_first,
             first_page_rows: FirstPageRows::new(options.first_page_rows).get(),
             engine,
             clock: Clock::default(),
@@ -278,7 +283,7 @@ impl InputSession {
             pending_touch: None,
             journal_path: journal,
             paths,
-        };
+        });
 
         // session.cpp:15-29.
         session.shuangpin_preedit_uses_raw = options.shuangpin_preedit_uses_raw;
@@ -1010,6 +1015,10 @@ impl InputSession {
                 _ => self.punctuation.clear_quote_undo(),
             }
             // With nothing composed every command is left to the host, which edits the text, moves the caret or inserts a newline, so the chain no longer ends where the host's text does.
+            // 组字已经空了（词刚上屏、宿主随后收尾）也是打开的五笔累积段的关闭点：先关闭计数再重置。退格和向后删除是在删刚上屏的字，这段不是用户要的文字，直接丢弃不计数。
+            if !matches!(command, Command::Backspace | Command::DeleteForward) {
+                self.close_open_wubi_run();
+            }
             self.chain.reset();
             return KeyResult::unhandled();
         }
@@ -1312,8 +1321,13 @@ impl InputSession {
             return result;
         }
         // Lock 1 forces Chinese, which is what an enabled session does anyway; only lock 2 changes anything here (core-session.md §15.8).
+        // 日语走契约里的日文标点表，键面画什么就上屏什么；中文引号样式、顿号和书名号嵌套都不作用于日语。
         let mark = if self.chinese_punctuation_enabled && self.punctuation_lock != 2 {
-            self.punctuation.translate(value)
+            if self.is_japanese() {
+                crate::punctuation::japanese_mark(value)
+            } else {
+                self.punctuation.translate(value)
+            }
         } else {
             None
         };
@@ -2450,6 +2464,8 @@ impl InputSession {
             diagnostic = self.learn_rejected_correction();
         }
         self.reset_composition();
+        // 回车原文上屏同样收尾打开的五笔累积段，不能跟着 `chain.reset()` 一起无声消失。
+        self.close_open_wubi_run();
         self.chain.reset();
         KeyResult::committed(raw).with_diagnostic(diagnostic)
     }

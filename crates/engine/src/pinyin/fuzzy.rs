@@ -16,12 +16,13 @@ const INITIAL_PAIRS: [(&str, &str, u32); 6] = [
     ("r", "l", fuzzy_rule::R_L),
 ];
 
-const FINAL_PAIRS: [(&str, &str, u32); 5] = [
+const FINAL_PAIRS: [(&str, &str, u32); 6] = [
     ("an", "ang", fuzzy_rule::AN_ANG),
     ("en", "eng", fuzzy_rule::EN_ENG),
     ("in", "ing", fuzzy_rule::IN_ING),
     ("ian", "iang", fuzzy_rule::IAN_IANG),
     ("uan", "uang", fuzzy_rule::UAN_UANG),
+    ("un", "ong", fuzzy_rule::UN_ONG),
 ];
 
 /// 返回已启用规则中与声母互为模糊读法的伙伴，不包含声母自身。
@@ -254,6 +255,10 @@ mod tests {
         assert_eq!(
             fuzzy_syllables("an", rules(fuzzy_rule::ALL)).as_slice(),
             ["an", "ang"]
+        );
+        assert_eq!(
+            fuzzy_syllables("lun", rules(fuzzy_rule::UN_ONG)).as_slice(),
+            ["lun", "long"]
         );
         let lan = fuzzy_syllables("lan", rules(fuzzy_rule::ALL));
         assert_eq!(lan.as_slice().len(), 6);

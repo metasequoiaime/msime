@@ -192,7 +192,9 @@ final class OnboardingUITests: XCTestCase {
     func openLayout() -> XCUIElement {
       reachSettingsLink("keyboardLayoutLink", in: app)
       settingsEntry("keyboardLayoutLink", in: app).tap()
-      let toggle = app.switches["appHideLanguageKeySwitch"]
+      // 「隐藏中/英键」已迁到「按键布局」子页，先点进去再找开关。
+      settingsEntry("keyLayoutSettingsLink", in: app).tap()
+      let toggle = app.switches["keyLayoutHideLanguageSwitch"]
       revealBelowKeyboardPreview(toggle, in: app)
       XCTAssertTrue(toggle.waitForExistence(timeout: 5))
       return toggle

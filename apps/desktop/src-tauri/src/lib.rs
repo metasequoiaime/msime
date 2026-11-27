@@ -201,6 +201,9 @@ fn host_capabilities(app: tauri::AppHandle) -> HostCapabilities {
     if linux_native_canvas_renderer() {
         capabilities.apply_linux_native_canvas();
     }
+    if linux_ibus_host() {
+        capabilities.apply_linux_ibus_host();
+    }
     fill_linux_environment(&mut capabilities);
     let host_options = app
         .try_state::<DictionaryHostOptions>()
@@ -335,6 +338,19 @@ fn linux_native_canvas_renderer() -> bool {
 
 #[cfg(not(target_os = "linux"))]
 fn linux_native_canvas_renderer() -> bool {
+    false
+}
+
+/// 运行中的 Linux 宿主是 iBus（状态文件的 `"host": "ibus"`）；只有它实现了候选维护四键，设置页的速查才列出它们。
+#[cfg(target_os = "linux")]
+fn linux_ibus_host() -> bool {
+    linux_candidate_panel_status_document()
+        .as_deref()
+        .is_some_and(msime_client_core::host_surface::linux_ibus_host)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn linux_ibus_host() -> bool {
     false
 }
 

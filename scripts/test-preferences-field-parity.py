@@ -48,8 +48,12 @@ RUST_ONLY: dict[str, set[str]] = {
         "android_keyboard_skin_dark",
         # 组字时保留 Shift 只由 Android 与 iOS 的原生键盘设置页提供，其他宿主没有触屏全拼 26 键，React 设置页不显示。
         "touch_quanpin_shift",
+        # 全拼九键精确拼写只在 Android 与 iOS 的原生键盘设置页提供。
+        "touch_nine_key_precise",
         # 词库 WebDAV 同步（#9880）的核心先合入，各平台的设置界面随之后的平台 PR 接入。
         "dictionary_sync_webdav",
+        # 五笔自造词落库位置：共享 Rust 与 host-api 先行，AGENTS.md 禁止向 React 新增设置，入口随各平台原生设置页接入。
+        "wubi_phrase_placement",
         # 崩溃上报授权代次是共享基础的本机内部状态；平台设置入口留给后续各宿主 PR，不在共享 React 页提前暴露。
         "usage_reporting_consent",
         # 候选字重（#10748）：packages/ui 迁移期只修缺陷，控件只在 Windows 原生设置页；macOS 随原生设置迁移再加，期间经 MCP 或偏好文档设置。
@@ -64,7 +68,10 @@ RUST_ONLY: dict[str, set[str]] = {
         "settings_sync_webdav",
 
     },
-    "KeybindingPreferences": set(),
+    "KeybindingPreferences": {
+        # 单按 Shift 进入大写英文（#11846）只由 macOS 宿主读取；packages/ui 迁移期只修缺陷、不加新设置，冻结的 AppKit 回退窗口也不加控件，界面随 macOS 原生设置迁移接入。
+        "shift_tap_uppercase_english",
+    },
     "LocalModePreferences": {
         # 组字后按 / 转超级简拼（#10860）只在 Windows 与 iOS 的原生设置页提供开关；packages/ui 只修缺陷、不加新设置，macOS、Linux、HarmonyOS 按默认开，等原生设置迁移时补上。
         "super_jianpin_slash",

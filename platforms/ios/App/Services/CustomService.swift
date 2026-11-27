@@ -455,15 +455,8 @@ enum CustomServiceClient {
     }
   }
 
-  /// A 16 kHz mono 16-bit PCM WAV around `pcm`.
-  static func silentWAV(_ pcm: Data) -> Data {
-    func le32(_ value: UInt32) -> Data { withUnsafeBytes(of: value.littleEndian) { Data($0) } }
-    func le16(_ value: UInt16) -> Data { withUnsafeBytes(of: value.littleEndian) { Data($0) } }
-    var wav = Data("RIFF".utf8) + le32(UInt32(36 + pcm.count)) + Data("WAVEfmt ".utf8)
-    wav += le32(16) + le16(1) + le16(1) + le32(16_000) + le32(32_000) + le16(2) + le16(16)
-    wav += Data("data".utf8) + le32(UInt32(pcm.count)) + pcm
-    return wav
-  }
+  /// `pcm` 外面包一层 16 kHz 单声道 16 位的 WAV 头（`AppServicesBridge.wav`，键盘自己录音时也用它）。
+  static func silentWAV(_ pcm: Data) -> Data { AppServicesBridge.wav(pcm) }
 }
 
 // Service-configuration metadata only; generation/transcription codecs stay in Engine.

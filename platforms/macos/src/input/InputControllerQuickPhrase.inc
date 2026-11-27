@@ -16,3 +16,47 @@
     [self apply:transition];
     return YES;
 }
+
+- (void)addQuickPhrasePriorityToMenu:(NSMenu *)menu {
+    NSString *directory = [self initialPreferencesDirectory];
+    NSDictionary *snapshot = directory ? [self readPreferencesSnapshotInDirectory:directory error:nil] : nil;
+    NSDictionary *mixed = snapshot[@"preferences"][@"mixed_input"];
+    if (!mixed || [mixed[@"enabled"] isEqual:@NO] || [mixed[@"quick_phrase"] isEqual:@NO]) return;
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"快捷短语置顶"
+        action:@selector(selectQuickPhrasePriority:) keyEquivalent:@""];
+    item.target = self;
+    item.representedObject = directory;
+    item.state = [mixed[@"quick_phrase_first"] isEqual:@YES] ? NSControlStateValueOn : NSControlStateValueOff;
+    [menu addItem:item];
+}
+
+- (void)selectQuickPhrasePriority:(id)sender {
+    id selected = [sender isKindOfClass:NSDictionary.class] ? sender[kIMKCommandMenuItemName] : sender;
+    if (![selected isKindOfClass:NSMenuItem.class]) return;
+    NSMenuItem *item = selected;
+    NSString *directory = item.representedObject;
+    BOOL enabled = item.state != NSControlStateValueOn;
+    __weak MSIMEInputController *weakSelf = self;
+    // 文件锁和持久化在后台进行；版本冲突后重读文档，只修改这一个字段。
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        BOOL saved = NO;
+        for (int attempt = 0; attempt < 2 && !saved; ++attempt) {
+            NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:nil];
+            uint64_t revision = 0;
+            if (!MSIMEStrictUnsignedInteger(snapshot[@"revision"], &revision)) break;
+            NSMutableDictionary *preferences = [snapshot[@"preferences"] mutableCopy];
+            NSMutableDictionary *mixed = [preferences[@"mixed_input"] mutableCopy];
+            if (!mixed) break;
+            mixed[@"quick_phrase_first"] = @(enabled);
+            preferences[@"mixed_input"] = mixed;
+            NSMutableDictionary *updated = [snapshot mutableCopy];
+            updated[@"preferences"] = preferences;
+            saved = [MSIMEClientSession savePreferencesInDirectory:directory
+                expectedRevision:revision snapshot:updated error:nil] != nil;
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (saved) [weakSelf reloadPreferences];
+            else [weakSelf presentHUDText:@"无法保存快捷短语设置" announcement:@"无法保存快捷短语设置"];
+        });
+    });
+}

@@ -27,8 +27,23 @@ pub(crate) enum SessionUse {
     Preview,
 }
 
+/// 建会话在宿主栈上还要留多少余量才不切栈。TSF 在 MSCTF 的激活回调里同步等它返回，宿主那条线程的栈可以很小：Unreal 编辑器建窗时激活输入法的那条线程整条只有约 88 KiB（#11893 的两个 dmp 里 RSP 到栈顶分别是 86,536 和 85,704 字节），而这条构造链在 release 下就要 110 KiB。余量按 256 KiB 算，剩下的留给宿主自己的调用链。
+const SESSION_STACK_RED_ZONE: usize = 256 * 1024;
+/// 切过去用的大栈。构造链 release 下 110 KiB、debug 更大，1 MiB 留了足够余量，只在真要切栈时才分配这一块。
+const SESSION_STACK_SIZE: usize = 1024 * 1024;
+
 /// `msime_client_create` 的本体，返回新会话的 view。
+///
+/// 构造链的栈帧不是宿主线程一定供得起的（见上面两个常量），所以在剩余栈不足时先在同一线程上切到一块自己的栈，构造完再切回来。切栈不换线程：线程本地状态、会话的 `Rc` 限定和返回后接着用会话的调用方都不受影响，`stacker` 也只在切换点接住 panic、回到原栈再抛。
 pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, String> {
+    stacker::maybe_grow(SESSION_STACK_RED_ZONE, SESSION_STACK_SIZE, || {
+        build_session(bytes, usage)
+    })
+}
+
+/// 建会话的实体。`#[inline(never)]` 要留着：这个栈帧本身就是那条一百多 KiB 的构造链，内联进 `create_session` 就等于在宿主栈上展开，切栈就白做了。
+#[inline(never)]
+fn build_session(bytes: &[u8], usage: SessionUse) -> Result<Value, String> {
     let options = serde_json::from_slice(bytes)
         .ok()
         .and_then(HostOptions::from_document)
@@ -163,7 +178,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
         applied.traditional_chinese_output,
         applied.traditional_chinese_variant,
     );
-    // 开关开着时逐键重排器在后台挂，挂好后由 `apply_pending` 在输入空闲时换上，见 `HostSession::keyboard_reranker_loading`；关着时照旧当场放开。
+    // 开关开着时逐键重排器在后台挂（缓存已热时直接填入槽中，不起线程），挂好后由 `apply_pending` 在输入空闲时换上，见 `HostSession::keyboard_reranker_loading`；允许挂模型的输入会话关着开关时当场放开进程缓存，预览会话（`SessionUse::Preview`）和镜像会话（`!keyboard_reranker_allowed`）只清掉本会话的打分器，不卸载其他输入会话正在共用的模型。
     let keyboard_reranker_loading = if keyboard_reranker_allowed
         && keyboard_reranker_enabled(&applied.sentence_association, edition)
     {
@@ -176,7 +191,7 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
             sentence_model_path.as_deref(),
             pause_rerank,
         ))
-    } else {
+    } else if usage == SessionUse::Input && keyboard_reranker_allowed {
         runtime.set_candidate_scorer(keyboard_reranker(
             false,
             &options.resources,
@@ -186,6 +201,9 @@ pub(crate) fn create_session(bytes: &[u8], usage: SessionUse) -> Result<Value, S
             state_root.as_deref(),
             sentence_model_path.as_deref(),
         ));
+        None
+    } else {
+        runtime.set_candidate_scorer(None);
         None
     };
     let keyboard_reranker_source = crate::ffi::onnx_rerank_source(

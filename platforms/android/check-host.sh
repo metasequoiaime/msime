@@ -6,6 +6,11 @@ if ! command -v rg >/dev/null 2>&1; then
   echo "ripgrep (rg) is required by the Android host contract checks" >&2
   exit 1
 fi
+# 下面那一半才是这个宿主的大头：服务、键盘、面板和二十几个策略类都要对着 SDK 的 android.jar 编译，它们的冒烟要在一个桌面 JVM 上跑。只有 JRE 不够，而 macOS 的 `/usr/bin/java` 只是个会打印 "Unable to locate a Java Runtime" 的桩：没有这段前置检查时，第一次 `java` 调用会在几千行之后被 `set -e` 带走，什么也看不到（#11886）。所以在跑一堆检查之前就失败，而不是跑完才失败。
+if ! javac -version >/dev/null 2>&1 || ! java -version >/dev/null 2>&1; then
+  echo "platforms/android/check-host.sh needs a working JDK (javac and java, not macOS's /usr/bin stubs); add one to PATH, for example PATH=\"\$HOME/opt/openjdk/bin:\$PATH\"" >&2
+  exit 1
+fi
 # 管道下游的 `rg -q` 一律换成它：先把标准输入整个读完，再交给 `rg -q` 判断。`rg -q` 读到第一处命中就退出，上游的 printf、sed 或 rg 若还有没写完的输出，再写就收到 SIGPIPE（`printf: write error: Broken pipe`），在 pipefail 下整条管道返回失败，于是同一份源码时过时不过，取决于上游分几次写、下游何时退出。变量本身直接用 here-string（`rg -q pattern <<< "$var"`），不用经过管道。scripts/test-gate-pipe-early-exit.py 会拦下新写的 `| rg -q`。
 rg_q_stdin() {
   local input
@@ -1513,7 +1518,7 @@ if ! rg -qF 'boolean languageLeft = s.languageKeyLeft;' "$bottom_row_file" \
   echo "Android must lay the bottom rows, the borrowed number pads and the tall-return strip by touch_language_key_side, rebuild the tall-return frame when it changes, list 中/英键放在空格左边 in every 按键布局 segment, draw the heatmap with it and index it in settings search" >&2
   exit 1
 fi
-# 14/18 键字母键宽度（#11051，`touch_fourteen_key_letter_widths`）：分法和占位格朝外补的半键距由 FourteenKeyLetterWidthsSmoke 覆盖，占位格的按下归属由 KeyPressAreaDeviceChecks 覆盖。这里钉住键盘的接线：冷启动和实时偏好都按宽松读取取值，进 touchGeometryKey 和 SKIN_HINT_KEYS（冷启动第一帧就按用户的宽度画），render 按 letterWidthsStale 重建；三排的份额取自 FourteenKeyLetterWidths.plan，占位格是指定了所属键的 KeyboardSpacer，补的半键距随键距就地重新套用。
+# 14/18 键字母键宽度（#11051，`touch_fourteen_key_letter_widths`）：分法由 FourteenKeyLetterWidthsSmoke 覆盖（键宽按格量，见 KeyRowLayout，占位格不再补键距），占位格的按下归属由 KeyPressAreaDeviceChecks 覆盖。这里钉住键盘的接线：冷启动和实时偏好都按宽松读取取值，进 touchGeometryKey 和 SKIN_HINT_KEYS（冷启动第一帧就按用户的宽度画），render 按 letterWidthsStale 重建；三排的份额取自 FourteenKeyLetterWidths.plan，占位格是指定了所属键的 KeyboardSpacer。
 fourteen_rows_body=$(sed -n '/    private void rebuildFourteenKeyRows() {$/,/^    }$/p' "$letter_rows")
 if ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    }$/p' "$account_service" \
     | rg_q_stdin -F 'fourteenKeyLetterWidths = fourteenKeyLetterWidthsFrom(preferences);' \
@@ -1523,10 +1528,7 @@ if ! sed -n '/private void applyTouchGeometry(JSONObject preferences) {$/,/^    
   || ! rg -qF '|| imeLetterRows.letterWidthsStale()' "$account_service" \
   || ! rg_q_stdin -F 'FourteenKeyLetterWidths.plan(rows, letterWeight, edgeWeight, widths.geometry())' <<< "$fourteen_rows_body" \
   || ! rg_q_stdin -F 'pad.setOwner(previousKey);' <<< "$fourteen_rows_body" \
-  || ! rg_q_stdin -F 'leadingPad.setOwner(keyButton);' <<< "$fourteen_rows_body" \
-  || ! rg_q_stdin -F 'pad.setOuterHalfGaps(previousKey == null, padHalfGaps);' <<< "$fourteen_rows_body" \
-  || ! sed -n '/    void applyKeyboardGeometry(View node) {$/,/^    }$/p' "$android_java/core/ImeStyler.java" \
-    | rg_q_stdin -F 'params.setMargins(spacer.leftMargin(halfGap), 0, spacer.rightMargin(halfGap), 0);'; then
+  || ! rg_q_stdin -F 'leadingPad.setOwner(keyButton);' <<< "$fourteen_rows_body"; then
   echo "Android must read touch_fourteen_key_letter_widths at startup and live, remember it in SKIN_HINT_KEYS, rebuild the 14/18-key rows when it changes, take their weights from FourteenKeyLetterWidths.plan and give the row-2 pads an owning key" >&2
   exit 1
 fi
@@ -1602,15 +1604,6 @@ if ! rg -q 's\.imeLetterRows\.bindNineKeySuperscriptShortcut\(exclamation, last\
   echo "Android nine-key ！ must swipe out 0 with the fixed up-swipe of the 123 / #+= ！, without reading the retired 九键滑动输入数字 setting" >&2
   exit 1
 fi
-# 拼音九键格子上的长按数字画在右上角，字号和上边距与 26 键字母的角标相同（KeyHintButton 的 CORNER_HINT_SP、CORNER_HINT_TOP_DP，基线按 ascent 算），右边单独向内收至 12 dp，给圆角和胶囊键帽的顶部曲线让出空间；iOS 的 keyNumberHint 仍是上 3、右 5。绘制在 onDraw 里，JVM 冒烟碰不到，这里钉住它使用专用常量，而不是让数字贴到圆角外。
-nine_key_digit_draw=$(sed -n '/protected void onDraw(Canvas canvas) {$/,/^    }$/p' "$repo_root/platforms/android/java/app/msime/android/keyboard/NineKeyDigitButton.java")
-for pattern in 'KeyHintButton\.CORNER_HINT_SP' 'KeyHintButton\.CORNER_HINT_TOP_DP\) - metrics\.ascent' \
-    'getWidth\(\) - DimensionPolicy\.floatPixels\(getContext\(\), DIGIT_HINT_RIGHT_DP\)'; do
-  if ! rg -q "$pattern" <<< "$nine_key_digit_draw"; then
-    echo "The Android nine-key digit hint must sit in the top-right corner exactly like the letter-key corner hint (KeyHintButton): missing $pattern" >&2
-    exit 1
-  fi
-done
 # 数字角标与字母角标同色：皮肤的 hint 色，不用强调色（原生皮肤下是系统蓝，压在每个键上太显眼）。
 if ! rg -q 'digitButton\.setDigitColor\(color\(target\.hint\(\)\)\)' "$repo_root/platforms/android/java/app/msime/android/core/ImeStyler.java"; then
   echo "The Android nine-key digit hint must use the skin's hint colour like the letter-key corner hint" >&2

@@ -19,6 +19,7 @@ Status: implemented
 - [双拼末尾声母参与整句补全](../feature/2026-10-24-shuangpin-trailing-initial-sentence.md)：部分取代。保留末尾补全、严格声母、完整读音、按键消费和前缀回退；句中声母原先明确不开放的范围由本 issue 扩展。
 - [全拼不完整音节参与长句词网格](2026-11-10-quanpin-incomplete-lattice-sentence.md)：部分重叠。复用词格解码，但双拼不用全拼的宽松单字母匹配或末段前缀补全，保持双拼音节语义。
 - [双拼末尾后置超级简拼](../feature/2026-11-05-shuangpin-postfix-super-jianpin.md)：无关。混输是普通双拼组字，不进入 J 模式。
+- [双拼纯声母串参与整句组词](./2026-11-25-shuangpin-pure-initial-sentence.md)：部分取代。本笔记保留的「纯声母整串的既有行为」由该笔记放开，准入谓词合并为一条。
 
 ## Alternatives considered
 

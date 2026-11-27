@@ -258,7 +258,7 @@ export function PluginLibraryView({
               <ActionButton
                 action={() => onImport("archive")}
                 disabled={working}
-                label="导入 .zip"
+                label="导入 .zip 或 .txt"
               />
             </SettingsManagerActions>
           )}

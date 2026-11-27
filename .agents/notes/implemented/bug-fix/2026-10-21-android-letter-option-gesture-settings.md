@@ -20,7 +20,7 @@ Status: implemented
 
 符号选项的键面复用 `LetterHintTable.face`，选择与直接滑出角标共用同一份提交入口；适用的中文标点走 `punctuation`，继续由 Engine 结束组字、交替引号和补全成对标点。字母与原本不能走 Engine 的角标继续沿用字面提交，不复制中文符号表。
 
-候选栏显示时，26 键符号滑动只保留普通按键路径。候选可见状态由输入法的候选视图和中文方案共同判断，英文建议仍保留原来的角标手势；`SwipeHintPolicy.enabled` 集中表达开关与候选态门控。
+候选栏显示时，26 键符号滑动只保留普通按键路径。候选可见状态由输入法的候选视图和中文方案共同判断，英文建议仍保留原来的角标手势；开关与候选态门控现在由 `GridKeyGesturePolicy` 表达（开关关着时方向传 null，候选态经 `SwipeHintPolicy.tapsOnly` 判定后按点按处理），见 [Android 26 键与 14/18 键字母键滑动判定统一](../feature/2026-11-22-android-letter-swipe-detection.md)。
 
 ## 历史笔记审计
 

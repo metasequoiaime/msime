@@ -46,6 +46,8 @@ export interface ShortcutsSettingsSectionProps {
   toggleHotkeys?: ReactNode;
   /** 把 `paging` 里的翻页键恢复为默认值；「恢复默认」恢复整页，所以和 `paging` 一起传。 */
   onRestorePaging?: () => void;
+  /** 宿主实现候选维护四键时，速查页列出它们。 */
+  candidateMaintenanceShortcuts?: boolean;
 }
 
 const shortcutTabs = [
@@ -79,6 +81,7 @@ export function ShortcutsSettingsSection({
   paging,
   toggleHotkeys,
   onRestorePaging,
+  candidateMaintenanceShortcuts = false,
 }: ShortcutsSettingsSectionProps) {
   const showToast = useToast();
   const harmonyPhone = harmony && mobile;
@@ -122,6 +125,7 @@ export function ShortcutsSettingsSection({
             onNumberRowSelectionChange={onNumberRowSelectionChange}
             harmonyPhone={harmonyPhone}
             showReference={mobile}
+            candidateMaintenanceShortcuts={candidateMaintenanceShortcuts}
             onRestoreDefaults={harmonyPhone ? restoreDefaults : undefined}
             paging={harmonyPhone ? paging : undefined}
             extraReference={
@@ -141,6 +145,7 @@ export function ShortcutsSettingsSection({
               wordCharacter={wordCharacter}
               numberRowSelection={numberRowSelection}
               mobile={mobile}
+              candidateMaintenanceShortcuts={candidateMaintenanceShortcuts}
             />
             {showPanelShortcuts && <PanelShortcutRow macos={macos} harmony={harmony} />}
           </GroupList>,

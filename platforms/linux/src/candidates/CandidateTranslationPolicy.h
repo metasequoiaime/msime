@@ -64,6 +64,16 @@ inline std::size_t translation_reserved_lines(std::string_view primary, std::str
   return std::clamp<std::size_t>(count, 1, 2);
 }
 
+// classicui 只画得了按行数算高的候选行，而横排候选条的高度取整页最高的那一行、行内三段又是垂直居中：高亮行一旦变成两行，整条候选条就跟着一行空白变高，那一格的序号也掉到候选字下面（#11821）。所以横排既不加占位行（占位行只在竖排加，横排返回 0），释义也不另起一行（classicui_gloss_inline 为真时接在同一行，与 IBus 查找表一致）；留高本身照旧交给原生画布（display.reserved_gloss_lines）。
+inline int classicui_gloss_placeholder_lines(bool vertical, int reserved) {
+  return vertical ? reserved : 0;
+}
+
+// 横排 classicui 把候选词翻译接在候选字后面同一行（「候选 · 释义」），竖排仍放在下一行。
+inline bool classicui_gloss_inline(bool vertical) {
+  return !vertical;
+}
+
 // 在线服务请求失败或没有返回任何译文时，当前查询仍应允许下一次刷新重试。
 inline bool should_retry_translation_after_provider(bool requested, bool response_valid,
                                                     bool answered) {

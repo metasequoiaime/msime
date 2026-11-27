@@ -90,6 +90,7 @@ import {
 import { EighteenKeySwipePolicy } from './input/EighteenKeySwipePolicy';
 import { LayerCharacterRoute, LayerKey, LayerKeyKind, NumberSymbolLayout } from './input/NumberSymbolLayout';
 import { ChineseSymbolFaces } from './input/ChineseSymbolFaces';
+import { JapaneseSymbolFaces } from './input/JapaneseSymbolFaces';
 import {
   NineKeyPanelBackspace, NineKeyPanelMode, NineKeyPanelPolicy, NineKeyStroke
 } from './input/NineKeyPanelPolicy';
@@ -3123,6 +3124,7 @@ struct KeyboardView {
     // 放在 surface 已经换掉之后：清筛选会同步回调 onChanged，那时面板必须已经算作关闭，否则会再进来一次。
     if (leavingExpanded) {
       this.leaveNineKeyPanel();
+      KeyboardSession.shared.refreshCandidateView();
     }
   }
 
@@ -3705,6 +3707,8 @@ struct KeyboardView {
 
   /** A symbol wears the face of what it will insert, which in Chinese is not the ASCII on the cap. */
   private symbolFace(symbol: string): string {
+    // 日语方案的符号键面画引擎会写出的日文标点，不受中文引号样式与顿号开关影响。
+    if (this.japanesePunctuationFaces()) return JapaneseSymbolFaces.face(symbol);
     const chinese: string | undefined = ChineseSymbolFaces.face(
       symbol, this.cornerQuotes, this.hollowBrackets,
       this.enumerationCommaBackslash, this.enumerationCommaSlash);
@@ -6111,7 +6115,7 @@ struct KeyboardView {
   @Builder
   nineKeyPeriodKey(share: number) {
     this.fixedKey({
-      face: this.chinesePunctuationFaces() ? '。' : '.',
+      face: this.punctuationFace('.', '。'),
       label: KeyAccessibilityPolicy.period(),
       size: TOUCH_LETTER_FONT_SIZE,
       emphasized: false,
@@ -6127,7 +6131,7 @@ struct KeyboardView {
     if (NineKeyLayout.commaOpensQuickPunctuation(this.symbols, this.english, this.nineKeyFrameStyle())) {
       Column() {
         this.fixedKey({
-          face: this.chinesePunctuationFaces() ? '，' : ',',
+          face: this.punctuationFace(',', '，'),
           label: '逗号；长按打开常用标点',
           size: TOUCH_LETTER_FONT_SIZE,
           emphasized: false,
@@ -6144,7 +6148,7 @@ struct KeyboardView {
       }))
     } else {
       this.fixedKey({
-        face: this.chinesePunctuationFaces() ? '，' : ',',
+        face: this.punctuationFace(',', '，'),
         label: '逗号',
         size: TOUCH_LETTER_FONT_SIZE,
         emphasized: false,
@@ -6856,6 +6860,17 @@ struct KeyboardView {
       && !this.tibetanFace();
   }
 
+  /** 日语方案的标点键面走日文表，与引擎 `policy.json` 的 `japanese` 段一致；本地工具和英文模式仍是 ASCII。 */
+  private japanesePunctuationFaces(): boolean {
+    return JapaneseSymbolFaces.active(this.english, this.localMode, this.scheme.engineScheme, this.chinesePunctuation);
+  }
+
+  /** 逗号、句号、问号、叹号等键面：日语取日文表，其余按中文标点开关取中文或 ASCII。 */
+  private punctuationFace(ascii: string, chinese: string): string {
+    return this.japanesePunctuationFaces() ? JapaneseSymbolFaces.face(ascii)
+      : this.chinesePunctuationFaces() ? chinese : ascii;
+  }
+
   /** 只换行时回车键显示回车箭头；编辑框要求了动作时保留其动作词（搜索、发送、前往、下一项），这对用户有实际意义；有组合时显示「确认」。 */
   private returnUsesIcon(): boolean {
     return !this.returnComposing()
@@ -7186,7 +7201,7 @@ struct KeyboardView {
   designCommaKey(share: number) {
     Column() {
       this.fixedKey({
-        face: this.chinesePunctuationFaces() ? '，' : ',',
+        face: this.punctuationFace(',', '，'),
         label: this.designCommaLabel(this.designRowStyledFace()),
         size: TOUCH_LETTER_FONT_SIZE,
         emphasized: false,
@@ -7225,7 +7240,7 @@ struct KeyboardView {
   @Builder
   designPeriodKey(share: number) {
     this.fixedKey({
-      face: this.chinesePunctuationFaces() ? '。' : '.',
+      face: this.punctuationFace('.', '。'),
       label: KeyAccessibilityPolicy.period(),
       size: TOUCH_LETTER_FONT_SIZE,
       emphasized: false,
@@ -7284,12 +7299,12 @@ struct KeyboardView {
       }
       Column() {
         this.fixedKey({
-          face: this.chinesePunctuationFaces() ? '，' : ',',
+          face: this.punctuationFace(',', '，'),
           label: '逗号；长按输入问号',
           size: TOUCH_LETTER_FONT_SIZE,
           emphasized: false,
           width: '100%',
-          cornerHint: this.chinesePunctuationFaces() ? '？' : '?',
+          cornerHint: this.punctuationFace('?', '？'),
           action: () => this.typeComma()
         });
       }
@@ -7303,12 +7318,12 @@ struct KeyboardView {
       this.spaceKey(true, HANDWRITING_SPACE_SHARE, 0);
       Column() {
         this.fixedKey({
-          face: this.chinesePunctuationFaces() ? '。' : '.',
+          face: this.punctuationFace('.', '。'),
           label: '句号；长按输入叹号',
           size: TOUCH_LETTER_FONT_SIZE,
           emphasized: false,
           width: '100%',
-          cornerHint: this.chinesePunctuationFaces() ? '！' : '!',
+          cornerHint: this.punctuationFace('!', '！'),
           action: () => this.typePeriod()
         });
       }
@@ -13164,7 +13179,7 @@ struct KeyboardView {
       // 中文 26 键的长空格样式：左下的 😀/符号 换成逗号，上滑或下滑输入句号，与 Android 长空格布局的数字层相同；表情和符号面板仍从工具栏进入。
       Column() {
         this.fixedKey({
-          face: this.chinesePunctuationFaces() ? '，' : ',',
+          face: this.punctuationFace(',', '，'),
           label: '逗号；上滑或下滑输入句号',
           size: TOUCH_LETTER_FONT_SIZE,
           emphasized: false,

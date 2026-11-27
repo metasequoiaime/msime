@@ -106,9 +106,10 @@ pub(crate) fn set(
         params![context, key, value, MAX_LEARNING_SYNC_TIMESTAMP as i64],
         |row| row.get(0),
     )?;
+    // 同一上下文按词面固定：固定记录迁移到新槽位时带走旧身份，否则重排后显示的同一行会留下两条记录，取消只删其中一条。
     connection.execute(
-        "DELETE FROM fixed_candidate_position_state WHERE context_key=?1 AND position=?2",
-        params![context, position],
+        "DELETE FROM fixed_candidate_position_state WHERE context_key=?1 AND (value=?2 OR position=?3)",
+        params![context, value, position],
     )?;
     connection.execute(
         "INSERT INTO fixed_candidate_position_state(context_key,entry_key,value,position,updated_at) \
@@ -123,13 +124,14 @@ pub(crate) fn set(
 pub(crate) fn clear(
     connection: &Connection,
     context: &str,
-    key: &str,
+    _key: &str,
     value: &str,
 ) -> rusqlite::Result<()> {
     seed_display(connection, "main", Some(context))?;
+    // 固定记录按词面记账：重排后同一行的编码可能从简码变成全码，取消仍须按词面找到它。
     connection.execute(
-        "DELETE FROM fixed_candidate_position_state WHERE context_key=?1 AND entry_key=?2 AND value=?3",
-        params![context, key, value],
+        "DELETE FROM fixed_candidate_position_state WHERE context_key=?1 AND value=?2",
+        params![context, value],
     )?;
     project(connection, context)
 }

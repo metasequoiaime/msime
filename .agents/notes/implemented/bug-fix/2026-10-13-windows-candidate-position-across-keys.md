@@ -28,6 +28,8 @@ TIP 只往游戏会话的按键包里写坐标（`Ipc.cpp` 在协商到 GameHost
 
 基岩版首键与组字后的 extent 持续互相矛盾，不属于短暂默认位置问题；按进程固定物理锚点的补充见[游戏 UI-less 候选同步与 IMM 状态](2026-10-16-windows-game-uiless-and-imm.md)。
 
+篇内「宿主报 INVALID_Y 就收起、等 Move 再回来」的那套时序不变；哪一方有资格写哨兵值在 [空 extent 不再收起候选](2026-11-25-windows-candidate-empty-extent-anchor.md) 里收窄了：这一次组字已经量到过锚点之后，空的裁剪 extent 不再写哨兵值。
+
 ## Verification
 
 - `platforms/windows/tests/ui/candidate_mailbox.cpp`（随 `windows-session-smoke` 运行）：Move 之后的按键投递沿用 Move 的位置；Move 报 INVALID_Y 之后的按键投递仍是 INVALID_Y；带 GameHost 位的按键包照用包里的坐标。改动前第一条断言失败（`x` 是 100）。

@@ -29,7 +29,8 @@ import urllib.parse
 import urllib.request
 
 from msime_provider_runtime import (
-    StoppableUnixStreamServer, disables_ark_seed_thinking, open_server, volcengine_successor_model,
+    StoppableUnixStreamServer, disables_ark_seed_thinking, open_server, probe_chat_body,
+    volcengine_successor_model,
 )
 from msime_voice_provider_catalog import VOLCENGINE_SUCCESSOR_MODELS
 import msime_crash_capture
@@ -1061,8 +1062,7 @@ def ai_credential_test(config, path):
     if (not isinstance(selected, dict) or
             any(config.get(key) != selected.get(key) for key in ("provider", "endpoint", "model"))):
         return False
-    body = {"model": selected["model"], "stream": False, "max_tokens": 1,
-            "messages": [{"role": "user", "content": "Reply OK"}]}
+    body = probe_chat_body(selected["model"])
     if provider == "deepseek" or disables_ark_seed_thinking(provider, selected["endpoint"], selected["model"]):
         body["thinking"] = {"type": "disabled"}
     elif provider == "siliconflow":
