@@ -246,20 +246,24 @@ HRESULT CTfTextLayoutSink::_UnadviseTextLayoutSink()
  * 会给真实的行高；#11787 的日记里每段组字开始时都是前者，而光标明明就在框里可见。宽度为 0 是光标范围的
  * 正常样子，所以只要求上下边界有效。返回 false 时 `lpRect` 不动，调用方照旧收起候选窗。
  */
-static bool GetCaretTextExtent(_In_ ITfContextView *pContextView, TfEditCookie ec,
+static bool GetCaretTextExtent(_In_ ITfContext *pContext, _In_ ITfContextView *pContextView, TfEditCookie ec,
                                _In_ ITfRange *pRangeComposition, _Out_ RECT *lpRect)
 {
-    if (pContextView == nullptr || pRangeComposition == nullptr || lpRect == nullptr)
+    if (pContext == nullptr || pContextView == nullptr || pRangeComposition == nullptr || lpRect == nullptr)
     {
         return false;
     }
+    // 不用 ITfRange::Clone：Windows SDK 的签名是 `Clone(ec, ppClone)`，MinGW 的 msctf.h 少了编辑 cookie，
+    // 照它的声明调用会把 vtable 上的参数错位。改用两边签名一致的路径：从文档起点取一个范围，再把终点移到
+    // 组字末尾、折叠成空范围。
     ITfRange *pCaretRange = nullptr;
-    if (FAILED(pRangeComposition->Clone(ec, &pCaretRange)) || pCaretRange == nullptr)
+    if (FAILED(pContext->GetStart(ec, &pCaretRange)) || pCaretRange == nullptr)
     {
         return false;
     }
     bool usable = false;
-    if (SUCCEEDED(pCaretRange->Collapse(ec, TF_ANCHOR_END)))
+    if (SUCCEEDED(pCaretRange->ShiftEndToRange(ec, pRangeComposition, TF_ANCHOR_END)) &&
+        SUCCEEDED(pCaretRange->Collapse(ec, TF_ANCHOR_END)))
     {
         RECT caretRect = {0, 0, 0, 0};
         BOOL caretClipped = TRUE;
@@ -302,7 +306,7 @@ HRESULT CTfTextLayoutSink::_GetTextExt(_Out_ RECT *lpRect, _Out_ POINT *lpAnchor
     // 空 extent 都会留在它上面；量不到才退回屏幕外的哨兵值。
     auto caretFallback = [&](const wchar_t *reason) -> bool {
         RECT caretRect = {0, 0, 0, 0};
-        if (!GetCaretTextExtent(pContextView, _tfEditCookie, _pRangeComposition, &caretRect))
+        if (!GetCaretTextExtent(_pContextDocument, pContextView, _tfEditCookie, _pRangeComposition, &caretRect))
         {
             return false;
         }

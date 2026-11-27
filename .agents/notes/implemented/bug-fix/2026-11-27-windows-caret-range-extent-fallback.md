@@ -18,7 +18,9 @@ Status: implemented
 
 ## Decision
 
-`platforms/windows/tsf/Tf/TfTextLayoutSink.cpp` 的 `_GetTextExt` 在「组字范围量失败或量到空矩形、而且这次 layout 会话还没有可用锚点」时，再按**光标范围**量一次：把 `_pRangeComposition` 克隆后 `Collapse(TF_ANCHOR_END)`，用同一个 `ITfContextView::GetTextExt` 取矩形。量到（只要求 `bottom > top`，光标范围宽度为 0 是正常形状）就把它的左下角当锚点并标记 `_hasValidAnchor = true`，后面的按键测量会照 `#11876` 的路径留在这个位置上；量不到才退回 `Global::INVALID_Y` 的哨兵值，行为与改动前一致。
+`platforms/windows/tsf/Tf/TfTextLayoutSink.cpp` 的 `_GetTextExt` 在「组字范围量失败或量到空矩形、而且这次 layout 会话还没有可用锚点」时，再按**光标范围**量一次：从 `ITfContext::GetStart` 取一个范围，`ShiftEndToRange(ec, _pRangeComposition, TF_ANCHOR_END)` 把终点移到组字末尾，再 `Collapse(TF_ANCHOR_END)` 成空范围，用同一个 `ITfContextView::GetTextExt` 取矩形。量到（只要求 `bottom > top`，光标范围宽度为 0 是正常形状）就把它的左下角当锚点并标记 `_hasValidAnchor = true`，后面的按键测量会照 `#11876` 的路径留在这个位置上；量不到才退回 `Global::INVALID_Y` 的哨兵值，行为与改动前一致。
+
+这里**不用 `ITfRange::Clone`**：Windows SDK 的签名是 `Clone(TfEditCookie ec, ITfRange **ppClone)`，MinGW 的 `msctf.h` 把它声明成单参数的 `Clone(ITfRange **ppClone)`，照 MinGW 的声明调用会把 vtable 上的编辑 cookie 参数错位。`GetStart` 和 `ShiftEndToRange` 两边签名一致，这条路径在 MSVC 与 MinGW 下都是同一份代码。`Windows GNU cross build` 第一次就红在这个签名差异上。
 
 诊断加一行 `[candidate-layout] caret range anchor=X,Y after <原因>`，把「组字范围失败、光标范围成功」与「两条都失败」分开。
 
@@ -33,11 +35,11 @@ Status: implemented
 
 ## Consequences
 
-- 组字开始时多一次 `GetTextExt`（克隆 + 折叠 + 测量），只在组字范围量不到坐标时发生；正常宿主一次都不多测。
+- 组字开始时多一次 `GetTextExt`（取范围 + 移终点 + 折叠 + 测量），只在组字范围量不到坐标时发生；正常宿主一次都不多测。
 - 光标范围的矩形在某些宿主里可能比组字首行高一两像素，候选窗位置会有极小差别；与整段不显示相比可以接受。
 - 本机是 macOS，没有 Windows 宿主可复现：编译与运行由 PR 上的 `Windows TSF system WER` 负责，行为真机验收仍要报告者在含本改动的 nightly 上复验（诊断会直接写出走的是哪条分支）。
 
 ## Testing
 
-- 编译：`platforms/windows` 的 TSF 工程在 PR 的 `Windows TSF system WER` 作业里由 MSBuild 编，本机编不了。
+- 编译：本机用 `x86_64-w64-mingw32-g++ -std=c++17 -fsyntax-only` 按 TSF 目标的 include 与 `MSIME_EDITION_FULL` 编过这个翻译单元（MinGW 的 `msctf.h` 正是暴露 `Clone` 签名差异的那份头）；MSVC 一侧由 PR 的 `Windows TSF system WER` 作业（MSBuild）编，完整交叉编译由 `Windows GNU cross build` 作业覆盖。
 - 行为：报告者用含本改动的 nightly 复现一次，把新的 `[candidate-layout]` 行发回来。出现 `caret range anchor=…` 表示走了回退；仍然只有 `extent query failed`/`empty clipped … hid` 表示光标范围也量不到，需要换别的锚点来源。
