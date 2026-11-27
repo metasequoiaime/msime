@@ -74,6 +74,17 @@ void ShuangpinKeymapWindow::set_palette(CandidatePalette palette) {
   if (window_ && IsWindowVisible(window_))
     InvalidateRect(window_, nullptr, FALSE);
 }
+void ShuangpinKeymapWindow::set_scale(double scale) {
+  // 窗口尺寸和绘制都按这个倍数算；非法值回到 100%，免得摆出一个看不见的窗口。
+  const double next = shuangpin_keymap_scale(scale);
+  if (next == scale_)
+    return;
+  scale_ = next;
+  // 尺寸变了，下一轮 update 重新摆一次窗口。
+  placed_ = RECT{};
+  if (window_ && IsWindowVisible(window_))
+    InvalidateRect(window_, nullptr, FALSE);
+}
 void ShuangpinKeymapWindow::hide() {
   if (window_ && IsWindowVisible(window_))
     ShowWindow(window_, SW_HIDE);
@@ -121,8 +132,8 @@ void ShuangpinKeymapWindow::update(const std::optional<ShuangpinKeymapFrame> &fr
     const bool content_changed = profile != profile_ || frame->hint.key != highlighted_;
     load_profile(profile);
     highlighted_ = frame->hint.key;
-    // 尺寸按候选窗所在显示器的 DPI 算，和候选窗一起跨屏时也一致。
-    const double unit = toolbar_pixel_unit(msime::windows::compat::window_dpi(candidate), 1.0);
+    // 尺寸按候选窗所在显示器的 DPI 算，和候选窗一起跨屏时也一致；整体缩放再乘一层，和候选窗的 `candidate_scale_percent` 相同（#11616）。
+    const double unit = toolbar_pixel_unit(msime::windows::compat::window_dpi(candidate), 1.0) * scale_;
     ShuangpinKeymapPlacementInput placement;
     placement.candidate = {card.left, card.top, card.right, card.bottom};
     placement.anchor_x = frame->anchor_x;
@@ -187,6 +198,8 @@ void ShuangpinKeymapWindow::paint() {
                          top + static_cast<float>(metrics_.height)};
   target->BeginDraw();
   target->Clear(D2D1::ColorF(0, 0.0f));
+  // 整张卡片按整体缩放画：卡片、键帽、文字都按 DIP 排好再统一放大，和候选窗的 `candidate_scale_percent` 一样（#11616）。绘制坐标保持 100% 的形状，字距和键距不会各自失真。
+  target->SetTransform(D2D1::Matrix3x2F::Scale(static_cast<float>(scale_), static_cast<float>(scale_)));
   const float card_radius = static_cast<float>(metrics_.card_radius);
   const auto fills = shuangpin_keymap_fills(palette_);
   draw_window_shadow(target, card, card_radius, static_cast<float>(metrics_.shadow.scale));
@@ -250,6 +263,7 @@ void ShuangpinKeymapWindow::paint() {
   target->DrawText(zero_initials_.c_str(), static_cast<UINT32>(zero_initials_.size()),
                    format(L"Segoe UI", 10.0f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER), footer,
                    brush(palette_.number));
+  target->SetTransform(D2D1::Matrix3x2F::Identity());
   const HRESULT drawn = target->EndDraw();
   const HRESULT presented = SUCCEEDED(drawn) ? device_.Present() : drawn;
   // 设备丢了按 DeviceResources::IsDeviceLost 判断，Present 报的 DXGI_ERROR_DEVICE_REMOVED/RESET 也算，见 CandidateWindow.cpp 的同一处。

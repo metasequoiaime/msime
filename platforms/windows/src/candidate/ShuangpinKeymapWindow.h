@@ -26,6 +26,8 @@ public:
   ShuangpinKeymapWindow &operator=(const ShuangpinKeymapWindow &) = delete;
   // 与候选窗同一份调色板，主题和皮肤换了跟着换。
   void set_palette(CandidatePalette palette);
+  // 用户的整体缩放（`candidate_scale_percent` 的倍数）：键位图整张跟着候选窗放大或缩小，1.0 是 100%。缩放乘在 DPI 之上，所以卡片、键帽和文字一起变。#11616 之前这张图是固定 620×203 DIP，只随系统 DPI 变。
+  void set_scale(double scale);
   // 主循环每轮在候选窗 refresh 之后调用：`frame` 为空（开关关着、不在双拼组字）或候选窗不可见时隐藏，否则贴着候选卡片显示。贴的是卡片本身（CandidateWindow::card_on_screen），不是带透明阴影边距的窗口外框。
   void update(const std::optional<ShuangpinKeymapFrame> &frame, const CandidateWindow &candidates);
   void hide();
@@ -47,6 +49,8 @@ private:
   std::wstring title_;
   std::wstring zero_initials_;
   char highlighted_ = 0;
+  // 整体缩放倍数，1.0 是 100%；画的时候乘在 DIP 上，窗口尺寸按它一起放大。
+  double scale_ = 1.0;
   // 上次摆放的窗口位置和尺寸，没变时不再挪动窗口。
   RECT placed_{};
   bool failed_ = false;

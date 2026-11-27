@@ -167,7 +167,11 @@ struct DesktopCandidates::State {
           candidates.set_typing_effect_active(active);
           if (!active && overlay) overlay->settle();
           if (first || !(settings->fonts == applied->fonts)) candidates.set_fonts(settings->fonts);
-          if (first || settings->style != applied->style) candidates.set_style(settings->style);
+          if (first || settings->style != applied->style) {
+            candidates.set_style(settings->style);
+            // 键位图跟着候选窗的整体缩放一起变（#11616）；配色和皮肤走 apply_appearance，缩放单独跟 style，某一边换了都要跟上。
+            if (keymap) keymap->set_scale(settings->style.scale());
+          }
           candidates.set_layout(settings->layout);
           candidates.set_follow_cursor(settings->follow_cursor);
           candidates.set_game_anchor_top(settings->game_anchor_top);
