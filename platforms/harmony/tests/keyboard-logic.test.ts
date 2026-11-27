@@ -175,6 +175,11 @@ import {
 } from "../entry/src/main/ets/keyboard/input/SmartPunctuationRepeatPolicy";
 import { PairedPunctuationPolicy } from "../entry/src/main/ets/keyboard/input/PairedPunctuationPolicy";
 import { ChineseSymbolFaces } from "../entry/src/main/ets/keyboard/input/ChineseSymbolFaces";
+import { GridLetterHintTable } from "../entry/src/main/ets/keyboard/input/GridLetterHintTable";
+import {
+  GridKeyGestureMode,
+  GridKeyGesturePolicy,
+} from "../entry/src/main/ets/keyboard/input/GridKeyGesturePolicy";
 import {
   ReturnDispatch,
   ReturnKeyAction,
@@ -3414,16 +3419,6 @@ group("全拼 14 键的键表与引擎的组码表是同一张", () => {
       keys[13].description === "字母 M",
     "读屏说「按键 Q W」，单字母键说「字母 L」",
   );
-  check(
-    FourteenKeyLayout.holdOptions(keys[0]).join(",") === "q,w" &&
-      FourteenKeyLayout.holdOptions(keys[12]).join(",") === "b,n",
-    "长按弹出这一键的两个字母",
-  );
-  check(
-    FourteenKeyLayout.holdOptions(keys[9]).length === 0 &&
-      FourteenKeyLayout.holdOptions(keys[13]).length === 0,
-    "L、M 只有一个字母，长按不弹",
-  );
   for (const key of keys) {
     const id = KeyIdPolicy.fourteenKey(key.letters);
     check(id === `Fourteen${key.label}` && KEY_IDS.includes(id), `${key.label} 记在 ${id} 上`);
@@ -3672,8 +3667,6 @@ group("全拼 18 键使用共享组码并覆盖全部字母", () => {
       `${key.label} 记在 18 键键位`,
     );
   }
-  check(EighteenKeyLayout.holdOptions(keys[1]).join(",") === "w,e", "双字母键长按弹出字母");
-  check(EighteenKeyLayout.holdOptions(keys[0]).length === 0, "单字母键不弹出长按选项");
   check(
     KeyboardScheme.fromPreferences("quanpin", null, "eighteen_key") ===
       KeyboardScheme.QUANPIN_EIGHTEEN_KEY &&
@@ -3714,12 +3707,8 @@ group("14/18 键横滑限定组里的一个字母，与 Android、iOS 同一规�
     .map((key) => key.letters);
   check(
     twoLetterKeys.join(" ") === "we rt io sd fg jk xc bn" &&
-      twoLetterKeys.every(
-        (letters) =>
-          EighteenKeyLayout.holdOptions({ letters, input: "", label: "", description: "" })
-            .length === 2,
-      ),
-    "横滑的键正是有长按字母的那八个双字母键",
+      twoLetterKeys.every((letters) => letters.length === 2),
+    "横滑的键正是那八个双字母键",
   );
   const fourteenTwoLetterKeys = FourteenKeyLayout.rows()
     .flat()
@@ -4264,6 +4253,50 @@ group("a character key writes what it shows", () => {
       }
     }
   }
+});
+
+group("14/18 键使用共享角标表和鸿蒙触发规则", () => {
+  check(
+    FourteenKeyLayout.rows()
+      .flat()
+      .map((key) => GridLetterHintTable.hint(key.letters, false))
+      .join(" ") === '; # … ( ) @ - 、 : " ~ ? ! /',
+    "14 键逐键使用固定角标",
+  );
+  check(
+    EighteenKeyLayout.rows()
+      .flat()
+      .map((key) => GridLetterHintTable.hint(key.letters, true))
+      .join(" ") === '; … - ¥ & ( ) @ # % * : " ~ 、 ? ! /',
+    "18 键逐键使用固定角标",
+  );
+  check(GridLetterHintTable.hint("we", false) === null, "不属于当前网格的键没有角标");
+  check(
+    GridLetterHintTable.routesThroughEngine(";") && !GridLetterHintTable.routesThroughEngine("#"),
+    "引擎标点路由只覆盖 ASCII 标点",
+  );
+  check(
+    GridLetterHintTable.face("l", false, true, true, false) === "『",
+    "中文标点下引号显示中文键面",
+  );
+
+  const gesture: GridKeyGesturePolicy = new GridKeyGesturePolicy(null, true);
+  gesture.start(1, 100, 100, SwipeSymbolsDirection.UP, false);
+  check(gesture.move(1, 100, 84) === GridKeyGestureMode.SYMBOL, "沿设置方向纵滑输入符号");
+  check(gesture.mode() === GridKeyGestureMode.SYMBOL && gesture.consumed(), "符号滑动接管点击");
+  gesture.start(1, 100, 100, SwipeSymbolsDirection.UP, false);
+  check(gesture.move(1, 100, 116) === GridKeyGestureMode.PENDING, "反方向纵滑保留点按");
+  gesture.start(1, 100, 100, SwipeSymbolsDirection.UP, true);
+  check(gesture.move(1, 100, 80) === GridKeyGestureMode.PENDING, "组字中纵滑保留普通点按");
+  check(gesture.hold() && gesture.mode() === GridKeyGestureMode.HELD, "组字中长按仍输入角标");
+  gesture.start(1, 100, 100, null, false);
+  check(gesture.move(1, 100, 80) === GridKeyGestureMode.PENDING, "关闭滑动输入符号后纵滑不响应");
+  const shuangpinGesture: GridKeyGesturePolicy = new GridKeyGesturePolicy("we", true);
+  shuangpinGesture.start(1, 100, 100, SwipeSymbolsDirection.UP, false);
+  check(
+    shuangpinGesture.move(1, 130, 100) === GridKeyGestureMode.LETTER,
+    "双拼双字母键保留横滑精确选择",
+  );
 });
 
 console.log("Letter key corner hints, swipe and preview");
@@ -5858,6 +5891,22 @@ group("keeps candidate source badges bounded to known Engine sources", () => {
       JSON.stringify([1, 2, 4]),
     "visible positions map back to Engine indexes",
   );
+  const rows = [
+    { id: { session: 7, generation: 42, index: 10 }, source: 15 },
+    { id: { session: 7, generation: 42, index: 11 }, source: 0 },
+    { id: { session: 7, generation: 42, index: 12 }, source: 2 },
+  ];
+  const visible = CandidatePresentationPolicy.visibleIndices(rows.map((row) => row.source));
+  check(CandidatePresentationPolicy.identityAt(rows, visible, 0, 7)?.index === 11,
+    "隐藏行之后的第二页首个候选仍使用全列表序号");
+  check(CandidatePresentationPolicy.identityAt(rows, visible, 1, 7)?.generation === 42 &&
+    CandidatePresentationPolicy.identityAt(rows, visible, 1, 7)?.index === 12,
+    "每次操作带上选中行的代次和全列表序号");
+  check(CandidatePresentationPolicy.identityAt(rows, visible, 2, 7) === null &&
+    CandidatePresentationPolicy.identityAt(rows, visible, 0, 8) === null &&
+    CandidatePresentationPolicy.identityAt(rows, visible, -1, 7) === null,
+    "越界和不属于当前会话的候选不能提交");
+
 });
 
 group("offers all fixed candidate slots and checks the active one", () => {

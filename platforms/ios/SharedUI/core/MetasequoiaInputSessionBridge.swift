@@ -421,12 +421,14 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let candidateGlosses: [String]
   /// The Engine's display suffix for each candidate, aligned with `candidates`: its helpcode when the scheme's "show helpcode" setting is on, the spelling a typo correction replaced, or a Korean Hanja's 훈음. Never part of the committed text.
   let candidateAnnotations: [String]
+  /// 引擎改过这一行拼写的候选（View 的 `corrected`，只在为真时出现），与 `candidates` 对齐。候选条和展开网格据此在候选字后面画 `*`，注释里打头的原串（`corrected_from`）不再画在下面；读屏念原串时说的是「纠错前的拼写」，不是还要输入的键。
+  let candidateCorrected: [Bool]
   /// The Engine `CandidateSource` (cloud, AI, dictionary...) and pinned slot of each candidate, aligned with `candidates`; a source of -1 means the row carried none, and a fixed position of zero is a word ranked by use.
   let candidateSources: [Int]
   let candidateFixedPositions: [Int]
   /// 引擎当前页的高亮状态，跟随候选一起过滤与换页。
   let candidateHighlighted: [Bool]
-  /// 引擎按双拼触点首选规则让这一行纠错坐了首选（View 的 `confident_correction`，只在为真时出现），与 `candidates` 对齐。候选条和展开网格据此用强调色画它，读屏念「已纠正」；纠错前的拼写照旧在 `candidateAnnotations` 里。
+  /// 引擎按双拼触点首选规则让这一行纠错坐了首选（View 的 `confident_correction`，只在为真时出现），与 `candidates` 对齐。候选条和展开网格据此用强调色画它，读屏念「已纠正」；纠错前的拼写照旧留在 `candidateAnnotations` 里，画不画由 `candidateCorrected` 决定。
   let candidateConfidentCorrections: [Bool]
   let candidatePageCount: Int
   let answeredByPinyinFallback: Bool
@@ -475,7 +477,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
        candidates: [String] = [], candidateCodes: [String] = [],
        candidateIdentities: [MetasequoiaCandidateIdentity?] = [], generation: UInt64? = nil,
        candidateGlosses: [String] = [],
-       candidateAnnotations: [String] = [], candidateSources: [Int] = [], candidateFixedPositions: [Int] = [],
+       candidateAnnotations: [String] = [], candidateCorrected: [Bool] = [], candidateSources: [Int] = [], candidateFixedPositions: [Int] = [],
        candidateHighlighted: [Bool] = [], candidateConfidentCorrections: [Bool] = [],
        candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil, localMode: String = "none",
@@ -497,6 +499,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.generation = generation
     self.candidateGlosses = candidateGlosses
     self.candidateAnnotations = candidateAnnotations
+    self.candidateCorrected = candidateCorrected
     self.candidateSources = candidateSources
     self.candidateFixedPositions = candidateFixedPositions
     self.candidateHighlighted = candidateHighlighted
@@ -767,16 +770,17 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
           completion(false)
           return
         }
-        // Keep the session's engine configuration stable while the keyboard is
-        // visible; applyLearningPreferences will update only the fuzzy-pinyin
-        // contract below. This avoids changing the selected scheme underneath
-        // UIKit while a Tauri settings write is being observed.
+        // 键盘可见时只更新允许热加载的引擎字段，输入方案仍由键盘宿主管理。
         let applied = (self.options["preferences"] as? [String: Any]) ?? [:]
         let overridden = Self.hostOverrides(applyingTo: preferences)
-        self.options["preferences"] = overridden
         self.revision = max(self.revision, revision)
+        // 磁盘读取期间键盘可能收起、会话可能销毁。直到活会话接受更新，才记录已读的文档，否则下次出现时要重试。
+        guard self.applyAppEditedPreferences(from: overridden, over: applied) else {
+          completion(false)
+          return
+        }
+        self.options["preferences"] = overridden
         self.documentRevision = revision
-        self.applyAppEditedPreferences(from: overridden, over: applied)
         completion(true)
       }
     }
@@ -818,18 +822,21 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   ]
 
   /// Hand the reloaded app-edited fields to the session, leaving every other field as the session has it. The session queues the change behind an open composition, so this never interrupts typing.
-  private func applyAppEditedPreferences(from reloaded: [String: Any], over applied: [String: Any]) {
+  private func applyAppEditedPreferences(from reloaded: [String: Any], over applied: [String: Any]) -> Bool {
+    guard handle != 0 else { return false }
     var next = applied
     for key in Self.appEditedKeys { next[key] = reloaded[key] }
-    guard handle != 0, !NSDictionary(dictionary: next).isEqual(to: applied) else { return }
+    guard !NSDictionary(dictionary: next).isEqual(to: applied) else { return true }
     revision &+= 1
     let sent = Self.engineBound(next)
     let snapshot: [String: Any] = ["format_version": 1, "revision": revision, "preferences": sent]
     appliedPreferences = nil
-    if let response = try? Self.callUpdate(msimeClientUpdatePreferences, handle, snapshot),
-       (try? Self.preferencesUpdateSucceeded(response)) == true {
+    guard let response = try? Self.callUpdate(msimeClientUpdatePreferences, handle, snapshot),
+          let appliedImmediately = try? Self.preferencesUpdateSucceeded(response) else { return false }
+    if appliedImmediately {
       appliedPreferences = sent
     }
+    return true
   }
 
   var fuzzyPinyinRulesApplied: UInt32? { appliedFuzzyPinyinRules }
@@ -868,7 +875,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     guard [keySpacing, rowSpacing, heightAdjustment].allSatisfy({ $0?.isFinite ?? true }) else { return nil }
     let keySpacingTenths = keySpacing.map { Int((SharedNumber.clamped($0, to: 3...6) * 10).rounded()) }
     let rowSpacingTenths = rowSpacing.map { Int((SharedNumber.clamped($0, to: 4...10) * 10).rounded()) }
-    let clampedHeight = heightAdjustment.map { Int(SharedNumber.clamped($0, to: -12...48).rounded()) }
+    let clampedHeight = heightAdjustment.map { Int(SharedNumber.clamped($0, to: KeyboardLayoutPreference.sharedHeightAdjustmentRange).rounded()) }
     return { preferences in
       if let keySpacingTenths { preferences["touch_key_spacing_tenths"] = keySpacingTenths }
       if let rowSpacingTenths { preferences["touch_row_spacing_tenths"] = rowSpacingTenths }
@@ -1734,7 +1741,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
 
   @discardableResult func setFuzzyPinyinRules(_ rules: UInt32) -> Bool {
-    let names = ["z-zh", "c-ch", "s-sh", "n-l", "f-h", "r-l", "an-ang", "en-eng", "in-ing", "ian-iang", "uan-uang"]
+    let names = ["z-zh", "c-ch", "s-sh", "n-l", "f-h", "r-l", "an-ang", "en-eng", "in-ing", "ian-iang", "uan-uang", "un-ong"]
     let applied = updatePreferences { prefs in
       prefs["fuzzy_pinyin"] = ["enabled": rules != 0, "seeded": true,
                                 "rules": names.enumerated().compactMap { rules & (1 << $0.offset) == 0 ? nil : $0.element }]
@@ -2467,6 +2474,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       generation: try view["generation"].map { try number($0) },
       candidateGlosses: rows.map { $0["translation"] as? String ?? "" },
       candidateAnnotations: rows.map { $0["annotation"] as? String ?? "" },
+      candidateCorrected: try rows.map { try strictBool($0["corrected"], fallback: false) },
       candidateSources: candidateSources,
       candidateFixedPositions: candidateFixedPositions,
       candidateHighlighted: try rows.map { try strictBool($0["highlighted"], fallback: false) },

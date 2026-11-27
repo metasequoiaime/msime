@@ -681,7 +681,10 @@ final class TypingStatisticsTests: XCTestCase {
   /// 比对一排：显示着的键依次记的 id、印着字的键的键面（空格印的是方案名，不比），以及每个键占本行键宽之和的比例。iPhone 自带地球键时键盘不画自己的，热力图也不画，所以地球键不算在内。
   @MainActor
   private static func assertRow(_ row: UIStackView, draws cells: [TypingKeyHeatmap.Cell], file: StaticString = #filePath, line: UInt = #line) {
-    let keys = row.arrangedSubviews.filter { !$0.isHidden && $0.accessibilityIdentifier != "inputModeSwitchButton" }
+    // 第三排 ⇧、⌫ 旁撑空隙的占位格不是键，热力图里没有对应的格子。
+    let keys = row.arrangedSubviews.filter {
+      !$0.isHidden && $0.accessibilityIdentifier != "inputModeSwitchButton" && !($0 is KeyRoutingSpacer)
+    }
     let ids = keys.map { key -> String in
       if let id = key.accessibilityIdentifier.flatMap({ recordedID[$0] }) { return id }
       return "Key\((key as? UIButton)?.configuration?.title?.uppercased() ?? "?")"

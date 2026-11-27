@@ -83,10 +83,10 @@ exit "$code"
         result, calls, sleeps = self.run_script((1, CONNECTION_TIMEOUT), (0, "BUILD SUCCESSFUL"))
         self.assertEqual((result.returncode, len(calls), sleeps), (0, 2, ["60"]))
 
-    def test_persistent_rate_limit_stops_after_three_attempts(self):
+    def test_persistent_rate_limit_stops_after_six_attempts(self):
         result, calls, sleeps = self.run_script((1, MAVEN_429))
-        self.assertEqual((result.returncode, len(calls), sleeps), (1, 3, ["60", "120"]))
-        self.assertIn("after 3 attempts", result.stderr)
+        self.assertEqual((result.returncode, len(calls), sleeps), (1, 6, ["60", "120", "240", "480", "600"]))
+        self.assertIn("after 6 attempts", result.stderr)
 
     def test_forbidden_is_not_retried(self):
         result, calls, sleeps = self.run_script((1, MAVEN_403), (0, "BUILD SUCCESSFUL"))

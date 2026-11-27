@@ -49,46 +49,48 @@ final class ImeBottomRow {
         if (enabled) bindCommaSwipe(bottomCommaSwipeButton);
     }
 
-    /** 数字层的逗号键和字母层共用同一手势。上滑和下滑都输入句号：#9881 要的是下滑，而字母键滑动输入符号默认是上滑（`platform.android.swipe_symbols_direction`），只认下滑时照字母键习惯上滑什么也不出。逗号键没有别的纵向手势，两个方向都接不会冲突。 */
+    /** 数字层的逗号键和字母层共用同一手势。上滑和下滑都输入句号：#9881 要的是下滑，而字母键滑动输入符号默认是上滑（`platform.android.swipe_symbols_direction`），只认下滑时照字母键习惯上滑什么也不出。逗号键没有别的纵向手势，两个方向都接不会冲突。滑出后可滑回 7 dp 以内取消、松手什么都不输入（#11822，{@link SymbolSwipe}），气泡跟着显示句号或把它画淡。 */
     void bindCommaSwipe(Button button) {
-        final float[] start = new float[2];
-        final boolean[] swiped = new boolean[1];
-        // 门槛是字母键「滑动距离」的出厂值（14 dp，严格大于），不跟那项设置走；不用约 8 dp 的 touch slop：上滑也算之后，点逗号时手指往上带一下就会误出句号。
-        final float threshold = SwipeHintPolicy.THRESHOLD_DP * s.getResources().getDisplayMetrics().density;
+        final SymbolSwipe swipe = new SymbolSwipe();
         final int longPress = ViewConfiguration.getLongPressTimeout();
         button.setOnTouchListener((ignored, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> {
-                    start[0] = event.getX();
-                    start[1] = event.getY();
-                    swiped[0] = false;
+                    // 门槛是字母键「滑动距离」的出厂值（14 dp，严格大于），不跟那项设置走；不用约 8 dp 的 touch slop：上滑也算之后，点逗号时手指往上带一下就会误出句号。
+                    swipe.start(DimensionPolicy.fromPixels(s, event.getX()), DimensionPolicy.fromPixels(s, event.getY()),
+                        SymbolSwipe.EITHER, SwipeHintPolicy.THRESHOLD_DP, true);
                     return false;
                 }
                 case MotionEvent.ACTION_MOVE -> {
                     // 按满长按时限还没滑出去，这次触摸已经归长按（长按逗号输入句号），之后手指挪动不能再起滑动，否则松手会多输入一个。
-                    if (!swiped[0] && event.getEventTime() - event.getDownTime() >= longPress) return false;
-                    float dx = event.getX() - start[0];
-                    float dy = event.getY() - start[1];
-                    if (Math.abs(dy) > threshold && Math.abs(dy) > Math.abs(dx)) {
-                        swiped[0] = true;
-                        button.cancelLongPress();
-                        button.setPressed(false);
+                    if (!swipe.engaged() && event.getEventTime() - event.getDownTime() >= longPress) return false;
+                    boolean engaged = swipe.engaged();
+                    if (swipe.move(DimensionPolicy.fromPixels(s, event.getX()), DimensionPolicy.fromPixels(s, event.getY()))) {
+                        if (!engaged) {
+                            button.cancelLongPress();
+                            button.setPressed(false);
+                        }
+                        s.imeLetterRows.showSwipePreview(button, s.sendsChinesePunctuation() ? "。" : ".", !swipe.commits());
                     }
-                    return swiped[0];
+                    return swipe.engaged();
                 }
                 case MotionEvent.ACTION_UP -> {
-                    if (!swiped[0]) return false;
+                    if (!swipe.engaged()) return false;
+                    boolean commits = swipe.commits();
+                    swipe.reset();
+                    s.imeLetterRows.hideSwipePreview(button);
+                    if (!commits) return true;
                     s.imeKeyFeedback.playFeedback(button);
                     s.countKey(button);
                     s.type('.');
-                    swiped[0] = false;
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL -> {
-                    swiped[0] = false;
+                    swipe.reset();
+                    s.imeLetterRows.hideSwipePreview(button);
                     return false;
                 }
-                default -> { return swiped[0]; }
+                default -> { return swipe.engaged(); }
             }
         });
     }
@@ -602,14 +604,12 @@ final class ImeBottomRow {
     /** 句号键的键面、角标和可用状态跟着标点模式与键面走；句号键还没建时不做事。 */
     private void refreshPeriodFace() {
         if (periodButton == null) return;
-        boolean chinesePunctuation = s.sendsChinesePunctuation();
-        String periodFace = KeyboardActionRow.punctuationFace(
-            KeyboardActionRow.DesignSlot.PERIOD, chinesePunctuation);
+        String periodFace = s.symbolFace(".");
         boolean exclamation = s.handwritingMarksShown();
         // 句号沿用字体里的大小和基线位置，避免放大居中后看起来像圆圈。
         periodButton.setText(periodFace);
         periodButton.setCornerHint(exclamation
-            ? ChineseSymbolFaces.face("!", chinesePunctuation, s.punctuationMarks()) : "");
+            ? s.symbolFace("!") : "");
         periodButton.setContentDescription("按键 " + periodFace + (exclamation ? "；长按输入叹号" : ""));
         // type('.') 没有会话时也会直接上屏字面句点（密码框等），与旁边的逗号键一致。
         ViewPolicy.setEnabled(periodButton, s.connection != null);
@@ -640,8 +640,10 @@ final class ImeBottomRow {
         if (numberPad) {
             if (zeroButton() instanceof KeyHintButton hinted) hinted.setHintText("");
             s.imeLayoutRows.bindNumberDigit(zeroButton(), 9);
+            s.imeKeyFaces.attachNineDigit(zeroButton(), false);
         } else if (shuangpinZero) {
             s.imeLayoutRows.bindShuangpinZero(zeroButton());
+            s.imeKeyFaces.attachNineDigit(zeroButton(), true);
         }
         syncSplitSpace();
         if (s.globeButton != null) s.globeButton.setContentDescription("切换输入法");
@@ -651,7 +653,7 @@ final class ImeBottomRow {
         boolean split = !ownBottom && s.splitKeyboardDrawn();
         boolean swapLanguageNumber = s.localSettings.bool(AndroidLocalSettings.SWAP_LANGUAGE_NUMBER_KEYS);
         TouchKeyStyle.Row style = s.bottomRowStyle(layout);
-        // 英文 26 键不提供底行样式（一律标准底行），中文选了别的样式时中英切换要重排；中文标准底行与英文底行同一排。
+        // 中文方案的英文模式沿用 26 键底行样式，切换中英时按样式重排；中文标准底行与英文标准底行同一排。
         boolean english = s.dedicatedEnglish;
         // 「符」与「123」互换是键位习惯，密码框和数字字段里也照样互换（样式在那里退回标准底行，标准底行同样有 符）。
         boolean symbolFirst = s.twentySixSymbolFirst;

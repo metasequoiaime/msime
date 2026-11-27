@@ -23,3 +23,4 @@ Issue #11483 报告 Windows Firefox 的 Nodeseek 评论编辑器在连续输入�
 - Firefox 等宿主为同一文档管理器返回不同接口包装时，候选栏不会因地址不同而被隐藏，连续输入和退格恢复路径保持同一候选会话。
 - 不同文档仍会按原规则调用 `OnKillThreadFocus`，因此旧候选不会跨编辑器或跨应用泄露。
 - 本机是 macOS，无法启动 Windows 原生宿主或在 Firefox/Edge 真实编辑器中验收；PR 验证段保留报告者环境复验缺口。Windows 编译和 TSF 测试交给 PR CI，不把未运行的设备验证写成已通过。
+- 同一报告里候选窗「整段不显示、退格才回来」的另一条路径是按键测量把空 extent 写成屏幕外哨兵值，见 [空 extent 不再收起候选](2026-11-25-windows-candidate-empty-extent-anchor.md)。

@@ -444,6 +444,8 @@ check "Composition batch acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instru
 check "Stale candidate callback acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.StaleCandidateDeviceSmoke
 # 空闲联想由点选、空格（首条，不另插空格）和本页数字键上屏，越过本页的数字照常输入；自己的选区回声保留候选，外部移动和隐私模式清除候选。
 check "Next word prediction acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.StaleCandidateDeviceSmoke -e next-word true
+# 云候选与 AI 候选的来源标记：标签里的图形、读屏说明、两个偏好和行高（CandidateSourceMarkDeviceChecks）。
+check "Candidate source mark acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.StaleCandidateDeviceSmoke -e source-marks true
 # 横向候选条不展开也能越过分页和分批边界，左右返回后按全局身份选词。
 check "Continuous candidate strip acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.CandidatePanelDeviceSmoke -e continuous-strip true
 # 从安装产品绘制候选标签，旧系统缺字形时也必须在深浅主题中可见。
@@ -634,6 +636,8 @@ check "English letter hold acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_inst
 check "English symbol swipe acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.LetterHintPunctuationDeviceSmoke -e english-swipe true
 # 按键区按下即反馈（#10757）：直接命中、空隙、回车让位、多指、不可用的键、CANCEL 和滑行接管时回调的键和时机；只用合成的按键区，不经输入法服务。复用选项面板的入口，不增加 instrumentation 数量。
 check "Key press area acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.OptionSheetDeviceSmoke -e key-feedback press-area
+# 按键行按格量键宽：真实的 KeyRowLayout 和横向 KeyboardKeyArea 排出的 26 键，每个键在自己的格里，份额之和相同的行同一列的键边落在同一像素上；只用合成的按键行。
+check "Key row edge acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.OptionSheetDeviceSmoke -e key-feedback row-edges
 if [[ "$settings" == true ]]; then
   for suite in OptionSheetDeviceSmoke SettingsDeviceSmoke SettingsLifecycleSmoke AccountStorageDeviceSmoke CloudClipboardKeystoreDeviceSmoke CloudClipboardDriverDeviceSmoke CloudClipboardRelayDeviceSmoke; do
     check "Shared settings acceptance failed: $suite" MSIME_DEVICE_SMOKE_PASSED "$adb" -s "$serial" shell am instrument -w "app.msime.android.test/app.msime.android.test.$suite"

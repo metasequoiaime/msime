@@ -7,6 +7,8 @@ import { CandidateCanvasScene, CandidateCanvasResource, CandidateCanvasPolicy } 
 import { NativeCleanup } from './NativeCleanup';
 import { PauseRerankDiscard } from './PauseRerankDiscard';
 import inputMethodEngine from '@ohos.inputMethodEngine';
+import inputMethod from '@ohos.inputMethod';
+import { EditorPatternPolicy, EditorPatterns } from './input/EditorPatternPolicy';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
 import client from 'libmsimeclient.so';
@@ -112,7 +114,7 @@ import { CorrectionMarkPolicy } from './candidate/CorrectionMarkPolicy';
 import {
   CandidateGlossLayoutPolicy, CandidateGlossProviderState
 } from './candidate/CandidateGlossLayoutPolicy';
-import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
+import { CandidateIdentity, CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import {
   CandidateSkinCatalogPolicy, CandidateSkinPackage, CandidateSkinDecoration, CandidateSkinBackground,
   CandidateSkinAlign, CandidateSkinFit, CandidateSkinAnimation
@@ -203,6 +205,7 @@ import { EngineViewNumericFields, EngineViewValuePolicy } from './input/EngineVi
 // Shapes of the JSON the shared C ABI answers with. Only the fields this minimal surface reads are
 // declared; the responses carry considerably more.
 interface Candidate {
+  id: CandidateIdentity;
   text: string;
   highlighted: boolean;
   /** Which part of the Engine produced it; the gloss lookup treats sources differently. */
@@ -1289,6 +1292,8 @@ interface PreparedOptions {
    * 是一个决定，只做一半就等于把用户已经选中的字藏起来。
    */
   phrase_preedit?: boolean;
+  /** 键盘请求把编码相同的快捷短语混入普通候选；实际是否显示由 `mixed_input.quick_phrase` 再做偏好门控。 */
+  quick_phrase_candidates?: boolean;
   /** 放逐键重排 ONNX 模型（`rerank-model-small/`）的目录，见 `useRerankModels`。 */
   rerank_models?: string;
   dictionary_resource_root?: string;
@@ -2231,6 +2236,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       const requested: PreparedOptions = prepared.value;
       requested.phrase_preedit = true;
+      requested.quick_phrase_candidates = true;
       if (this.rerankModelsDirectory.length > 0) {
         requested.rerank_models = this.rerankModelsDirectory;
       }
@@ -3010,35 +3016,25 @@ export class KeyboardSession implements HardwareKeyTarget {
     return ClipboardHistoryPreferencePolicy.canReadOrWrite(this.clipboardHistoryEnabled);
   }
 
-  /**
-   * Turns the platform's inputPattern into the traits EditorPolicy reasons about.
-   *
-   * The port keeps the platform constants out of EditorPolicy on purpose: they are declared in
-   * @ohos.inputMethodEngine without values, so the numbers belong to the runtime and must not be
-   * guessed. Translating here is what lets the policy stay plain TypeScript and testable.
-   */
+  /** 把运行时提供的编辑框类型转换成不依赖平台的特征。 */
   private static traitsFor(pattern: number): EditorTraits {
-    const password: boolean = pattern === inputMethodEngine.PATTERN_PASSWORD
-      || pattern === inputMethodEngine.PATTERN_PASSWORD_SCREEN_LOCK
-      || pattern === inputMethodEngine.PATTERN_PASSWORD_NUMBER
-      || pattern === inputMethodEngine.PATTERN_NEW_PASSWORD;
-    return {
-      text: pattern === inputMethodEngine.PATTERN_TEXT
-        || pattern === inputMethodEngine.PATTERN_NULL
-        || pattern === inputMethodEngine.PATTERN_EMAIL
-        || pattern === inputMethodEngine.PATTERN_URI
-        || pattern === inputMethodEngine.PATTERN_USER_NAME,
-      password: password,
-      uri: pattern === inputMethodEngine.PATTERN_URI,
-      email: pattern === inputMethodEngine.PATTERN_EMAIL,
-      // A one-time code is typed, not composed, and a user name is not a sentence.
-      noSuggestions: pattern === inputMethodEngine.PATTERN_ONE_TIME_CODE
-        || pattern === inputMethodEngine.PATTERN_USER_NAME,
-      // 只收数字的编辑框，即 Android `EditorPolicy.numberInput` 认的数字与电话号码两类。
-      digits: pattern === inputMethodEngine.PATTERN_NUMBER
-        || pattern === inputMethodEngine.PATTERN_PHONE
-        || pattern === inputMethodEngine.PATTERN_NUMBER_DECIMAL
+    // ArkTS 不允许把模块命名空间当对象传递，只提取策略所需的运行时常量。
+    const types: EditorPatterns = {
+      PATTERN_TEXT: inputMethodEngine.PATTERN_TEXT,
+      PATTERN_NULL: inputMethodEngine.PATTERN_NULL,
+      PATTERN_EMAIL: inputMethodEngine.PATTERN_EMAIL,
+      PATTERN_URI: inputMethodEngine.PATTERN_URI,
+      PATTERN_USER_NAME: inputMethodEngine.PATTERN_USER_NAME,
+      PATTERN_PASSWORD: inputMethodEngine.PATTERN_PASSWORD,
+      PATTERN_PASSWORD_SCREEN_LOCK: inputMethodEngine.PATTERN_PASSWORD_SCREEN_LOCK,
+      PATTERN_PASSWORD_NUMBER: inputMethodEngine.PATTERN_PASSWORD_NUMBER,
+      PATTERN_NEW_PASSWORD: inputMethodEngine.PATTERN_NEW_PASSWORD,
+      PATTERN_ONE_TIME_CODE: inputMethodEngine.PATTERN_ONE_TIME_CODE,
+      PATTERN_NUMBER: inputMethodEngine.PATTERN_NUMBER,
+      PATTERN_PHONE: inputMethodEngine.PATTERN_PHONE,
+      PATTERN_NUMBER_DECIMAL: inputMethodEngine.PATTERN_NUMBER_DECIMAL
     };
+    return EditorPatternPolicy.traitsFor(pattern, types, inputMethod.TextInputType.MULTILINE);
   }
 
   /**
@@ -5564,9 +5560,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0) {
       return;
     }
-    const actualIndex: number = this.engineCandidateIndex(index);
-    if (actualIndex < 0) return;
-    this.apply(client.select(this.handle, this.generation, actualIndex));
+    const id: CandidateIdentity | null = this.pageCandidateIdentity(index);
+    if (id === null) return;
+    this.apply(client.select(this.handle, id.generation, id.index));
   }
 
   /** Commit the first or last Han scalar of the highlighted candidate. */
@@ -5575,8 +5571,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     const candidate: Candidate | undefined = this.currentCandidates.find(
       (entry: Candidate): boolean => entry.highlighted);
     if (candidate === undefined) return;
-    const raw: string = client.selectEdge(this.handle, this.generation,
-      this.currentCandidates.indexOf(candidate), edge === CandidateTextEdge.FIRST ? 0 : 1);
+    const id: CandidateIdentity | null = CandidatePresentationPolicy.identityAt(
+      this.currentCandidates, [this.currentCandidates.indexOf(candidate)], 0, this.handle);
+    if (id === null) return;
+    const raw: string = client.selectEdge(this.handle, id.generation,
+      id.index, edge === CandidateTextEdge.FIRST ? 0 : 1);
     let response: Response;
     try {
       response = JSON.parse(raw) as Response;
@@ -5799,8 +5798,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private currentCandidates: Candidate[] = [];
   /** 候选条隐藏内部占位行后，显示序号对应的 Engine 索引。 */
   private visibleCandidateIndices: number[] = [];
-  /** 展开面板隐藏内部占位行后，显示序号对应的 Engine 全量列表索引。 */
-  private expandedCandidateIndices: number[] = [];
+  /** 展开面板隐藏内部占位行后，显示序号对应的引擎候选身份。 */
+  private expandedCandidateIdentities: CandidateIdentity[] = [];
   private translationPage: string[] | null = null;
   private translationHighlight: number = 0;
   private lastView: EngineView | undefined = undefined;
@@ -8936,7 +8935,7 @@ export class KeyboardSession implements HardwareKeyTarget {
    * operations index the page rather than this list, so the source does not offer them here either.
    */
   allCandidates(): ExpandedCandidate[] {
-    this.expandedCandidateIndices = [];
+    this.expandedCandidateIdentities = [];
     if (this.handle === 0) {
       return [];
     }
@@ -8963,7 +8962,10 @@ export class KeyboardSession implements HardwareKeyTarget {
         if (!CandidatePresentationPolicy.isVisible(candidate.source)) {
           continue;
         }
-        this.expandedCandidateIndices.push(index);
+        const id: CandidateIdentity | null = CandidatePresentationPolicy.identityAt(
+          response.value.candidates, [index], 0, this.handle);
+        if (id === null || id.generation !== response.value.generation) continue;
+        this.expandedCandidateIdentities.push(id);
         entries.push({
           text: this.asTraditional(candidate.text, candidate.source),
           annotation: CandidateGlossPolicy.annotation(
@@ -8991,6 +8993,13 @@ export class KeyboardSession implements HardwareKeyTarget {
     return `${this.handle}:${this.generation}`;
   }
 
+  /** 展开完整列表可能更新引擎代次；收起后只在代次与候选条不一致时重新读取候选条及其身份。收起常发生在 `render` 的 `onChanged` 回调里（选词后组字结束），代次没变时再重画一遍只会重入 `render`、重复排队在线候选和翻译。 */
+  refreshCandidateView(): void {
+    if (this.handle !== 0 && this.lastView !== undefined && this.lastView.generation !== this.generation) {
+      this.applyView(client.view(this.handle));
+    }
+  }
+
   /**
    * The candidate-management operations behind a long press: promote it, pin it to the front, let go
    * of a pinned position, or take the entry out of the dictionary altogether.
@@ -8998,6 +9007,12 @@ export class KeyboardSession implements HardwareKeyTarget {
   private engineCandidateIndex(index: number): number {
     return index >= 0 && index < this.visibleCandidateIndices.length
       ? this.visibleCandidateIndices[index] : -1;
+  }
+
+  /** 可见序号属于当前页，引擎身份里的序号属于完整候选列表。 */
+  private pageCandidateIdentity(index: number): CandidateIdentity | null {
+    return CandidatePresentationPolicy.identityAt(
+      this.currentCandidates, this.visibleCandidateIndices, index, this.handle);
   }
 
   /** 候选能不能固定、调序或删除：上屏后联想的候选不属于正在组的字，和 Android 的 `candidateManagementEnabled` 一样不给管理。 */
@@ -9009,9 +9024,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0 || !this.candidateManagementAllowed()) {
       return;
     }
-    const actualIndex: number = this.engineCandidateIndex(index);
-    if (actualIndex < 0) return;
-    this.apply(client.pinCandidate(this.handle, this.generation, actualIndex));
+    const id: CandidateIdentity | null = this.pageCandidateIdentity(index);
+    if (id === null) return;
+    this.apply(client.pinCandidate(this.handle, id.generation, id.index));
   }
 
   /** Position 1 is the front of the list, which is what 固定到首位 means. */
@@ -9027,9 +9042,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     // ever builds slots 1 to 5, so this throws for nobody; it is here because this is the last point
     // before the slot becomes an argument to the Engine, and a session method is callable by
     // anything in the host.
-    const actualIndex: number = this.engineCandidateIndex(index);
-    if (actualIndex < 0) return;
-    this.apply(client.fixCandidatePosition(this.handle, this.generation, actualIndex,
+    const id: CandidateIdentity | null = this.pageCandidateIdentity(index);
+    if (id === null) return;
+    this.apply(client.fixCandidatePosition(this.handle, id.generation, id.index,
       CandidateManagementAction.validatePosition(position)));
   }
 
@@ -9037,18 +9052,18 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0 || !this.candidateManagementAllowed()) {
       return;
     }
-    const actualIndex: number = this.engineCandidateIndex(index);
-    if (actualIndex < 0) return;
-    this.apply(client.clearCandidatePosition(this.handle, this.generation, actualIndex));
+    const id: CandidateIdentity | null = this.pageCandidateIdentity(index);
+    if (id === null) return;
+    this.apply(client.clearCandidatePosition(this.handle, id.generation, id.index));
   }
 
   removeCandidate(index: number): void {
     if (this.handle === 0 || !this.candidateManagementAllowed()) {
       return;
     }
-    const actualIndex: number = this.engineCandidateIndex(index);
-    if (actualIndex < 0) return;
-    this.apply(client.removeCandidate(this.handle, this.generation, actualIndex));
+    const id: CandidateIdentity | null = this.pageCandidateIdentity(index);
+    if (id === null) return;
+    this.apply(client.removeCandidate(this.handle, id.generation, id.index));
   }
 
   /**
@@ -9085,7 +9100,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         KeyboardScheme.engineSchemeName(view.scheme), candidate.source)) {
       return false;
     }
-    this.apply(client.removeCandidate(this.handle, this.generation, actualIndex));
+    const id: CandidateIdentity | null = this.pageCandidateIdentity(index);
+    if (id === null) return false;
+    this.apply(client.removeCandidate(this.handle, id.generation, id.index));
     return true;
   }
 
@@ -9094,9 +9111,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0) {
       return false;
     }
-    const actualIndex: number = this.expandedCandidateIndices[index] ?? -1;
-    if (actualIndex < 0) return false;
-    return this.apply(client.selectAnyCandidate(this.handle, this.generation, actualIndex));
+    const id: CandidateIdentity | undefined = this.expandedCandidateIdentities[index];
+    if (id === undefined || id.session !== this.handle) return false;
+    return this.apply(client.selectAnyCandidate(this.handle, id.generation, id.index));
   }
 
   /** Commit to one reading of the digits typed so far. */

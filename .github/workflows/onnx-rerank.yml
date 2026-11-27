@@ -1,6 +1,6 @@
 name: ONNX rerank backend
 
-# 按键重排的 ONNX Runtime 后端（crates/onnx-rerank 的 `runtime` 特性、host-api 与 input-runtime 的 `onnx-rerank` 特性）默认不编，别的 CI 作业都不开这些特性，所以 scorer.rs 对 `ort` 的用法、它对 CandidateScorer 的实现、host-api 里挂载与分档的代码和 golden 测试原本在哪个 runner 上都不会被编译。这里在 Linux x86_64 上开着这些特性跑 clippy，再链接精简构建的 ONNX Runtime 跑 golden 测试和 host-api 的挂载测试。静态库用 tools/onnxruntime-minimal/build.sh 现编，按 ONNX Runtime 版本、算子清单和构建脚本缓存：它们不变就不重编。
+# 按键重排的 ONNX Runtime 后端（crates/onnx-rerank 的 `runtime` 特性、host-api 与 input-runtime 的 `onnx-rerank` 特性）默认不编，别的 CI 作业都不开这些特性，所以 scorer.rs 对 `ort` 的用法、它对 CandidateScorer 的实现、host-api 里挂载与分档的代码和 golden 测试原本在哪个 runner 上都不会被编译。这里在 Linux x86_64 上开着这些特性跑 clippy，再链接精简构建的 ONNX Runtime 跑 golden 测试和 host-api 的挂载测试。静态库用 tools/onnxruntime-minimal/build.sh 现编，按 ONNX Runtime 版本、算子清单和构建脚本缓存：它们不变就不重编。缓存没命中、这次又没改算子清单和构建脚本时，不现编，按 resources/onnxruntime-minimal.lock.json 下载发布的那一份库来测（见下面「Restore the minimal ONNX Runtime」旁的说明）。
 on:
   push:
     branches:
@@ -61,9 +61,11 @@ jobs:
       CARGO_INCREMENTAL: '0'
       ORT_WORK: ${{ github.workspace }}/target/onnxruntime-minimal
     steps:
+      # 多取一层提交：PR 的合并提交的第一个父提交就是合并前的目标分支，下面拿它判断这次改没改精简构建的输入。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
       - name: Install sccache
         id: sccache
         continue-on-error: true
@@ -88,27 +90,71 @@ jobs:
       # 不链接原生库也能做的那一半：ort-sys 没找到 ONNX Runtime 时把报错推迟到链接，clippy 照常类型检查开着特性的全部代码（含测试和 rerank_latency 示例）。
       - name: Clippy with the ONNX backend features
         run: cargo clippy --locked -p msime-onnx-rerank -p msime-input-runtime -p msime-host-api --all-targets --features msime-onnx-rerank/runtime,msime-input-runtime/onnx-rerank,msime-host-api/onnx-rerank -- -D warnings
+      # Depot 的缓存按发起运行的仓库隔开：fork 来的 PR 读不到本仓库 develop 和同仓库 PR 存下的条目，每个 fork 第一次跑都不命中（2026-11-07 tianzecn、11-12 nooobkevin 的第一次运行都是现编后存进各自那一份，之后才命中）。不命中时现编要从 GitHub 拉 microsoft/onnxruntime，这个仓库在 2026-11-12 到 11-19 之间开始在 GitHub 上返回 404（git 报 `could not read Username`），fork 的 PR 因此全红。所以只在这次真改了算子清单或构建脚本时才现编，别的时候按锁下载发布的库：那正是各平台发布包链接的那一份，锁里的算子清单摘要由 scripts/test-fetch-onnxruntime.py 核对过。
       - name: Restore the minimal ONNX Runtime
         id: ort-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target/onnxruntime-minimal/out/linux-x86_64/libonnxruntime.a
             target/onnxruntime-minimal/out/linux-x86_64/libonnxruntime.a.gz
           key: onnxruntime-minimal-linux-x86_64-v1.24.4-${{ hashFiles('tools/onnxruntime-minimal/required_operators_and_types.config', 'tools/onnxruntime-minimal/build.sh') }}
-      # 与 README 和 onnxruntime-minimal.yml 同一个版本、同一个提交；标签被改过就停下。build.sh 在 msime 发 Linux 版的同一个镜像里编，产物与发布时链接的是同一种库。
-      - name: Build the minimal ONNX Runtime
+      # PR 和合并提交的第一个父提交比，推送和上一次推送的提交比；手动运行（发布前取附件）、比较的提交取不到时一律当作改了，现编。
+      - name: Check whether the minimal ONNX Runtime inputs changed
+        id: ort-inputs
         if: ${{ steps.ort-cache.outputs.cache-hit != 'true' }}
         env:
-          JOBS: '8'
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          git clone --quiet --depth 1 --branch v1.24.4 https://github.com/microsoft/onnxruntime.git "$RUNNER_TEMP/onnxruntime"
+          inputs=(tools/onnxruntime-minimal/required_operators_and_types.config tools/onnxruntime-minimal/build.sh)
+          base=
+          case "$EVENT" in
+            pull_request) base=$(git rev-parse --verify --quiet 'HEAD^1') || base= ;;
+            push)
+              if [[ -n "$BEFORE" && ! "$BEFORE" =~ ^0+$ ]] && git fetch --quiet --no-tags --depth=1 origin "$BEFORE"; then base=$BEFORE; fi
+              ;;
+          esac
+          if [[ -n "$base" ]] && git diff --quiet "$base" HEAD -- "${inputs[@]}"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      # 与 README 和 onnxruntime-minimal.yml 同一个版本、同一个提交；标签被改过就停下。build.sh 在 msime 发 Linux 版的同一个镜像里编，产物与发布时链接的是同一种库。
+      - name: Build the minimal ONNX Runtime
+        id: ort-build
+        if: ${{ steps.ort-inputs.outputs.changed == 'true' }}
+        env:
+          JOBS: '8'
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          if ! git clone --quiet --depth 1 --branch v1.24.4 https://github.com/microsoft/onnxruntime.git "$RUNNER_TEMP/onnxruntime"; then
+            echo "::error::could not clone microsoft/onnxruntime v1.24.4; this change touches the operator config or build.sh, so the minimal ONNX Runtime has to be rebuilt from source"
+            exit 1
+          fi
           commit=$(git -C "$RUNNER_TEMP/onnxruntime" rev-parse HEAD)
           if [[ "$commit" != 2d924974ef147392ced8409d36bd6d2e7fcc8a74 ]]; then echo "v1.24.4 resolved to $commit" >&2; exit 1; fi
           zsh tools/onnxruntime-minimal/build.sh "$RUNNER_TEMP/onnxruntime" "$ORT_WORK" linux-x86_64
-      # resources/onnxruntime-minimal.lock.json 的 x86_64-unknown-linux-gnu 就是这里编出的库：发新的 onnxruntime-minimal-<版本>-r<序号> 时从这个作业的附件取 libonnxruntime.a.gz（build.sh 用 gzip -9 -n 压的），不在别的机器上另编。附件只留 14 天，发布前重跑一次即可。
+      - name: Save the minimal ONNX Runtime
+        if: ${{ steps.ort-build.outcome == 'success' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            target/onnxruntime-minimal/out/linux-x86_64/libonnxruntime.a
+            target/onnxruntime-minimal/out/linux-x86_64/libonnxruntime.a.gz
+          key: ${{ steps.ort-cache.outputs.cache-primary-key }}
+      # 下载核对后的库在 target/onnxruntime/x86_64-unknown-linux-gnu，不放进上面缓存的目录：缓存和附件只装这里编出的库。
+      - name: Fetch the released minimal ONNX Runtime
+        if: ${{ steps.ort-inputs.outputs.changed == 'false' }}
+        run: |
+          set -euo pipefail
+          location=$(python3 scripts/fetch_onnxruntime.py --target x86_64-unknown-linux-gnu)
+          echo "ORT_LIB_LOCATION=$location" >> "$GITHUB_ENV"
+      # resources/onnxruntime-minimal.lock.json 的 x86_64-unknown-linux-gnu 就是这里编出的库：发新的 onnxruntime-minimal-<版本>-r<序号> 时从这个作业的附件取 libonnxruntime.a.gz（build.sh 用 gzip -9 -n 压的），不在别的机器上另编。附件只留 14 天，发布前重跑一次即可。按锁下载的那次没有附件。
       - name: Upload the minimal ONNX Runtime
+        if: ${{ steps.ort-cache.outputs.cache-hit == 'true' || steps.ort-build.outcome == 'success' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: libonnxruntime-x86_64-unknown-linux-gnu
@@ -119,7 +165,7 @@ jobs:
       - name: Golden and mounting tests against ONNX Runtime
         run: |
           set -euo pipefail
-          export ORT_LIB_LOCATION="$ORT_WORK/out/linux-x86_64"
+          export ORT_LIB_LOCATION="${ORT_LIB_LOCATION:-$ORT_WORK/out/linux-x86_64}"
           test -f "$ORT_LIB_LOCATION/libonnxruntime.a"
           cargo test --locked -p msime-onnx-rerank --features runtime
           cargo test --locked -p msime-host-api --features onnx-rerank --lib keyboard_reranker

@@ -100,7 +100,7 @@ extension MetasequoiaInputSnapshot {
       scriptConversion: scriptConversion,
       preedit: preedit, reading: reading, phrasePrefix: phrasePrefix,
       candidates: candidates, candidateCodes: candidateCodes, candidateGlosses: candidateGlosses,
-      candidateAnnotations: candidateAnnotations, candidateSources: candidateSources,
+      candidateAnnotations: candidateAnnotations, candidateCorrected: candidateCorrected, candidateSources: candidateSources,
       candidateFixedPositions: candidateFixedPositions, candidateHighlighted: candidateHighlighted,
       candidateConfidentCorrections: candidateConfidentCorrections, candidatePageCount: candidatePageCount,
       answeredByPinyinFallback: answeredByPinyinFallback, diagnosticText: diagnosticText, localMode: localMode,

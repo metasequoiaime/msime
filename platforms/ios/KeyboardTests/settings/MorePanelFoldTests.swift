@@ -56,7 +56,7 @@ final class MorePanelFoldTests: XCTestCase {
   /// 先是设计稿里的各项，再是在别处没有位置的 iOS 工具；振动相关的项只在有 Taptic Engine 的设备上出现。
   private var expectedTitles: [String] {
     let haptics = KeyboardFeedbackPreference.hapticsAvailable
-    var titles: [String] = ["全角", "中文标点", "模糊音", "繁体", "手写", "词库", "键盘调整", "设置", "按键音"]
+    var titles: [String] = ["全角", "中文标点", "模糊音", "双拼键位提示", "繁体", "手写", "词库", "键盘调整", "设置", "按键音"]
     if haptics { titles.append("振动") }
     // 工具栏不放语音按钮，「语音输入」一直在菜单里。
     titles += ["单手模式", "隐私模式", "反馈", "关于", "AI 润色", "高情商回复", "本地输入", "语音输入"]
@@ -97,8 +97,16 @@ final class MorePanelFoldTests: XCTestCase {
       let visible = scroll.convert(scroll.bounds, to: panel)
       XCTAssertTrue(visible.contains(tile.convert(tile.bounds, to: panel).insetBy(dx: 1, dy: 1)), tile.tool.title)
     }
-    for tile in tiles { XCTAssertEqual(tile.bounds.height, KeyboardFunctionTileView.height, accuracy: 0.5) }
+    // 手机竖屏的键区按 44pt 键帽算，默认高度下三行图块按 `pickerLayout` 略微等比缩小（约 50pt），各格一样高，不小于 44pt。
+    let tileHeight = tiles.first?.bounds.height ?? 0
+    for tile in tiles { XCTAssertEqual(tile.bounds.height, tileHeight, accuracy: 0.5) }
+    XCTAssertGreaterThanOrEqual(tileHeight, KeyboardPagedGridView.pickerMinTileHeight - 0.5)
+    XCTAssertLessThanOrEqual(tileHeight, KeyboardFunctionTileView.height + 0.5)
     XCTAssertEqual(KeyboardFunctionTileView.height, 52)
+    // Pin the default: the 201pt panel leaves a 173pt grid (see `testPickerPanelsFitTheRealKeyAreaHeight`), so three rows scale to 52 × 173 / 180 ≈ 50pt.
+    let defaultLayout = KeyboardPagedGridView.pickerLayout(preferredRows: 3, height: 173, rowHeight: KeyboardFunctionTileView.height)
+    XCTAssertEqual(defaultLayout.rows, 3)
+    XCTAssertEqual(tileHeight, defaultLayout.rowHeight, accuracy: 0.5)
   }
 
   /// 三端共用的选择面板排布规则（Android `PagedTileGrid.pickerGrid`、HarmonyOS `FunctionPanelPolicy.pickerGrid` 用同一组向量）：高度够时满尺寸，不够时等比缩小，三行缩到 44pt 以下才改排两行，两行最多缩到 44pt。
@@ -129,29 +137,29 @@ final class MorePanelFoldTests: XCTestCase {
     XCTAssertEqual(small.scale, 1)
   }
 
-  /// 面板装在键区里（`installPanel`：顶栏底边到键盘根视图底边，26 键竖屏再减去 16pt 的补偿留白），高度是顶栏下的间隔加按键区再加高度调整。两种选择面板都按这个真实高度排布：格子各行放得进滚动区、不能上下拖动，所有格子一样高，页码圆点不出面板。
+  /// 面板装在键区里（`installPanel`：顶栏底边到键盘根视图底边），高度是顶栏下的间隔加按键区再加高度调整。两种选择面板都按这个真实高度排布：格子各行放得进滚动区、不能上下拖动，所有格子一样高，页码圆点不出面板。
   ///
-  /// 最矮的手机竖屏是 26 键、行距 4pt、高度调到 -12pt：4 + 220 - 12 - 16 = 196pt，减去上下边距 14pt 和圆点 14pt 后格子只有 168pt，比三行满尺寸的 180pt 矮，于是三行等比缩到约 48.3pt；九键同样设置下是 212pt，放得下满尺寸。手机横屏最矮是 140pt，两行缩到 112 / 120。
+  /// 手机竖屏所有键面都是 44pt 键帽。最矮的是行距 4pt、高度调到 -12pt：4 + 188 - 12 = 180pt，减去上下边距 14pt 和圆点 14pt 后格子只有 152pt，三行要缩到 44pt 以下，改排满尺寸的两行；默认行距 7pt、不调高度时是 201pt，格子 173pt，三行等比缩到约 0.96。手机横屏最矮是 140pt，两行缩到 112 / 120。
   func testPickerPanelsFitTheRealKeyAreaHeight() throws {
     let tools = (0..<20).map { index in KeyboardTool(id: "tool\(index)", title: "工具\(index)", face: .glyph("\(index)")) {} }
     func panelHeight(_ form: KeyboardFormFactor, landscape: Bool, letterKeys: Bool, rowSpacing: CGFloat, adjustment: CGFloat) -> CGFloat {
       form.topRowGap
-        + KeyboardHeightPercent.keyBlockHeight(keyHeight: form.keyHeight(landscape: landscape, handwriting: false), rows: 4, rowSpacing: rowSpacing)
-        + adjustment - (form == .phone && letterKeys && !landscape
-          ? KeyboardFormFactor.phoneLetterVerticalPadding(rows: 4) : 0)
+        + KeyboardHeightPercent.keyBlockHeight(
+          keyHeight: form.keyHeight(landscape: landscape, handwriting: false, letterKeys: letterKeys), rows: 4, rowSpacing: rowSpacing)
+        + adjustment
     }
     let shortest = KeyboardHeightPercent.adjustmentRange.lowerBound
     let cases: [(form: KeyboardFormFactor, landscape: Bool, width: CGFloat, height: CGFloat, rows: Int, scaled: Bool)] = [
-      (.phone, false, 375, panelHeight(.phone, landscape: false, letterKeys: true, rowSpacing: 4, adjustment: shortest), 3, true),
-      (.phone, false, 375, panelHeight(.phone, landscape: false, letterKeys: false, rowSpacing: 4, adjustment: shortest), 3, false),
-      (.phone, false, 375, panelHeight(.phone, landscape: false, letterKeys: true, rowSpacing: 7, adjustment: 0), 3, false),
+      (.phone, false, 375, panelHeight(.phone, landscape: false, letterKeys: true, rowSpacing: 4, adjustment: shortest), 2, false),
+      (.phone, false, 375, panelHeight(.phone, landscape: false, letterKeys: false, rowSpacing: 4, adjustment: shortest), 2, false),
+      (.phone, false, 375, panelHeight(.phone, landscape: false, letterKeys: true, rowSpacing: 7, adjustment: 0), 3, true),
       (.phone, true, 812, panelHeight(.phone, landscape: true, letterKeys: true, rowSpacing: 4, adjustment: shortest), 2, true),
       (.phone, true, 812, panelHeight(.phone, landscape: true, letterKeys: true, rowSpacing: 7, adjustment: 0), 2, false),
       (.tablet, false, 820, panelHeight(.tablet, landscape: false, letterKeys: true, rowSpacing: 4, adjustment: shortest), 3, false),
       // 比任何真实键盘都矮：三行要缩到 44pt 以下，改排满尺寸的两行。
       (.phone, false, 375, 150, 2, false),
     ]
-    XCTAssertEqual(cases[0].height, 196)
+    XCTAssertEqual(cases[0].height, 180)
     XCTAssertEqual(cases[3].height, 140)
     for item in cases {
       for build in [{ KeyboardMorePickerView(tools: tools, formFactor: item.form, landscape: item.landscape) as UIView },
@@ -359,6 +367,78 @@ final class MorePanelFoldTests: XCTestCase {
     _ = try openMenu(in: controller)
     XCTAssertFalse(try tile("moreCard-模糊音", in: controller).isEnabled)
     XCTAssertEqual(try tile("moreCard-模糊音", in: controller).accessibilityValue, "不可用")
+  }
+
+  /// 工具栏图标菜单里的「双拼键位提示」与设置页的同一行：点一下写成共享文档里的 `touch_shuangpin_key_hints`，
+  /// 双拼 26 键的键面当场画上声母韵母、字母让出底部那一条，再点一下收起。
+  func testShuangpinKeyHintsTileWritesTheSharedSwitch() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousEnabled = InputSchemePreference.enabledSchemes
+    let previousHints = KeyboardLayoutPreference.shuangpinKeyHints
+    addTeardownBlock {
+      InputSchemePreference.enabledSchemes = previousEnabled
+      InputSchemePreference.scheme = previousScheme
+      KeyboardLayoutPreference.shuangpinKeyHints = previousHints
+    }
+    selectScheme(.shuangpin)
+    KeyboardLayoutPreference.shuangpinKeyHints = false
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences {
+      $0[KeyboardLayoutPreference.shuangpinKeyHintsDocumentKey] = false
+    })
+
+    let controller = makeController(width: 390)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    let q = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 Q" } as? KeyboardKeyButton)
+    XCTAssertTrue(try XCTUnwrap(hint(of: q)).isHidden, "the face starts without hints")
+
+    let panel = try openMenu(in: controller)
+    XCTAssertTrue(try tile("moreCard-双拼键位提示", in: controller).isEnabled)
+    XCTAssertEqual(try tile("moreCard-双拼键位提示", in: controller).accessibilityValue, "已关闭")
+    try tile("moreCard-双拼键位提示", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(MetasequoiaInputSessionBridge.loadSharedPreferences()?[KeyboardLayoutPreference.shuangpinKeyHintsDocumentKey] as? Bool,
+                   true, "the switch goes into the document the settings app reads")
+    XCTAssertTrue(KeyboardLayoutPreference.shuangpinKeyHints, "the App Group mirror follows it")
+    XCTAssertEqual(try tile("moreCard-双拼键位提示", in: controller).accessibilityValue, "已开启")
+    XCTAssertNotNil(panel.superview, "a switch keeps the menu open")
+    XCTAssertFalse(try XCTUnwrap(hint(of: q)).isHidden, "the key redraws without waiting for the keyboard to come back")
+    XCTAssertEqual(q.configuration?.contentInsets.bottom, 11, "and the letter makes room for the hint")
+
+    try tile("moreCard-双拼键位提示", in: controller).sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(MetasequoiaInputSessionBridge.loadSharedPreferences()?[KeyboardLayoutPreference.shuangpinKeyHintsDocumentKey] as? Bool,
+                   false)
+    XCTAssertTrue(try XCTUnwrap(hint(of: q)).isHidden)
+    XCTAssertEqual(q.configuration?.contentInsets.bottom, 0)
+  }
+
+  /// 提示只画在双拼 26 键上：全拼、九键、五笔和英文模式下图块变暗但不隐藏，与「模糊音」一样。
+  func testShuangpinKeyHintsTileIsDimmedAwayFromTheShuangpinLetterKeys() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousEnabled = InputSchemePreference.enabledSchemes
+    addTeardownBlock {
+      InputSchemePreference.enabledSchemes = previousEnabled
+      InputSchemePreference.scheme = previousScheme
+    }
+    selectScheme(.quanpin)
+    let controller = makeController(width: 390)
+    controller.viewWillAppear(false)
+    _ = try openMenu(in: controller)
+    XCTAssertFalse(try tile("moreCard-双拼键位提示", in: controller).isEnabled)
+    XCTAssertEqual(try tile("moreCard-双拼键位提示", in: controller).accessibilityValue, "不可用")
+  }
+
+  /// 把共享文档里的输入方案设成 `scheme`：键盘出现时按文档对齐方案，只改 defaults 不够。
+  private func selectScheme(_ scheme: ChineseInputScheme) {
+    let written = InputSchemePreference.update { selection in
+      selection.enabled = ChineseInputScheme.allCases
+      selection.scheme = scheme
+    }
+    XCTAssertEqual(written?.scheme, scheme, "测试版本里有 \(scheme.title)，文档才会接受这一次选择")
+  }
+
+  /// 键面底部的双拼提示，即按键里那枚 9pt 的标签。
+  private func hint(of key: UIButton) -> UILabel? {
+    key.subviews.compactMap { $0 as? UILabel }.first { $0.font.pointSize == 9 }
   }
 
   /// 菜单自己的开关把 `fuzzy_pinyin` 同时写入会话和文档：用户选过的规则集保持不变，空的规则集则填满。
@@ -671,17 +751,19 @@ final class MorePanelFoldTests: XCTestCase {
   }
 
   func testHeightPercentRoundTripsThroughPoints() {
-    let keyBlock = KeyboardViewController.keyBlockHeight(keyHeight: 52, rows: 4, rowSpacing: 7)
-    XCTAssertEqual(keyBlock, 229, "四排 52pt 手机按键与三个 7pt 行间距")
+    let keyBlock = KeyboardViewController.keyBlockHeight(keyHeight: 44, rows: 4, rowSpacing: 7)
+    XCTAssertEqual(keyBlock, 197, "四排 44pt 手机按键与三个 7pt 行间距")
     XCTAssertEqual(KeyboardHeightPercent.portraitKeyBlockHeight(tablet: false, numberRow: true, rowSpacing: 7), keyBlock,
                    "a phone has no digit row")
     XCTAssertEqual(KeyboardHeightPercent.portraitKeyBlockHeight(tablet: true, numberRow: true, rowSpacing: 7), 5 * 54 + 4 * 7)
     XCTAssertEqual(KeyboardViewController.heightPercent(adjustment: 0, keyBlock: keyBlock), 100)
     XCTAssertEqual(KeyboardViewController.heightAdjustment(percent: 100, keyBlock: keyBlock), 0)
-    XCTAssertEqual(KeyboardViewController.heightPercent(adjustment: -12, keyBlock: keyBlock), 95)
-    XCTAssertEqual(KeyboardViewController.heightPercent(adjustment: 48, keyBlock: keyBlock), 121)
-    // 无论调节条要求多少，点数都限制在共享字段的范围内。
-    XCTAssertEqual(KeyboardViewController.heightAdjustment(percent: 200, keyBlock: keyBlock), 48)
+    // 按 197pt 的按键区换算：(197 - 12) / 197 ≈ 94%，(197 + 48) / 197 ≈ 124%。
+    XCTAssertEqual(KeyboardViewController.heightPercent(adjustment: -12, keyBlock: keyBlock), 94)
+    XCTAssertEqual(KeyboardViewController.heightPercent(adjustment: 48, keyBlock: keyBlock), 124)
+    // 无论调节条要求多少，点数都限制在 iOS 的可调范围内，上限 80 对应 (197 + 80) / 197 ≈ 141%。
+    XCTAssertEqual(KeyboardViewController.heightAdjustment(percent: 200, keyBlock: keyBlock), 80)
+    XCTAssertEqual(KeyboardViewController.heightPercent(adjustment: 80, keyBlock: keyBlock), 141)
     XCTAssertEqual(KeyboardViewController.heightAdjustment(percent: 50, keyBlock: keyBlock), -12)
   }
 

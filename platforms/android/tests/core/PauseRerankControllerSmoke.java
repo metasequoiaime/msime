@@ -32,8 +32,11 @@ public final class PauseRerankControllerSmoke {
         final List<String> views = new ArrayList<>();
         int errors;
         boolean failPoll;
+        boolean held;
+        boolean panelOpen;
         final PauseRerankController<String> controller = new PauseRerankController<>(queue, this,
-            () -> session, value -> { views.add(value); controllerSchedule(); }, () -> errors++);
+            () -> session, value -> { views.add(value); controllerSchedule(); }, () -> errors++, () -> held,
+            () -> panelOpen);
         private void controllerSchedule() { controller.schedule(true); }
         @Override public PauseRerankController.Reply<String> start(long handle) {
             calls.add("start:" + handle);
@@ -46,6 +49,16 @@ public final class PauseRerankControllerSmoke {
         }
         void reply(String status, long token, boolean moved, String view) {
             replies.add(new PauseRerankController.Reply<>(status, token, moved, view));
+        }
+        void deferredReply(String status, String view) {
+            replies.add(new PauseRerankController.Reply<>(status, 0, view != null, view, true));
+        }
+        /** 先跑完一次停顿，让控制器从回复里知道会话挂着延后的模型。 */
+        void learnDeferred() {
+            deferredReply("done", null);
+            controller.schedule(true);
+            queue.next();
+            calls.clear();
         }
     }
     private static void check(boolean condition, String message) {
@@ -221,6 +234,167 @@ public final class PauseRerankControllerSmoke {
         host.controller.cancel();
         check(host.queue.tasks.isEmpty() && host.calls.isEmpty(), "零句柄不启动原生评分或计时器");
     }
+    private static void heldCandidatePostponesThePause() {
+        Host host = new Host();
+        host.held = true;
+        host.reply("done", 0, true, "generation:2");
+        host.controller.schedule(true);
+        host.queue.next();
+        check(host.calls.isEmpty(), "按着候选时不起跑");
+        check(host.queue.tasks.size() == 1 && host.queue.tasks.get(0).delay() == 16, "按着时隔一帧再看");
+        host.queue.next();
+        check(host.calls.isEmpty() && host.views.isEmpty(), "一直按着就一直不换代");
+        host.held = false;
+        host.queue.next();
+        check(host.calls.equals(List.of("start:11")), "松手后接着起跑");
+        check(host.views.equals(List.of("generation:2")), "松手后才发布");
+    }
+    private static void heldCandidateStopsBetweenSlices() {
+        Host host = new Host();
+        host.reply("continue", 0, false, "generation:2");
+        host.reply("done", 0, true, "generation:3");
+        host.controller.schedule(true);
+        host.queue.next();
+        host.held = true;
+        host.queue.next();
+        check(host.calls.equals(List.of("start:11")), "两片之间按下时不接续");
+        check(host.views.equals(List.of("generation:2")), "按着时不发布下一片");
+        host.held = false;
+        host.queue.next();
+        check(host.calls.equals(List.of("start:11", "start:11")), "松手后接续下一片");
+        check(host.views.equals(List.of("generation:2", "generation:3")), "接续的一片照常发布");
+    }
+    private static void openPanelParksWithoutPolling() {
+        Host host = new Host();
+        host.panelOpen = true;
+        host.reply("done", 0, true, "generation:2");
+        host.controller.schedule(true);
+        host.queue.next();
+        check(host.calls.isEmpty() && host.views.isEmpty(), "面板开着时不起跑");
+        check(host.queue.tasks.isEmpty(), "面板开着时不轮询");
+        host.controller.resume();
+        check(host.queue.tasks.size() == 1, "面板收着时 resume 才排上");
+        host.panelOpen = false;
+        host.queue.next();
+        check(host.calls.equals(List.of("start:11")) && host.views.equals(List.of("generation:2")),
+            "收起后接着起跑并发布");
+        host.controller.resume();
+        check(host.queue.tasks.isEmpty(), "没有停下的步骤时 resume 什么也不做");
+    }
+    private static void openPanelStopsBetweenSlices() {
+        Host host = new Host();
+        host.reply("continue", 0, false, "generation:2");
+        host.reply("done", 0, true, "generation:3");
+        host.controller.schedule(true);
+        host.queue.next();
+        host.panelOpen = true;
+        host.queue.next();
+        check(host.views.equals(List.of("generation:2")) && host.queue.tasks.isEmpty(), "两片之间打开面板时停下");
+        host.panelOpen = false;
+        host.controller.resume();
+        host.queue.drain();
+        check(host.views.equals(List.of("generation:2", "generation:3")), "收起后接续下一片");
+    }
+    private static void typingDropsTheParkedStep() {
+        Host host = new Host();
+        host.panelOpen = true;
+        host.controller.schedule(true);
+        host.queue.next();
+        host.controller.cancel();
+        host.panelOpen = false;
+        host.controller.resume();
+        check(host.queue.tasks.isEmpty() && host.calls.isEmpty(), "取消之后停下的步骤不再接着做");
+    }
+    private static void heldCandidateStillReturnsCancelledScore() {
+        Host host = new Host();
+        host.reply("pending", 77, false, null);
+        host.controller.schedule(true);
+        host.queue.next();
+        host.held = true;
+        host.reply("done", 0, false, null);
+        host.controller.cancel();
+        host.queue.drain();
+        check(host.calls.equals(List.of("start:11", "poll:11:77:false")), "按着候选也照常归还取消的评分");
+        check(host.views.isEmpty(), "归还不发布视图");
+    }
+    private static void deferredSessionStartsEarly() {
+        Host host = new Host();
+        host.learnDeferred();
+        host.controller.schedule(true);
+        check(host.queue.tasks.get(0).delay() == 40, "延后模型的会话停顿 40 ms 起跑");
+        host.reply("done", 0, false, null);
+        host.queue.next();
+        host.controller.schedule(true);
+        check(host.queue.tasks.get(0).delay() == 300, "回复说不再延后时回到 300 ms");
+    }
+    private static void deferredFlagBelongsToItsSession() {
+        Host host = new Host();
+        host.learnDeferred();
+        host.session = 22;
+        host.controller.schedule(true);
+        check(host.queue.tasks.get(0).delay() == 300, "换了会话要等新会话的回复");
+    }
+    private static void unrelatedRedrawKeepsTheTimer() {
+        Host host = new Host();
+        host.controller.schedule(true);
+        Runnable timer = host.queue.tasks.get(0).task();
+        host.controller.keep(true);
+        check(host.queue.tasks.size() == 1 && host.queue.tasks.get(0).task() == timer,
+            "无关的重绘不重新计时");
+        host.controller.keep(false);
+        check(host.queue.tasks.isEmpty(), "组字不再适用时取消");
+    }
+    private static void redrawDoesNotStopRunningSlices() {
+        Host host = new Host();
+        host.reply("continue", 0, false, "generation:2");
+        host.reply("done", 0, true, "generation:3");
+        host.controller.schedule(true);
+        host.queue.next();
+        host.controller.keep(true);
+        host.queue.drain();
+        check(host.views.equals(List.of("generation:2", "generation:3")), "片与片之间的重绘不打断重解");
+    }
+    private static void settleNowPublishesTheLastSliceOnly() {
+        Host host = new Host();
+        host.learnDeferred();
+        host.controller.schedule(true);
+        host.deferredReply("continue", "generation:2");
+        host.deferredReply("continue", "generation:3");
+        host.deferredReply("continue", "generation:4");
+        host.controller.settleNow();
+        check(host.calls.equals(List.of("start:11", "start:11", "start:11")), "当场最多跑三片");
+        check(host.views.equals(List.of("generation:4")), "只发布最后一片，中间的不画");
+        check(host.queue.tasks.size() == 1 && host.queue.tasks.get(0).delay() == 0,
+            "没解完的换成紧接着的下一片，原来的计时取消");
+        host.deferredReply("done", "generation:5");
+        host.queue.next();
+        check(host.views.equals(List.of("generation:4", "generation:5")), "余下的照常接着做");
+    }
+    private static void settleNowStopsWhenDone() {
+        Host host = new Host();
+        host.learnDeferred();
+        host.deferredReply("done", "generation:2");
+        host.controller.settleNow();
+        check(host.calls.equals(List.of("start:11")) && host.views.equals(List.of("generation:2")),
+            "解完就停");
+        check(host.queue.tasks.isEmpty(), "解完不再排");
+    }
+    private static void settleNowNeedsDeferredModel() {
+        Host host = new Host();
+        host.controller.schedule(true);
+        host.controller.settleNow();
+        check(host.calls.isEmpty(), "不知道挂着延后模型时不当场重解");
+        check(host.queue.tasks.size() == 1 && host.queue.tasks.get(0).delay() == 300, "计时照旧");
+    }
+    private static void settleNowWaitsForHeldCandidate() {
+        Host host = new Host();
+        host.learnDeferred();
+        host.controller.schedule(true);
+        host.held = true;
+        host.controller.settleNow();
+        check(host.calls.isEmpty(), "按着候选时不当场重解");
+        check(host.queue.tasks.size() == 1, "计时照旧");
+    }
     public static void main(String[] args) {
         Runnable[] tests = {PauseRerankControllerSmoke::unchangedTextStillPublishesIdentity,
             PauseRerankControllerSmoke::continuationYieldsBetweenSlices,
@@ -234,7 +408,21 @@ public final class PauseRerankControllerSmoke {
             PauseRerankControllerSmoke::unreadableDiscardKeepsPolling,
             PauseRerankControllerSmoke::repeatedCancelDoesNotDuplicatePolling,
             PauseRerankControllerSmoke::oldDiscardCannotClearNewJob,
-            PauseRerankControllerSmoke::absentSessionStartsNothing};
+            PauseRerankControllerSmoke::absentSessionStartsNothing,
+            PauseRerankControllerSmoke::heldCandidatePostponesThePause,
+            PauseRerankControllerSmoke::heldCandidateStopsBetweenSlices,
+            PauseRerankControllerSmoke::heldCandidateStillReturnsCancelledScore,
+            PauseRerankControllerSmoke::openPanelParksWithoutPolling,
+            PauseRerankControllerSmoke::openPanelStopsBetweenSlices,
+            PauseRerankControllerSmoke::typingDropsTheParkedStep,
+            PauseRerankControllerSmoke::deferredSessionStartsEarly,
+            PauseRerankControllerSmoke::deferredFlagBelongsToItsSession,
+            PauseRerankControllerSmoke::unrelatedRedrawKeepsTheTimer,
+            PauseRerankControllerSmoke::redrawDoesNotStopRunningSlices,
+            PauseRerankControllerSmoke::settleNowPublishesTheLastSliceOnly,
+            PauseRerankControllerSmoke::settleNowStopsWhenDone,
+            PauseRerankControllerSmoke::settleNowNeedsDeferredModel,
+            PauseRerankControllerSmoke::settleNowWaitsForHeldCandidate};
         int failed = 0;
         for (int i = 0; i < tests.length; i++) {
             try { tests[i].run(); }

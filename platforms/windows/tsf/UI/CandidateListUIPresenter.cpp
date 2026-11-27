@@ -1122,13 +1122,28 @@ HRESULT CCandidateListUIPresenter::_StartCandidateList(TfClientId tfClientId, _I
     BeginUIElement();
     _candidateWindowVisible = FALSE;
 
-    RECT rcTextExt;
-    POINT anchor;
-    if (SUCCEEDED(_GetTextExt(&rcTextExt, &anchor)))
     {
-        Global::Point[0] = anchor.x;
-        Global::Point[1] = anchor.y;
-        _LayoutChangeNotification(&rcTextExt);
+        // 测量放在独立的块里：上面的失败路径直接 goto Exit，跨过带初始化的局部变量不是合法代码。
+        RECT rcTextExt;
+        POINT anchor;
+        const HRESULT measureHr = _GetTextExt(&rcTextExt, &anchor);
+        if (SUCCEEDED(measureHr))
+        {
+            Global::Point[0] = anchor.x;
+            Global::Point[1] = anchor.y;
+            _LayoutChangeNotification(&rcTextExt);
+            if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+            {
+                QueueTsfDiagnosticLog(fmt::format(L"[candidate-layout] composition start anchor={},{} usable={}",
+                                                  anchor.x, anchor.y, anchor.y == Global::INVALID_Y ? 0 : 1));
+            }
+        }
+        else if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+        {
+            // 失败时不写锚点，沿用上一次组字的位置；报告里要和「量到空 extent」分开看。
+            QueueTsfDiagnosticLog(fmt::format(L"[candidate-layout] composition start measurement failed hr=0x{:08X}",
+                                              static_cast<unsigned>(measureHr)));
+        }
     }
 
     hr = S_OK;
@@ -1393,8 +1408,16 @@ void CCandidateListUIPresenter::_MoveWindowToTextExt()
     RECT rc;
     POINT anchor;
 
-    if (FAILED(_GetTextExt(&rc, &anchor)))
+    const HRESULT hr = _GetTextExt(&rc, &anchor);
+    if (FAILED(hr))
     {
+        // 失败时沿用 Global::Point 里已有的锚点（这是「临时没有坐标」的既有规则），记一行便于
+        // 区分「Move 没发」和「Move 发了但还带着上一次的位置」。
+        if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+        {
+            QueueTsfDiagnosticLog(fmt::format(L"[candidate-layout] move measurement failed hr=0x{:08X} anchor={},{}",
+                                              static_cast<unsigned>(hr), Global::Point[0], Global::Point[1]));
+        }
         return;
     }
 
@@ -1414,6 +1437,13 @@ VOID CCandidateListUIPresenter::_LayoutChangeNotification(_In_ RECT *lpRect)
     if (_asyncCleanupPending || !_candidateUiSessionActive)
     {
         // In UWP, layout updates can still arrive after candidate UI teardown; ignore them so the window stays hidden.
+        if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+        {
+            QueueTsfDiagnosticLog(
+                fmt::format(L"[candidate-layout] layout change ignored cleanup={} session={} composing={}",
+                            _asyncCleanupPending ? 1 : 0, _candidateUiSessionActive ? 1 : 0,
+                            _pTextService && _pTextService->_IsComposing() ? 1 : 0));
+        }
         return;
     }
     MoveCandidateUiSession();
@@ -1746,6 +1776,16 @@ void CCandidateListUIPresenter::WriteCandidateUiPayload(_In_ UINT writeFlag)
     std::wstring pinyinString(keyStringBuffer.Get(), keyStringBuffer.GetLength());
     Global::PinyinLength = static_cast<int>(pinyinString.length());
 
+    // Show/Move 每一次都带锚点，全角/半角、拼音串另算。把这一次真正报出去的锚点写进日志：
+    // 报告里「候选窗不显示」分不清是宿主没给坐标、还是给了屏幕外哨兵值，这一行直接看得到。
+    if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+    {
+        QueueTsfDiagnosticLog(fmt::format(L"[candidate-layout] payload flag={} anchor={},{} composing={} session={}",
+                                          writeFlag, Global::Point[0], Global::Point[1],
+                                          _pTextService != nullptr && _pTextService->_IsComposing() ? 1 : 0,
+                                          _candidateUiSessionActive ? 1 : 0));
+    }
+
     PerfTimer writeTimer;
     WriteDataToNamedPipe(      //
         Global::Keycode,       //
@@ -1795,6 +1835,14 @@ void CCandidateListUIPresenter::MoveCandidateUiSession()
     if (_asyncCleanupPending || !_candidateUiSessionActive || !_isShowMode)
     {
         // UILess hosts draw candidates themselves; never chase an IME HWND.
+        if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+        {
+            // 有效测量之后的 Move 被这里丢掉，候选就停在哨兵值上不回来；报告里要能看出来。
+            QueueTsfDiagnosticLog(
+                fmt::format(L"[candidate-layout] move skipped cleanup={} session={} show_mode={} anchor={},{}",
+                            _asyncCleanupPending ? 1 : 0, _candidateUiSessionActive ? 1 : 0, _isShowMode ? 1 : 0,
+                            Global::Point[0], Global::Point[1]));
+        }
         return;
     }
     PerfTimer writePayloadTimer;

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "FloatingPanelColors.h"
+#include "FloatingToolbarMenuLayout.h"
 #include "FloatingToolbarModel.h"
 #include "OverlayPaint.h"
 
@@ -229,27 +230,18 @@ inline void paint_floating_toolbar(cairo_t *cairo, const FloatingToolbarLayout &
   }
 }
 
-// 弹出菜单的几何，逻辑像素：14 的字，一行高 28，分隔线一行 9，左边留 28 给勾，右边留 14，上下各 6 的内边距，圆角 8。乘工具栏的 scale_percent，与工具栏一起放大。
-struct FloatingToolbarMenuLayout {
-  double width = 0;
-  double height = 0;
-  double margin = 0;
-  FloatingToolbarRect plate;
-  std::vector<FloatingToolbarRect> rows;
-  double font_size = 0;
-  double check_column = 0;
-  double radius = 0;
-  double scale = 1;
-};
-
-inline FloatingToolbarMenuLayout floating_toolbar_menu_layout(const std::vector<FloatingToolbarMenuItem> &items,
+// 条目类型只要带 label / separator / disabled / checked 就能用（悬浮工具栏的
+// FloatingToolbarMenuItem 与候选右键菜单的 CandidateMenuItem 同构，候选菜单共用这一套布局、
+// 命中与绘制）。
+template <typename Item>
+inline FloatingToolbarMenuLayout floating_toolbar_menu_layout(const std::vector<Item> &items,
                                                               double scale, bool shadow) {
   FloatingToolbarMenuLayout layout;
   layout.scale = scale;
   layout.margin = shadow ? 8.0 : 0.0;
   layout.font_size = 14.0 * scale;
   layout.check_column = 28.0 * scale;
-  layout.radius = 8.0 * scale;
+  layout.radius = 12.0 * scale;
   const double padding = 6.0 * scale, row = 28.0 * scale, separator = 9.0 * scale, trailing = 14.0 * scale;
   double text_width = 0;
   for (const auto &item : items)
@@ -269,16 +261,18 @@ inline FloatingToolbarMenuLayout floating_toolbar_menu_layout(const std::vector<
 }
 
 // 指针下的那一项，分隔线和不能用的项不算。
+template <typename Item>
 inline std::optional<std::size_t> floating_toolbar_menu_hit(const FloatingToolbarMenuLayout &layout,
-                                                            const std::vector<FloatingToolbarMenuItem> &items, double x,
+                                                            const std::vector<Item> &items, double x,
                                                             double y) {
   for (std::size_t index = 0; index < layout.rows.size() && index < items.size(); ++index)
     if (!items[index].separator && !items[index].disabled && layout.rows[index].contains(x, y)) return index;
   return std::nullopt;
 }
 
+template <typename Item>
 inline void paint_floating_toolbar_menu(cairo_t *cairo, const FloatingToolbarMenuLayout &layout,
-                                        const std::vector<FloatingToolbarMenuItem> &items,
+                                        const std::vector<Item> &items,
                                         std::optional<std::size_t> hovered, const FloatingToolbarColors &colors) {
   const auto &plate = layout.plate;
   if (layout.margin > 0)

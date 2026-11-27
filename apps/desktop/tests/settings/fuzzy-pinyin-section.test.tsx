@@ -38,6 +38,7 @@ test("first enable seeds every fuzzy-pinyin rule", () => {
       "in-ing",
       "ian-iang",
       "uan-uang",
+      "un-ong",
     ],
     seeded: true,
   });

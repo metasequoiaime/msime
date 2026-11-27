@@ -19,7 +19,7 @@ final class NineKeyPanelActionColumnChecks {
         "收起候选面板", "候选面板 删除", "候选面板 重输", "切换到笔画筛选", "只显示单字",
     };
     /** 与 KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP 和 KEY_CAP_HORIZONTAL_PADDING_DP 相同。 */
-    private static final float MIN_TEXT_SP = 10f;
+    private static final float MIN_TEXT_SP = 9f;
     private static final float HORIZONTAL_PADDING_DP = 2f;
 
     private NineKeyPanelActionColumnChecks() {}

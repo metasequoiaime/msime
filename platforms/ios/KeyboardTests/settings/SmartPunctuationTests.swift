@@ -20,6 +20,18 @@ final class SmartPunctuationTests: XCTestCase {
         for: "、", enumerationCommaBackslash: false, enumerationCommaSlash: true), "/")
     XCTAssertEqual(KeyboardPunctuationContext.engineInput(for: "「", japanese: true), "[")
     XCTAssertEqual(KeyboardPunctuationContext.engineInput(for: "・", japanese: true), "/")
+    // 日语键面与引擎日文表逐字一致，每个标点键面都映射回它对应的 ASCII 键。
+    let japanese = ["、": "\\", "。": ".", "？": "?", "！": "!", "「": "[", "」": "]",
+                    "『": "{", "』": "}", "・": "/", "〜": "~", "（": "(", "）": ")",
+                    "：": ":", "；": ";"]
+    for (face, key) in japanese {
+      XCTAssertEqual(KeyboardPunctuationContext.engineInput(for: face, japanese: true), key, face)
+    }
+    // 日语读点固定走 `\`，不随中文顿号开关；中文的顿号键仍随开关走。
+    XCTAssertEqual(KeyboardPunctuationContext.engineInput(for: "、", japanese: true,
+      enumerationCommaBackslash: false, enumerationCommaSlash: true), "\\")
+    XCTAssertEqual(KeyboardPunctuationContext.engineInput(for: "、", japanese: false,
+      enumerationCommaBackslash: false, enumerationCommaSlash: true), "/")
     XCTAssertEqual(KeyboardPunctuationContext.engineInput(for: "@", japanese: false), "@")
     XCTAssertNil(KeyboardPunctuationContext.engineInput(for: "……", japanese: false))
     // Korean routes only ASCII keys; a Chinese mark from the symbol panel is typed as it is.

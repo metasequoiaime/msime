@@ -64,6 +64,8 @@ pub struct SessionOptions {
     pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     /// 十四／十八键组码后可以放下分隔符输入辅助码（[`crate::Session::grid_helpcode`]），默认关；还要 `helpcode` 开着、码表非空。
     pub grid_helpcode: bool,
+    /// 全拼九键的精确拼写模式。
+    pub precise_nine_key: bool,
     pub chinese_punctuation: bool,
     pub paired_punctuation: bool,
     /// 0 follows the mode, 1 forces Chinese, 2 forces ASCII.
@@ -114,6 +116,8 @@ pub struct SessionOptions {
     pub quick_phrase_candidates: bool,
     /// 快捷短语参与调频：追加进普通候选的整组短语有自己的槽位（`quick_phrase_slots` 日志表），越过它选普通候选让整组后退（最多退到首页末位），选中组内短语让整组前移。关掉时组固定在默认位置（首页最后几格，普通候选不满一页时接在它们之后，见 `default_quick_phrase_slot`），槽位记录保留但不读。
     pub quick_phrase_frequency: bool,
+    /// 用户选择把混输的快捷短语组放在普通候选最前面。
+    pub quick_phrase_first: bool,
     /// 宿主会把候选转成繁体输出：拆字（`C`）行按转换后的字形去重，免得一屏出现两个相同的繁体字。
     pub chaizi_traditional_output: bool,
 }
@@ -150,6 +154,7 @@ impl SessionOptions {
             strict_quanpin_helpcode: false,
             shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
             grid_helpcode: false,
+            precise_nine_key: false,
             chinese_punctuation: true,
             paired_punctuation: true,
             punctuation_lock: 0,
@@ -180,6 +185,7 @@ impl SessionOptions {
             quick_phrase_table: Vec::new(),
             quick_phrase_candidates: false,
             quick_phrase_frequency: true,
+            quick_phrase_first: false,
             chaizi_traditional_output: false,
         }
     }

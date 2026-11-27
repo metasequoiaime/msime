@@ -280,6 +280,13 @@ int main() {
   static_assert(candidate_expand_stale(true, true, true, false));
   static_assert(!candidate_expand_stale(false, false, false, false));
 
+  // 点开「∨」后候选窗手里那一帧还是请求之前读的快照，Server 还没认下这次展开（server_open 仍是 false）：这一帧不能据此收起，否则每次点开都会立刻自己收起；过了宽限期仍未确认才按 Server 的状态收起。换客户端和这一页不能展开照旧立刻收起。
+  static_assert(!candidate_expand_stale(true, false, true, true, true));
+  static_assert(candidate_expand_stale(true, false, true, true, false));
+  static_assert(candidate_expand_stale(true, false, false, true, true));
+  static_assert(candidate_expand_stale(true, true, true, false, true));
+  static_assert(candidate_expand_open_grace_millis >= 100);
+
   // 沿用上一帧的高度只在这一代的列表还没到时：到了而后面一个候选也没有时按实际内容排，不留空白。
   static_assert(candidate_expand_held_viewport(true, false, 120.0) == 120.0);
   static_assert(candidate_expand_held_viewport(true, true, 120.0) == 0.0);

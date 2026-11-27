@@ -21,10 +21,10 @@ public final class StrokeKeyboardLayout {
     /** Face of the layer key that returns from the symbol page to the stroke grid. */
     public static final String LAYER_TITLE = "笔";
 
-    /** 笔画外框里左侧符号栏和右侧 ⌫ 列各自的宽度份额（各占 0.9 / 4.8 = 18.75%）。 */
-    public static final float SIDE_COLUMN_WEIGHT = 0.9f;
-    /** 笔画外框中间笔画网格的宽度份额（3 / 4.8 = 62.5%）。 */
-    public static final float GRID_WEIGHT = 3f;
+    /** 笔画外框里左侧符号栏和右侧 ⌫ 列各自的宽度份额：与拼音九键同一个外框（3 | 14 | 3 列，{@link NineKeyLayout}）。 */
+    public static final float SIDE_COLUMN_WEIGHT = NineKeyLayout.SIDE_COLUMN_WEIGHT;
+    /** 笔画外框中间笔画网格的宽度份额，同上。 */
+    public static final float GRID_WEIGHT = NineKeyLayout.GRID_WEIGHT;
 
     private StrokeKeyboardLayout() {}
 

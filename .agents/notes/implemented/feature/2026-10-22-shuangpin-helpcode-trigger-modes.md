@@ -16,6 +16,8 @@ PR #9243 把 `ShuangpinHelpcodeModes` 结构、默认值、写入端互斥归一
 
 **第 3 步：万象式直接（`direct_helpcode*`）。** `direct_helpcode_paths` 从恒开改为受 `direct_helpcode` 主开关（出厂关，与 Windows 一致）。`direct_helpcode_slash` 开着时 `/` 落进输入串当一位/两位辅码后的段终止符（`uia/`、`uiab/`）；`direct_helpcode_uppercase` 开着时第二码大写结束一段（`uiaB`）。`has_literal_input` 的 `direct_helpcodes_own_capitals` 判定同样受这两个开关门控。存量辅助码测试写于恒开版本：`shuangpin/tests.rs` 的 `request()` 按 helpcode 同步打开直接开关，会话侧用例显式开 `direct_helpcode`。
 
+独立三码（一个完整双拼音节接一位小写辅码）在「逐音节直接」开启时复用末尾一码的重排、严格筛选和上屏消耗规则，即使「末尾直接」关闭也成立。其余逐音节约束仍由路径解析负责。复用末尾一码入口可以保留无匹配时的回退和选词边界，同时避免把逐音节开关扩大成所有输入都打开末尾直接。会话用合成的小鹤候选验证 `hcn` 的两种开关状态与消费范围（#11794）。
+
 **输入串契约改动的函数**：`segment_input`/`segment_raw_boundaries`/`remove_manual_delimiters`（查询串剥段）、`has_active_helpcode`（末尾段 + 直接态）、`apply_shuangpin_helpcode_segmentation`（预编辑回填原标记）、`insert_at_caret`/`shuangpin_helpcode_marker`（标记键接受与映射）、`has_literal_input`（大写判定看去段后的查询串）、`advance_composition_after_selection`（选词后剩余串的段坐标重映射）。
 
 ## Existing notes

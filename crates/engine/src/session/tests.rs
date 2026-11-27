@@ -379,6 +379,8 @@ INSERT INTO tbl_2_f VALUES('fan''gan','fg','反感',100);",
 /// One directory standing in for all four runtime roots, as the reference session tests used.
 struct Fixture {
     directory: tempfile::TempDir,
+    /// 单独放打包词库的资源根；缺省和代次目录相同，只有需要区分打包原值与学习后工作值时才设置。
+    bundle: Option<PathBuf>,
 }
 
 fn prediction_fixture() -> Fixture {
@@ -612,7 +614,21 @@ impl Fixture {
         let helpcodes = directory.path().join("helpcodes");
         std::fs::create_dir_all(&helpcodes).expect("helpcode directory");
         std::fs::write(helpcodes.join("helpcode.txt"), "你=ab\n拟=cd\n好=ef\n").expect("helpcodes");
-        Self { directory }
+        Self {
+            directory,
+            bundle: None,
+        }
+    }
+
+    /// 在资源根单独放一份 `msime-wubi.db`，模拟发布包里未被学习改写的打包码表。
+    fn with_wubi_bundle(mut self, sql: &str) -> Self {
+        let resources = self.path().join("bundle");
+        std::fs::create_dir_all(&resources).expect("bundle directory");
+        Connection::open(resources.join(assets::WUBI_DICTIONARY))
+            .and_then(|connection| connection.execute_batch(sql))
+            .expect("fixture msime-wubi.db");
+        self.bundle = Some(resources);
+        self
     }
 
     fn with_english(self, sql: &str) -> Self {
@@ -631,7 +647,7 @@ impl Fixture {
     fn paths(&self) -> RuntimePaths {
         let root = self.path().to_path_buf();
         RuntimePaths {
-            resources: root.clone(),
+            resources: self.bundle.clone().unwrap_or_else(|| root.clone()),
             user_data: root.clone(),
             cache: root.clone(),
             dictionaries: root,
@@ -774,6 +790,40 @@ INSERT INTO tbl_1_n VALUES('ni','n','你',8000);",
             [], |row| row.get(0),
         ).unwrap();
         assert!(learned > 0, "模糊两键选择必须按标准读音学习");
+    }
+}
+
+#[test]
+fn shuangpin_sentence_lattice_uses_enabled_fuzzy_readings() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_w(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_w VALUES('wo','w','我',12000);\
+CREATE TABLE tbl_1_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_c VALUES('ci','c','次',2000),('chi','ch','吃',15000);\
+CREATE TABLE tbl_1_f(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_f VALUES('fan','f','饭',9000);\
+CREATE TABLE tbl_2_c(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_2_c VALUES('chi''fan','chf','吃饭',38000);",
+    );
+    // 小鹤双拼的字面读音是 wo'ci'fan，合成词库只收了「吃饭」，没有整句。
+    for (rules, expected) in [(0, "我次饭"), (crate::types::fuzzy_rule::C_CH, "我吃饭")] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.helpcode = false;
+            options.personal_context = false;
+            options.fuzzy_pinyin.rules = rules;
+        });
+        type_text(&mut session, "wocifj");
+        let snapshot = session.snapshot();
+        let row = &snapshot.candidates[0];
+        assert_eq!(row.word, expected);
+        assert!(row.sentence_association);
+        assert_eq!(row.fuzzy, rules != 0);
+        if rules != 0 {
+            assert_eq!(row.canonical_pinyin, "wo'chi'fan");
+        }
+        assert_eq!(session.select(0).commit.as_deref(), Some(expected));
+        assert!(session.snapshot().editing_text.is_empty());
     }
 }
 
@@ -4079,6 +4129,41 @@ fn shuangpin_direct_helpcode_slash_and_uppercase_endings() {
     assert_ne!(words(&upper_off), ["实"]);
 }
 
+#[test]
+fn standalone_direct_helpcode_works_without_end_direct_mode() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_1_h VALUES('hao','h','耗',100),('hao','h','好',90);\
+         CREATE TABLE tbl_2_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+         INSERT INTO tbl_2_h VALUES('hao''ne','hn','好呢',10000);",
+    );
+    for enabled in [false, true] {
+        let mut session = fixture.session_with(|options| {
+            options.scheme = SchemeType::Shuangpin;
+            options.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+            options.helpcode = true;
+            options.shuangpin_helpcode_modes = direct_modes(false, false);
+            options.shuangpin_helpcode_modes.direct_helpcode = enabled;
+            options.helpcode_table = Some(Arc::new(crate::helpcode::HelpcodeKeymap::from_codes(
+                [
+                    ("耗".to_owned(), "xj".to_owned()),
+                    ("好".to_owned(), "nz".to_owned()),
+                ]
+                .into_iter()
+                .collect(),
+            )));
+        });
+        type_text(&mut session, "hcn");
+        if enabled {
+            assert_eq!(words(&session)[0], "好");
+            assert_eq!(session.select(0).commit.as_deref(), Some("好"));
+            assert!(session.snapshot().editing_text.is_empty());
+        } else {
+            assert_eq!(words(&session)[0], "好呢");
+        }
+    }
+}
+
 /// `direct_helpcode` 出厂关：万象式逐音节切分不生效，`tartantab` 不再解出三个
 /// 各带一码的音节；开着时才回到万象式行为。
 #[test]
@@ -4294,6 +4379,37 @@ fn a_rebuilt_session_corrects_with_its_new_profile() {
 }
 
 // ---- wubi mixed routing (overlays.md §3.3) ----
+
+/// 同一词面在简码和全码各有一行：固定后显示行的编码换成全码，取消仍须作用于同一词面。
+const WUBI_DUPLICATE_FIXTURE: &str = "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('aa','式',20),('aad','式',11);";
+
+#[test]
+fn canceling_a_fixed_wubi_row_still_works_when_its_code_changes_after_the_move() {
+    let fixture = Fixture::new(WUBI_DUPLICATE_FIXTURE).with_wubi_bundle(WUBI_DUPLICATE_FIXTURE);
+    let mut session = fixture.session_with(|options| options.scheme = SchemeType::Wubi);
+    type_text(&mut session, "aa");
+    assert_eq!(words(&session), vec!["式".to_owned(), "式".to_owned()]);
+
+    assert!(session.fix_position(index_of(&session, "式"), 2).handled);
+    let fixed = session
+        .snapshot()
+        .candidates
+        .iter()
+        .position(|item| item.fixed_position == 2)
+        .expect("被固定的那一行仍在候选里");
+    assert_eq!(session.snapshot().candidates[fixed].word.as_str(), "式");
+
+    assert!(session.clear_position(fixed).handled);
+    assert_eq!(
+        count(
+            &fixture.journal(),
+            "SELECT count(*) FROM fixed_candidate_positions"
+        ),
+        0,
+        "重排后显示的编码可能从简码变成全码，取消仍须作用于同一词面"
+    );
+}
 
 fn wubi_mixed(fixture: &Fixture) -> Session {
     let mut session = fixture.session_with(|options| {
@@ -9944,6 +10060,26 @@ fn symbol_mode_group_jt_gives_arrows() {
     assert!(rows.iter().any(|text| text == "→"), "{rows:?}");
 }
 
+#[test]
+fn symbol_mode_commits_reported_special_characters() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for (code, characters) in [
+        ("ld", &["Ø", "ø"][..]),
+        ("wjx", &["★", "☆"]),
+        ("jh", &["▲", "△", "□", "■"]),
+        ("dw", &["℃"]),
+        ("oslash", &["⊘"]),
+    ] {
+        for &character in characters {
+            let mut session = fixture.session();
+            assert!(session.character(b'S', true).handled);
+            type_text(&mut session, code);
+            let result = session.select(index_of(&session, character));
+            assert_eq!(result.commit.as_deref(), Some(character), "{code}");
+        }
+    }
+}
+
 /// 符号名 `alpha` 出 α；符号名在分组码之后给，不重复。
 #[test]
 fn symbol_mode_name_alpha_gives_the_letter() {
@@ -12292,6 +12428,7 @@ INSERT INTO quick_parases VALUES('dh','电话',10);",
     let phrase = |key: &str, text: &str| crate::types::QuickPhraseEntry {
         key: key.into(),
         text: text.into(),
+        position: None,
     };
     let mut session = fixture.session_with(|options| {
         options.quick_phrase_table = vec![phrase("dh", "电话"), phrase("dhhm", "电话号码")];
@@ -12346,6 +12483,7 @@ INSERT INTO quick_parases VALUES('dhx','电话线',30);",
     let phrase = |key: &str, text: &str| crate::types::QuickPhraseEntry {
         key: key.into(),
         text: text.into(),
+        position: None,
     };
     let mut session = fixture.session_with(|options| {
         options.quick_phrase_candidates = true;
@@ -12363,6 +12501,96 @@ INSERT INTO quick_parases VALUES('dhx','电话线',30);",
     let single = words(&session);
     assert!(single.contains(&"地址".to_owned()), "{single:?}");
     assert!(!single.contains(&"电话".to_owned()), "{single:?}");
+}
+
+#[test]
+fn regular_composition_uses_imported_quick_phrase_positions() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',200),('ni''hao','nh','拟好',100),\
+('ni''hao','nh','逆好',90),('ni''hao','nh','泥号',80),('ni''hao','nh','溺号',70),\
+('ni''hao','nh','腻号',60);\
+CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO quick_parases VALUES('nihao','合成短语',10);",
+    );
+    let phrase = |key: &str, text: &str, position| crate::types::QuickPhraseEntry {
+        key: key.into(),
+        text: text.into(),
+        position: Some(position),
+    };
+    let table = vec![
+        phrase("nihao", "か", 7),
+        phrase("nihao", "카", 8),
+        phrase("nihao", "☆", 6),
+        phrase("xq", "か", 98),
+        phrase("xq", "카", 99),
+    ];
+    let mut session = fixture.session_with(|options| {
+        options.quick_phrase_candidates = true;
+        options.quick_phrase_frequency = true;
+        options.quick_phrase_table = table.clone();
+        options.frequency = FrequencyAdjustmentOptions {
+            mode: FrequencyAdjustmentMode::Promote,
+            trigger_count: 1,
+            ..Default::default()
+        };
+    });
+
+    type_text(&mut session, "ni");
+    assert!(!words(&session).iter().any(|row| row == "か"));
+    type_text(&mut session, "hao");
+    assert_eq!(&words(&session)[5..8], ["☆", "か", "카"]);
+    assert_eq!(session.select(6).commit.as_deref(), Some("か"));
+    assert_eq!(
+        crate::user_dictionary::ranking::quick_phrase_slot(session.input.journal_path(), "nihao"),
+        None,
+    );
+    type_text(&mut session, "xq");
+    let rows = words(&session);
+    assert_eq!(&rows[rows.len() - 2..], ["か", "카"]);
+    session.command(Command::Cancel);
+
+    assert!(session.character(b'K', true).handled);
+    type_text(&mut session, "nihao");
+    assert_eq!(words(&session), ["合成短语", "か", "카", "☆"]);
+
+    let mut disabled = fixture.session_with(|options| {
+        options.quick_phrase_candidates = true;
+        options.local_modes.quick_phrase = false;
+        options.quick_phrase_table = table;
+    });
+    type_text(&mut disabled, "nihao");
+    assert!(!words(&disabled).iter().any(|row| row == "か"));
+}
+
+/// 「快捷短语放最前」只挪没有指定位置的短语组；码表写了位置的行仍按名次摆放。
+#[test]
+fn quick_phrase_first_keeps_imported_positions() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);\
+INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',200),('ni''hao','nh','拟好',100),\
+('ni''hao','nh','逆好',90),('ni''hao','nh','泥号',80),('ni''hao','nh','溺号',70),\
+('ni''hao','nh','腻号',60);",
+    );
+    let phrase = |key: &str, text: &str, position| crate::types::QuickPhraseEntry {
+        key: key.into(),
+        text: text.into(),
+        position,
+    };
+    let mut session = fixture.session_with(|options| {
+        options.quick_phrase_candidates = true;
+        options.quick_phrase_first = true;
+        options.quick_phrase_table = vec![
+            phrase("nihao", "合成短语", None),
+            phrase("nihao", "か", Some(7)),
+            phrase("nihao", "☆", Some(6)),
+        ];
+    });
+
+    type_text(&mut session, "nihao");
+    let rows = words(&session);
+    assert_eq!(rows[0], "合成短语", "{rows:?}");
+    assert_eq!(&rows[5..7], ["☆", "か"], "{rows:?}");
 }
 
 /// 设置页的「快捷短语」开关同时管两种入口：关掉后普通候选里也不出现短语。
@@ -13733,6 +13961,45 @@ INSERT INTO kaomoji_catalog VALUES('(•̀ᴗ•́)و','mei guo'),('(ﾟДﾟ≡
     )));
 }
 
+// ---- 拆不成音节的输入只剩表情行，云占位席位不占首位（#11896） ----
+
+/// `gi`、`wi` 这类拆不成合法音节的字母串走中英混输，本地没有可用的词时候选里只剩 emoji 行；云候选开着时引擎在第二格留一个占位席位（`CloudPending`）。Windows 候选窗不画这一行，席位坐到首位时整页一个高亮行也没有，`candidate_presentation` 抛出 `Invalid candidate highlight`，Server 在输入队列上停机（#11896）。引擎侧的兜底规则不能把席位或 AI 行提到首位。
+#[test]
+fn an_expressive_only_list_keeps_the_cloud_seat_off_the_lead() {
+    let fixture = Fixture::new(
+        "CREATE TABLE tbl_1_g(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+INSERT INTO tbl_1_g VALUES('guan','g','关',300);",
+    );
+    Connection::open(fixture.path().join(assets::OTHER_DICTIONARY))
+        .and_then(|connection| {
+            connection.execute_batch(
+                "CREATE TABLE emoji_pinyin(key TEXT,emoji TEXT,sort_order INTEGER);\
+INSERT INTO emoji_pinyin VALUES('gift','🎁',10),('giraffe','🦒',20),('girl','👧',30);\
+CREATE TABLE emoji(emoji TEXT PRIMARY KEY,keywords TEXT);\
+INSERT INTO emoji VALUES('🎁','礼物 present'),('🦒','长颈鹿 animal'),('👧','女孩 person');",
+            )
+        })
+        .expect("fixture msime-others.db");
+    let mut session = fixture.session_with(|options| {
+        options.expressive.emoji_candidates = true;
+    });
+    session.set_cloud_candidates_enabled(true);
+    type_text(&mut session, "gi");
+    let snapshot = session.snapshot();
+    let seat = snapshot
+        .candidate_sources
+        .iter()
+        .position(|source| *source == CandidateSource::CloudPending)
+        .expect("a cloud seat");
+    assert_ne!(seat, 0, "{:?}", words(&session));
+    assert_eq!(
+        snapshot.candidate_sources[0],
+        CandidateSource::Emoji,
+        "{:?}",
+        words(&session)
+    );
+}
+
 // ---- 打拼音出符号（local/symbol_candidates.rs） ----
 
 /// 正负（zheng'fu）排在 政府 后面；大于 供部分选择后再选符号；派（pai）可以由 pa 加辅助码 I 拼出。
@@ -14384,13 +14651,15 @@ fn punctuation_marks_reach_the_bare_prefix_route() {
     assert_eq!(session.punctuation(b'"').commit.as_deref(), Some("你好『"));
 }
 
+/// 中文标点样式作用于走中文标点表的方案；日语有自己独立的标点表，不在这里（见 `japanese_scheme_commits_japanese_punctuation`）。
 #[test]
 fn punctuation_marks_follow_every_scheme_with_chinese_punctuation() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut japanese = fixture.session_with(|options| options.punctuation_marks = CORNER_HOLLOW);
     japanese.switch_scheme(SchemeType::JapaneseRomaji).unwrap();
-    assert_eq!(japanese.punctuation(b'\'').commit.as_deref(), Some("「"));
-    assert_eq!(japanese.punctuation(b']').commit.as_deref(), Some("〗"));
+    // 弯引号键没有日文映射，交回宿主原样打出；方括号键走日文表的 「」，不受空心括号样式影响。
+    assert!(japanese.punctuation(b'\'').commit.is_none());
+    assert_eq!(japanese.punctuation(b']').commit.as_deref(), Some("」"));
 
     let mut cantonese = fixture.session_with(|options| {
         options.punctuation_marks = CORNER_HOLLOW;
@@ -14409,6 +14678,40 @@ fn punctuation_marks_follow_every_scheme_with_chinese_punctuation() {
     for mark in *b"'\"[]" {
         let idle = korean.punctuation(mark);
         assert!(!idle.handled && idle.commit.is_none());
+    }
+}
+
+/// 日语方案走日文标点表，键面与上屏一致：`,` 是读点、`[` `]` 是直角引号、`/` 是中点，中文引号样式和顿号开关都不改变这些字。
+#[test]
+fn japanese_scheme_commits_japanese_punctuation() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.punctuation_marks = CORNER_HOLLOW;
+        options.scheme = SchemeType::JapaneseRomaji;
+    });
+    let cases = [
+        (b',', "、"),
+        (b'.', "。"),
+        (b'[', "「"),
+        (b']', "」"),
+        (b'{', "『"),
+        (b'}', "』"),
+        (b'/', "・"),
+        (b'~', "〜"),
+        (b'?', "？"),
+        (b'!', "！"),
+        (b'(', "（"),
+        (b')', "）"),
+        (b':', "："),
+        (b';', "；"),
+    ];
+    for (key, mark) in cases {
+        assert_eq!(
+            session.punctuation(key).commit.as_deref(),
+            Some(mark),
+            "key {}",
+            key as char
+        );
     }
 }
 
@@ -15392,5 +15695,6 @@ mod offensive_placement;
 mod prediction_pool;
 mod raw_commit;
 mod super_jianpin_slash;
+mod wubi_run;
 
 mod cantonese_output;

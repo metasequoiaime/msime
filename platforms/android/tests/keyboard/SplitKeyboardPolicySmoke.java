@@ -13,6 +13,7 @@ public final class SplitKeyboardPolicySmoke {
         whenSplitApplies();
         portraitOverride();
         configurableBounds();
+        explicitGapOnWideScreens();
         whichLayoutsSplit();
         gapWidth();
         responsiveGapWidth();
@@ -51,7 +52,22 @@ public final class SplitKeyboardPolicySmoke {
         check(SplitKeyboardPolicy.gapFraction(0, 10) == 0.10f, "minimum configured gap");
         check(SplitKeyboardPolicy.gapFraction(0, 50) == 0.40f, "maximum configured gap");
         close(SplitKeyboardPolicy.gapWeight(10f, 0f, 0, 10), 10f / 9f, "configured ten percent gap");
-        check(SplitKeyboardPolicy.gapFraction(1200, 10) >= 0.399f, "wide screen keeps key area usable");
+        check(SplitKeyboardPolicy.gapFraction(1200, 10, false) >= 0.399f, "untouched wide screen keeps key area usable");
+    }
+
+    /** #11812：设置页设过的空隙在任何窗口宽度上都按用户选的画；没设过时宽窗口沿用 720 dp 键区上限。 */
+    private static void explicitGapOnWideScreens() {
+        for (int width : new int[] {960, 1200, 1600, 2400}) {
+            for (int percent : new int[] {10, 25, 40}) {
+                float fraction = SplitKeyboardPolicy.gapFraction(width, percent, true);
+                close(fraction, percent / 100f, "the setting wins at " + width + " dp, " + percent + "%");
+                float gap = SplitKeyboardPolicy.gapWeight(10f, 0f, width, percent, true);
+                close(10f / (10f + gap), 1f - fraction, "explicit gap share at " + width + " dp, " + percent + "%");
+            }
+            close(SplitKeyboardPolicy.gapFraction(width, 25, false),
+                Math.max(.25f, 1f - 720f / width), "untouched window keeps the key area usable at " + width + " dp");
+        }
+        close(SplitKeyboardPolicy.gapFraction(-1, 10, true), .10f, "explicit gap with unknown width");
     }
 
     private static void whichLayoutsSplit() {
@@ -232,12 +248,13 @@ public final class SplitKeyboardPolicySmoke {
                 String label = "action row globe=" + globe + " layout=" + layout + " languageLeft=" + languageLeft;
                 // 宿主实际画的底行没有地球键（Android 9 起不画）、逗号一直在：不论中/英在哪一边，空隙都正好居中。
                 if (!globe) checkCenteredSpace(weights, space, label);
-                else checkCenteredOrFloored(weights, space, languageLeft, label);
+                else checkCenteredOrFloored(weights, space, true, 1.5f, label);
                 // 常用标点键隐藏时（记 0）空隙仍然居中，除非句号和中/英都排在空格左边。
                 float[] noComma = weights.clone();
                 for (int index = 0; index < noComma.length; index++)
                     if (entries.get(index).slot() == KeyboardActionRow.DesignSlot.COMMA) noComma[index] = 0f;
-                checkCenteredOrFloored(noComma, space, languageLeft, label + " without the comma");
+                // 地球键从空格让出一份（底行合计 10 份），空格只剩 2 份，再少一个逗号时居中会压到下限；Android 9 起宿主不画地球键，这种排法只在这里出现。
+                checkCenteredOrFloored(noComma, space, languageLeft || globe, globe ? 1.5f : 1f, label + " without the comma");
             }
         }
         List<KeyboardLayout.LayerKey> bottom = KeyboardLayout.numberLayer(true).get(3);
@@ -255,19 +272,20 @@ public final class SplitKeyboardPolicySmoke {
     }
 
     /**
-     * 标准底行在空格左边有句号；中/英也挪到空格左边后，左边再多一个地球键或右边少一个逗号，居中需要的左半个空格就窄过下限（{@link SplitKeyboardPolicy#MIN_SPACE_SHARE}）。这时左半个保留下限、右半个仍在，空隙比正中偏右不到一个键；其余排法必须正好居中。
+     * 标准底行在空格左边有句号；中/英也挪到空格左边，或者多了地球键（它的一份从空格让出）之后，右边再少一个逗号，居中需要的左半个空格就窄过下限（{@link SplitKeyboardPolicy#MIN_SPACE_SHARE}）。这时左半个保留下限、右半个仍在，空隙比正中偏右不到一个键；其余排法必须正好居中。
      */
-    private static void checkCenteredOrFloored(float[] weights, int space, boolean languageLeft, String label) {
+    private static void checkCenteredOrFloored(float[] weights, int space, boolean mayFloor, float maxOff, String label) {
         float floor = weights[space] * SplitKeyboardPolicy.MIN_SPACE_SHARE;
         float centred = sum(weights, 0, weights.length) / 2f - sum(weights, 0, space);
         if (centred >= floor) {
             checkCenteredSpace(weights, space, label);
             return;
         }
-        check(languageLeft, label + ": only 中/英 on the left can push the centre past the space's minimum half");
+        check(mayFloor, label + ": only 中/英 on the left or the globe key can push the centre past the space's minimum half");
         float left = SplitKeyboardPolicy.leftSpaceWeight(weights, space);
         close(left, floor, label + ": the left space keeps its minimum share");
-        check(weights[space] - left > 0 && floor - centred < 1f, label + ": the right half stays and the gap is under one key off centre");
+        check(weights[space] - left > 0 && floor - centred < maxOff,
+            label + ": the right half stays and the gap is under " + maxOff + " keys off centre (1.5 only with the globe key, not drawn since Android 9)");
     }
 
     private static void checkCenteredSpace(float[] weights, int space, String label) {

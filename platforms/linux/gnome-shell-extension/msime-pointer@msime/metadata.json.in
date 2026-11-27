@@ -1,0 +1,8 @@
+{
+  "uuid": "@MSIME_POINTER_EXTENSION_UUID@",
+  "name": "MSIME Candidate Menu",
+  "description": "在 GNOME 下把水杉输入法的候选右键菜单（置顶、固定排位、取消固定、删除）画在候选框旁边。",
+  "shell-version": ["45", "46", "47", "48", "49", "50", "51"],
+  "url": "https://github.com/metasequoiaime/msime",
+  "version": 2
+}

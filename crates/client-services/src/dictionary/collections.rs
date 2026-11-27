@@ -30,6 +30,7 @@ pub const DIRECTORY_NAME: &str = "DictionaryCollections";
 pub const MAX_COLLECTIONS: usize = 32;
 /// 集合名最多的字符数。
 pub const MAX_NAME_CHARS: usize = 32;
+const WORDS_PAGE_SIZE: usize = 100;
 /// 导入接受的格式，`load` 原样返回给界面。`txt` 是 `standard` 的别名（列的顺序读不出词条时自动换一种），`hans` 是每行一个汉字词、读音由宿主经 Engine 给出，`scel` 是搜狗细胞词库：它是二进制文件，只能经 `import` 动作的 `bytes_base64`（[`DictionaryCollectionsStore::import_scel`]）送来，按文本送来的 `scel` 一律不支持。
 pub const IMPORT_FORMATS: [&str; 6] = ["txt", "standard", "windows", "hans", "rime", SCEL_FORMAT];
 /// 搜狗细胞词库在格式清单和集合来源里的名字。
@@ -182,6 +183,17 @@ pub struct DictionaryCollectionsView {
     /// 只在 `third_party_matches` 时给出：候选词里出现在第三方词库导入的集合中的那些，按请求里的下标从小到大。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub third_party_matches: Option<Vec<usize>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub word_page: Option<CollectionWordPage>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct CollectionWordPage {
+    pub id: Uuid,
+    pub name: String,
+    pub page: usize,
+    pub page_count: usize,
+    pub entries: Vec<PersonalWord>,
 }
 
 /// 一次操作，形状与 C ABI 的 `action` 相同（`operation` 区分种类）。集合 id 是字符串，内置词库的 `builtin:<kind>` 也能传进来并得到 `builtin_locked`。
@@ -189,6 +201,10 @@ pub struct DictionaryCollectionsView {
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DictionaryCollectionsAction {
     Load,
+    ListWords {
+        id: String,
+        page: usize,
+    },
     Create {
         name: String,
         kind: PersonalWordKind,
@@ -384,6 +400,7 @@ impl DictionaryCollectionsStore {
     ) -> Result<DictionaryCollectionsView> {
         match action {
             DictionaryCollectionsAction::Load => self.load(),
+            DictionaryCollectionsAction::ListWords { id, page } => self.list_words(&id, page),
             DictionaryCollectionsAction::Create { name, kind } => self.create(&name, kind),
             DictionaryCollectionsAction::Rename { id, name } => self.rename(&id, &name),
             DictionaryCollectionsAction::Delete { id } => self.delete(&id),
@@ -439,6 +456,28 @@ impl DictionaryCollectionsStore {
         let lock = self.lock()?;
         let state = self.read_state(&lock.directory)?;
         Ok(state.view())
+    }
+
+    /// 在同一把锁下取得分组名称和页内容。删除导致末页消失时回到当前的最后一页。
+    fn list_words(&self, id: &str, page: usize) -> Result<DictionaryCollectionsView> {
+        let id = parse_id(id)?;
+        let lock = self.lock()?;
+        let state = self.read_state(&lock.directory)?;
+        let metadata = state.metadata(id)?;
+        let words = state.entries(id);
+        let page_count = words.len().div_ceil(WORDS_PAGE_SIZE);
+        let page = page.min(page_count.saturating_sub(1));
+        let start = page * WORDS_PAGE_SIZE;
+        let end = (start + WORDS_PAGE_SIZE).min(words.len());
+        let mut view = state.view();
+        view.word_page = Some(CollectionWordPage {
+            id,
+            name: metadata.name.clone(),
+            page,
+            page_count,
+            entries: words[start..end].to_vec(),
+        });
+        Ok(view)
     }
 
     pub fn create(&self, name: &str, kind: PersonalWordKind) -> Result<DictionaryCollectionsView> {
@@ -759,6 +798,7 @@ impl DictionaryCollectionsStore {
                     sent: None,
                     queued: Some(0),
                     third_party_matches: None,
+                    word_page: None,
                 });
             }
             _ => {}
@@ -1605,6 +1645,7 @@ impl State {
             sent: None,
             queued: None,
             third_party_matches: None,
+            word_page: None,
         }
     }
 

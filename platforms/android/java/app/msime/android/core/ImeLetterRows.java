@@ -26,7 +26,7 @@ final class ImeLetterRows {
         this.s = s;
     }
 
-    /** 按键气泡的覆盖层：onCreateInputView 建好后盖在整个键盘上，初始为空。 */
+    /** 按键反馈的覆盖层：onCreateInputView 建好后盖在整个键盘上，初始为空。滑行轨迹和按下的抬起效果画在这里，气泡的位置也按它算。 */
     FrameLayout keyPreviewLayer;
     private KeyboardKeyPreview keyPreview;
     private KeyboardSkin keyPreviewSkin;
@@ -34,6 +34,7 @@ final class ImeLetterRows {
     private int keyPreviewForeground;
     private final int[] keyPreviewKeyLocation = new int[2];
     private final int[] keyPreviewLayerLocation = new int[2];
+    private final int[] keyPreviewHostLocation = new int[2];
     /** 气泡当前跟随的键；多指交替时只有它的松手才收起气泡。 */
     private Button keyPreviewOwner;
     /** 符号层里正在显示 #+= 页（否则是 123 页）。 */
@@ -88,6 +89,9 @@ final class ImeLetterRows {
     /** 当前键行是不是按分离式键盘建的；与 {@link MSIMEInputService#splitKeyboardDrawn} 不一致时要重建（{@link #splitStale}）。 */
     private boolean builtSplit;
     private int builtSplitWidthDp;
+    /** 当前键行建的时候用的中缝比例，以及当时是不是用户显式设过；分离时设置页改了「中间空隙」，窗口宽度没变也要重建（{@link #splitStale}）。 */
+    private int builtSplitGapPercent;
+    private boolean builtSplitGapExplicit;
     /** 当前键行有没有画数字行；与 {@link MSIMEInputService#numberRowDrawn} 不一致时要重建（{@link #numberRowStale}）。 */
     private boolean builtNumberRow;
     /** 当前 14/18 键三排按哪种字母键宽度建的；没建 14/18 键时为 null。与 {@link MSIMEInputService#fourteenKeyLetterWidths} 不一致时要重建（{@link #letterWidthsStale}）。 */
@@ -164,12 +168,14 @@ final class ImeLetterRows {
         return key;
     }
 
-    /** 按键气泡；第一次用时加进覆盖层。 */
+    /** 按键气泡；第一次用时加进面板之上的 KEY_PREVIEW 层，顶排键的气泡伸出面板上沿也不被截掉。 */
     private KeyboardKeyPreview keyPreview() {
         if (keyPreviewLayer == null) return null;
-        if (keyPreview == null || keyPreview.getParent() != keyPreviewLayer) {
+        FrameLayout host = s.imeOverlayHost.layer(OverlayLayer.KEY_PREVIEW);
+        if (host == null) return null;
+        if (keyPreview == null || keyPreview.getParent() != host) {
             keyPreview = new KeyboardKeyPreview(s);
-            keyPreviewLayer.addView(keyPreview, LayoutPolicy.frameWrapParams());
+            host.addView(keyPreview, LayoutPolicy.frameWrapParams());
         }
         return keyPreview;
     }
@@ -191,9 +197,13 @@ final class ImeLetterRows {
         keyPreviewLayer.getLocationInWindow(keyPreviewLayerLocation);
         float weight = key.getLayoutParams() instanceof LinearLayout.LayoutParams params
             ? params.weight : 1f;
+        // 位置和左右夹边照旧按面板里的覆盖层算（气泡不伸出面板左右两侧），再平移到 KEY_PREVIEW 层的坐标里。
         preview.show(label, keyPreviewKeyLocation[0] - keyPreviewLayerLocation[0],
             keyPreviewKeyLocation[1] - keyPreviewLayerLocation[1], key.getWidth(), weight,
             keyPreviewLayer.getWidth());
+        ((View) preview.getParent()).getLocationInWindow(keyPreviewHostLocation);
+        preview.setTranslationX(preview.getTranslationX() + keyPreviewLayerLocation[0] - keyPreviewHostLocation[0]);
+        preview.setTranslationY(preview.getTranslationY() + keyPreviewLayerLocation[1] - keyPreviewHostLocation[1]);
         keyPreviewOwner = key;
     }
 
@@ -225,6 +235,22 @@ final class ImeLetterRows {
         if (keyPreviewOwner == key && keyPreview != null) keyPreview.setLabel(label);
     }
 
+    /**
+     * 符号滑动的气泡（#11822，{@link SymbolSwipe}）：滑出符号时显示符号，滑回取消时把字画淡。不看「按键弹出」：关掉时按下不画，滑出符号后才画，这是滑动已触发、还能滑回取消的唯一提示，与长按相同。这个键已有气泡就只换字。
+     *
+     * @param dimmed 已滑回取消，松手不输入
+     */
+    void showSwipePreview(Button key, String label, boolean dimmed) {
+        if (keyPreviewOwner == key && keyPreview != null) keyPreview.setLabel(label);
+        else showKeyPreview(key, label);
+        if (keyPreviewOwner == key && keyPreview != null) keyPreview.setDimmed(dimmed);
+    }
+
+    /** 收起 `key` 的气泡（符号滑动松手或取消）；气泡已属于别的键时不动。 */
+    void hideSwipePreview(Button key) {
+        hideKeyPreview(key);
+    }
+
     /** 这次触摸的长按和滑动是否按普通点按处理，见 {@link SwipeHintPolicy#tapsOnly}：组字中候选栏可见时是，上屏后联想时不是。 */
     private boolean candidateTapsOnly() {
         return SwipeHintPolicy.tapsOnly(!s.dedicatedEnglish && !s.letterCaseSchemeActive()
@@ -232,44 +258,48 @@ final class ImeLetterRows {
     }
 
     /**
-     * 字母键按压按「按键弹出」显示气泡。长按英文键提供大小写、上下标和声调，中文键提供小写、大写与角标，长按不受滑动开关影响。滑动输入符号启用时，沿设置方向滑过 14 dp 松手输入角标；中文反方向滑动打开选项并可继续拖选。关闭开关停用两种滑动，未触发手势时照常交给按钮点击。
+     * 26 键字母键的手势，判定与 14/18 键共用 {@link GridKeyGesturePolicy}（#11822）：沿「滑动输入符号」的方向纵滑过「滑动距离」、且纵向位移大于横向时松手输入角标，滑回「滑动距离」的一半以内取消、松手什么都不输入（{@link SymbolSwipe}），再滑出去又输入角标，气泡跟着显示符号或把它画淡；中文反方向同样的纵滑打开选项并可继续拖选，英文和按大小写写字的方案反方向只是一次点按。长按英文键提供大小写、上下标和声调，中文键提供小写、大写与角标，按大小写写字的方案长按直接输入角标；长按不受滑动开关影响。关闭开关停用两种滑动。没触发手势时交给按钮点击；纵移超过 14 dp 却没触发手势（关闭滑动、没滑到「滑动距离」或英文反方向）时，即使位移让按钮取消了点击，松手仍补一次点按。按压按「按键弹出」显示气泡。
+     *
+     * <p>候选栏可见（组字中，不含上屏后联想，见 {@link SwipeHintPolicy#tapsOnly}）时长按和滑动都等价于一次点按，按压中途出现候选栏也一样。只跟按下的那根手指：键距外落下的第二根手指会被框架并进这个键，不能因此取消这次按键。
      *
      * <p>中文标点生效时（{@link MSIMEInputService#sendsChinesePunctuation}），Engine 会转写的那几个提示（( ) " ? !，见 {@link LetterHintTable#routesThroughEngine}）气泡显示中文键面，松手交给 {@link MSIMEInputService#punctuation}：组字中先按首选结束再接中文标点，智能标点、成对补全和引号交替都照常生效（#7069）。这里不走 `type()`，一次性 Shift 不会被一个标点用掉，与按字面上屏的其他提示一致。中文标点状态在手势触发时读，不在建键时记下，切换中文标点不必为此重建键行。
      *
-     * @param input 键的字母，提示字符按它查 {@link LetterHintTable}
+     * @param input 键的字母，提示字符按它查 {@link LetterHintTable}；null 时这个键没有角标、长按和滑动，只有补点按
      */
     private void bindLetterGestures(Button key, String input) {
         final String hint = LetterHintTable.hint(input);
-        final float[] downY = new float[1];
-        final boolean[] triggered = new boolean[1];
-        final boolean[] optionsShown = new boolean[1];
-        final boolean[] candidateTouch = new boolean[1];
+        final GridKeyGesturePolicy.Gesture[] gesture = {new GridKeyGesturePolicy.Gesture(null, hint != null, false)};
         Runnable hold = () -> {
-            if (triggered[0] || !key.isPressed()) return;
+            GridKeyGesturePolicy.Gesture current = gesture[0];
+            if (current.consumed() || !key.isPressed()) return;
             // 组字中候选栏出现时，长按也交给普通按键点击，避免误打开字母选项；上屏后联想不算组字。
-            if (candidateTapsOnly()) return;
-            triggered[0] = true;
-            optionsShown[0] = true;
+            if (candidateTapsOnly()) {
+                current.composing();
+                return;
+            }
             // 长按不看「按键弹出」：这是手势已触发的唯一提示。
-            if (s.dedicatedEnglish) {
+            if (s.dedicatedEnglish || !s.letterCaseSchemeActive()) {
+                if (!current.hold()) return;
                 hideKeyPreview(key);
-                s.imeLayoutRows.showEnglishLetterOptions(key, input);
-            } else if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()) {
-                hideKeyPreview(key);
-                s.imeLayoutRows.showLetterOptions(key, input);
-            } else {
-                optionsShown[0] = false;
-                showKeyPreview(key, LetterHintTable.face(input, s.dedicatedEnglish,
-                    s.sendsChinesePunctuation(), s.punctuationMarks()));
+                if (s.dedicatedEnglish) s.imeLayoutRows.showEnglishLetterOptions(key, input);
+                else s.imeLayoutRows.showLetterOptions(key, input);
+            } else if (current.holdSymbol()) {
+                showKeyPreview(key, letterHintFace(input));
             }
         };
         key.setOnTouchListener((view, event) -> {
+            GridKeyGesturePolicy.Gesture current = gesture[0];
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> {
-                    downY[0] = DimensionPolicy.fromPixels(s, event.getY());
-                    triggered[0] = false;
-                    optionsShown[0] = false;
-                    candidateTouch[0] = candidateTapsOnly();
+                    // 反方向打开选项只在中文；每次按下按当前状态重建。
+                    boolean chinese = !s.dedicatedEnglish && !s.letterCaseSchemeActive();
+                    current = new GridKeyGesturePolicy.Gesture(null, hint != null, chinese && hint != null);
+                    gesture[0] = current;
+                    String direction = touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)
+                        ? s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION) : null;
+                    current.start(event.getPointerId(0), DimensionPolicy.fromPixels(s, event.getX()),
+                        DimensionPolicy.fromPixels(s, event.getY()), direction,
+                        s.localSettings.integer(AndroidLocalSettings.SWIPE_SYMBOLS_DISTANCE), candidateTapsOnly());
                     s.imeLayoutRows.dismissNineKeyHoldOptions();
                     // 气泡读按下这一刻的键面：大小写变化是就地改键面（refreshLetterCase），建键时的键面可能已经过时。
                     if (touchPreference(AndroidLocalSettings.KEY_POPUP)) showKeyPreview(key, key.getText().toString());
@@ -280,51 +310,32 @@ final class ImeLetterRows {
                     return false;
                 }
                 case MotionEvent.ACTION_MOVE -> {
-                    if (optionsShown[0]) {
+                    if (current.mode() == GridKeyGesturePolicy.Mode.OPTIONS) {
                         s.imeLayoutRows.moveLetterOptions(key, event);
-                    } else if (hint != null && !triggered[0]) {
-                        boolean candidateVisible = candidateTouch[0] || candidateTapsOnly();
-                        if (candidateVisible) return false;
-                        if (!SwipeHintPolicy.enabled(
-                                touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS), false))
-                            return false;
-                        String direction = s.localSettings.choice(AndroidLocalSettings.SWIPE_SYMBOLS_DIRECTION);
-                        String opposite = SwipeHintPolicy.UP.equals(direction) ? SwipeHintPolicy.DOWN : SwipeHintPolicy.UP;
-                        float distance = s.localSettings.integer(AndroidLocalSettings.SWIPE_SYMBOLS_DISTANCE);
-                        float currentY = DimensionPolicy.fromPixels(s, event.getY());
-                        if (SwipeHintPolicy.swiped(direction, distance, downY[0], currentY)) {
-                            triggered[0] = true;
-                            key.removeCallbacks(hold);
-                            if (keyPreview != null && keyPreviewOwner == key)
-                                keyPreview.setLabel(LetterHintTable.face(input, s.dedicatedEnglish,
-                                    s.sendsChinesePunctuation(), s.punctuationMarks()));
-                        } else if (!s.dedicatedEnglish && !s.letterCaseSchemeActive()
-                                && SwipeHintPolicy.swiped(opposite, distance, downY[0], currentY)) {
-                            triggered[0] = true;
-                            optionsShown[0] = true;
-                            key.removeCallbacks(hold);
-                            hideKeyPreview(key);
-                            s.imeLayoutRows.showLetterOptions(key, input);
-                        }
+                        return true;
                     }
-                    return triggered[0];
+                    if (candidateTapsOnly()) current.composing();
+                    // 报的总是按下的那根手指、一根手指：见方法说明。
+                    if (current.move(event.getPointerId(0), 1, DimensionPolicy.fromPixels(s, event.getX()),
+                            DimensionPolicy.fromPixels(s, event.getY())))
+                        letterGestureChanged(key, input, current, hold);
+                    return current.consumed();
                 }
                 case MotionEvent.ACTION_UP -> {
                     key.removeCallbacks(hold);
                     hideKeyPreview(key);
-                    if (!triggered[0]) {
-                        // 候选态的长按或滑动必须等价于一次普通点按，即使位移让 Button 自己取消了点击。
-                        boolean candidateVisible = candidateTouch[0] || candidateTapsOnly();
-                        if (candidateVisible) {
-                            // 抬起时离键太远、Button 自己不会点击，这里补的那次点击不带按下点。
-                            if (!TouchPointPolicy.releasedOnKey(event.getX(), event.getY(), key.getWidth(),
-                                    key.getHeight(), ViewConfiguration.get(s).getScaledTouchSlop()))
-                                s.imeTouchPoints.pending.forget(key);
-                            key.performClick();
-                            key.setPressed(false);
-                            return true;
-                        }
-                        return false;
+                    if (candidateTapsOnly()) current.composing();
+                    GridKeyGesturePolicy.Mode mode = current.mode();
+                    if (mode == GridKeyGesturePolicy.Mode.PENDING) {
+                        if (!current.forcesTap()) return false;
+                        // 候选态的长按或滑动、关掉滑动或没滑到「滑动距离」的纵移都等价于一次普通点按，即使位移让 Button 自己取消了点击。
+                        // 抬起时离键太远、Button 自己不会点击，这里补的那次点击不带按下点。
+                        if (!TouchPointPolicy.releasedOnKey(event.getX(), event.getY(), key.getWidth(),
+                                key.getHeight(), ViewConfiguration.get(s).getScaledTouchSlop()))
+                            s.imeTouchPoints.pending.forget(key);
+                        key.performClick();
+                        key.setPressed(false);
+                        return true;
                     }
                     MotionEvent cancel = MotionEvent.obtain(event);
                     cancel.setAction(MotionEvent.ACTION_CANCEL);
@@ -333,13 +344,18 @@ final class ImeLetterRows {
                     key.setPressed(false);
                     // 滑出符号或长按选项吞掉了这一下，它的按下点不再属于任何一次点击。
                     s.imeTouchPoints.pending.forget(key);
-                    if (optionsShown[0] && s.imeLayoutRows.finishLetterOptions(key, event)) return true;
+                    // 多指、换指，或滑出符号后又滑回取消：什么都不输入。
+                    if (mode == GridKeyGesturePolicy.Mode.CANCELLED || mode == GridKeyGesturePolicy.Mode.DISARMED)
+                        return true;
+                    if (mode == GridKeyGesturePolicy.Mode.OPTIONS && s.imeLayoutRows.finishLetterOptions(key, event))
+                        return true;
                     s.imeKeyFeedback.playFeedback(key);
                     s.countKey(key);
-                    if (!optionsShown[0]) s.imeLayoutRows.commitLetterHint(input);
+                    if (mode == GridKeyGesturePolicy.Mode.SYMBOL) s.imeLayoutRows.commitLetterHint(input);
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL -> {
+                    current.cancel();
                     key.removeCallbacks(hold);
                     hideKeyPreview(key);
                     s.imeTouchPoints.pending.forget(key);
@@ -349,6 +365,27 @@ final class ImeLetterRows {
                 default -> { return false; }
             }
         });
+    }
+
+    /** 一次移动改变了 26 键字母键的手势：触发时停掉长按计时，气泡换成角标（滑回取消时画淡）或让位给选项。 */
+    private void letterGestureChanged(Button key, String input, GridKeyGesturePolicy.Gesture gesture, Runnable hold) {
+        if (gesture.consumed()) key.removeCallbacks(hold);
+        switch (gesture.mode()) {
+            case SYMBOL -> showSwipePreview(key, letterHintFace(input), false);
+            case DISARMED -> showSwipePreview(key, letterHintFace(input), true);
+            case OPTIONS -> {
+                hideKeyPreview(key);
+                s.imeLayoutRows.showLetterOptions(key, input);
+            }
+            case CANCELLED -> hideKeyPreview(key);
+            default -> { }
+        }
+    }
+
+    /** 26 键角标此刻的键面：中文标点状态在手势触发时读。 */
+    private String letterHintFace(String input) {
+        return LetterHintTable.face(input, s.dedicatedEnglish, s.japaneseKeyfaces(),
+            s.sendsChinesePunctuation(), s.punctuationMarks());
     }
 
     /** 第二行的缩进只在 9 键行出现；微软双拼分号或日语长音键占第十格时收起。 */
@@ -375,10 +412,12 @@ final class ImeLetterRows {
             s.dedicatedEnglish, s.selectedScheme, localMode, s.customShuangpinSemicolon());
     }
 
-    /** 键行是否需要按分离式键盘的新状态重建：旋转、开关变化或换到另一种布局之后。 */
+    /** 键行是否需要按分离式键盘的新状态重建：旋转、开关变化、改了中间空隙，或换到另一种布局之后。 */
     boolean splitStale() {
         return s.keyRows != null && (builtSplit != s.splitKeyboardDrawn()
-            || builtSplit && builtSplitWidthDp != splitWidthDp());
+            || builtSplit && (builtSplitWidthDp != splitWidthDp()
+                || builtSplitGapPercent != s.splitKeyboardGapPercent()
+                || builtSplitGapExplicit != s.splitKeyboardGapExplicit()));
     }
 
     /** 键行是否需要按「数字行」的新状态重建：设置页改了开关、或旋转让窗口高度跨过了 {@link KeyboardLayout#NUMBER_ROW_MIN_WINDOW_HEIGHT_DP} 之后。 */
@@ -443,7 +482,8 @@ final class ImeLetterRows {
     private void splitRow(LinearLayout row, float duplicateWeight) {
         float[] weights = splitWeights(row);
         row.addView(splitGap(), SplitKeyboardPolicy.cutIndex(weights), LayoutPolicy.weightedMatchParentParams(
-            SplitKeyboardPolicy.gapWeight(sum(weights), duplicateWeight, splitWidthDp(), s.splitKeyboardGapPercent())));
+            SplitKeyboardPolicy.gapWeight(sum(weights), duplicateWeight, splitWidthDp(), s.splitKeyboardGapPercent(),
+                s.splitKeyboardGapExplicit())));
     }
 
     /**
@@ -462,7 +502,8 @@ final class ImeLetterRows {
         float right = weights[spaceIndex] - left;
         space.setLayoutParams(LayoutPolicy.weightedMatchParentParams(left));
         row.addView(splitGap(), spaceIndex + 1,
-            LayoutPolicy.weightedMatchParentParams(SplitKeyboardPolicy.gapWeight(total, 0f, splitWidthDp(), s.splitKeyboardGapPercent())));
+            LayoutPolicy.weightedMatchParentParams(SplitKeyboardPolicy.gapWeight(total, 0f, splitWidthDp(),
+                s.splitKeyboardGapPercent(), s.splitKeyboardGapExplicit())));
         Button second = s.imeBottomRow.splitSpaceButton();
         if (second.getParent() instanceof android.view.ViewGroup parent) parent.removeView(second);
         ViewPolicy.show(second);
@@ -512,8 +553,8 @@ final class ImeLetterRows {
                     s.backspaceClearedComposition = false;
                     backspaceTouchedComposition = s.hasEngineComposition();
                     backspaceUndo = s.canUndoQuickDelete();
-                    backspaceDownX = event.getX();
-                    backspaceDownY = event.getY();
+                    backspaceDownX = event.getRawX();
+                    backspaceDownY = event.getRawY();
                     int[] keyLocation = new int[2];
                     int[] rootLocation = new int[2];
                     button.getLocationOnScreen(keyLocation);
@@ -567,10 +608,10 @@ final class ImeLetterRows {
                 }
                 case MotionEvent.ACTION_MOVE -> {
                     if (s.backspaceRepeatButton != button) return true;
-                    float dx = backspaceDownX - event.getX();
+                    float dx = backspaceDownX - event.getRawX();
                     if (!backspaceHorizontal && backspaceScrub != null && backspaceScrub.available()
                             && backspaceSwipePhase == BackspaceSwipePolicy.Phase.IDLE
-                            && BackspaceScrub.starts(dx, event.getY() - backspaceDownY, DimensionPolicy.density(s))) {
+                            && BackspaceScrub.starts(dx, event.getRawY() - backspaceDownY, DimensionPolicy.density(s))) {
                         backspaceHorizontal = true;
                         backspaceActivation = 8f * DimensionPolicy.density(s);
                         backspaceInitialDeleted = Math.max(1, backspaceScrub.deleted());
@@ -588,24 +629,25 @@ final class ImeLetterRows {
                     if (backspaceUndo) {
                         if (backspaceUndoHeld) {
                             BackspaceSwipePolicy.Phase next = BackspaceSwipePolicy.undoPhase(
-                                event.getY(), button.getHeight(), DimensionPolicy.density(s));
+                                fingerYInKey(button, event.getRawY()), button.getHeight(), DimensionPolicy.density(s));
                             if (next != backspaceSwipePhase && next == BackspaceSwipePolicy.Phase.ARMED)
                                 s.imeKeyFeedback.playFeedback(button);
                             backspaceSwipePhase = next;
                             if (s.quickDeleteOverlay != null)
                                 s.quickDeleteOverlay.show(button, next == BackspaceSwipePolicy.Phase.ARMED, true);
                         } else if (event.getX() < 0 || event.getX() >= button.getWidth()
-                                || event.getY() < 0 || event.getY() >= button.getHeight()) {
+                                || fingerYInKey(button, event.getRawY()) < 0
+                                || fingerYInKey(button, event.getRawY()) >= button.getHeight()) {
                             // 未到长按时离开键，取消这次点击；不能顺便删掉备份的位置。
                             stopBackspaceRepeatTask();
                             button.setPressed(false);
                         }
                         return true;
                     }
-                    if (trackBackspaceSwipe(button, event.getY())) return true;
-                    if (event.getX() < 0 || event.getY() < 0
+                    if (trackBackspaceSwipe(button, event.getRawY())) return true;
+                    if (event.getX() < 0 || fingerYInKey(button, event.getRawY()) < 0
                             || event.getX() >= button.getWidth()
-                            || event.getY() >= button.getHeight()) {
+                            || fingerYInKey(button, event.getRawY()) >= button.getHeight()) {
                         // 手指离开键就停止连删，但仍跟踪这次按压：接着往上滑还能弹出快速删除框。
                         stopBackspaceRepeatTask();
                         button.setPressed(false);
@@ -644,15 +686,24 @@ final class ImeLetterRows {
         });
     }
 
+    /** 指尖在删除键布局坐标系里的位置（键上沿为 0，向下增大）；键盘在手势中途变高变矮时按此刻的布局换算（{@link QuickDeleteOverlay#fingerY}），并按{@link BackspaceSwipePolicy#fingerYInKey}撤掉按住时键自己的缩小。 */
+    private float fingerYInKey(Button button, float rawY) {
+        QuickDeleteOverlay overlay = s.quickDeleteOverlay;
+        return overlay == null ? 0f : BackspaceSwipePolicy.fingerYInKey(
+            overlay.fingerY(rawY), overlay.keyTop(button), button.getScaleY());
+    }
+
     /**
      * 按 {@link BackspaceSwipePolicy} 更新上滑阶段并画框；返回 true 表示这次移动已经属于上滑手势（框弹出过）。第一次弹出时停掉连删，进入待命时给一次按键反馈。
+     *
+     * <p>`rawY` 是手指在屏幕上的位置，换算到键盘外框此刻的布局再和删除键比较：手势中途键盘变高变矮时（例如按下即删让英文单词的建议行收起），系统还在按旧的窗口位置换算坐标，直接用它会把指尖判低这一段高度，滑到待命线上方也可能只算弹出、不算待命。
      */
-    private boolean trackBackspaceSwipe(Button button, float yInKey) {
+    private boolean trackBackspaceSwipe(Button button, float rawY) {
         QuickDeleteOverlay overlay = s.quickDeleteOverlay;
         if (overlay == null || button.getWindowToken() == null) return false;
         float keyTop = overlay.keyTop(button);
         BackspaceSwipePolicy.Phase next = BackspaceSwipePolicy.next(backspaceSwipePhase,
-            keyTop + yInKey, keyTop, DimensionPolicy.density(s));
+            overlay.fingerY(rawY), keyTop, DimensionPolicy.density(s));
         if (next == BackspaceSwipePolicy.Phase.IDLE) return false;
         BackspaceSwipePolicy.Phase previous = backspaceSwipePhase;
         backspaceSwipePhase = next;
@@ -798,6 +849,8 @@ final class ImeLetterRows {
         builtSymbolExtraRow = s.symbolExtraRowDrawn();
         boolean split = s.splitKeyboardDrawn();
         builtSplitWidthDp = splitWidthDp();
+        builtSplitGapPercent = s.splitKeyboardGapPercent();
+        builtSplitGapExplicit = s.splitKeyboardGapExplicit();
         if (split != builtSplit) {
             builtSplit = split;
             // 分离式键盘铺满宽度，其余情况回到大屏的限宽外框；单手模式在分离时让位，换回来时恢复。
@@ -833,6 +886,7 @@ final class ImeLetterRows {
         fourteenLKey = null;
         gridLetterButtons.clear();
         gridLetterKeys.clear();
+        s.imeKeyFaces.reset();
         s.keyRows.removeAllViews();
         if (builtSymbolExtraRow) addSymbolExtraRow();
         // 每种键面的数字层都借数字九宫格（日文假名网格也一样），所以排在各键面自己的分支之前；拼音九键的字母层也由这里建。
@@ -925,7 +979,7 @@ final class ImeLetterRows {
             final String key = KeyboardLayout.symbolRowKey(rowKey, tibetanSymbols);
             final String input = key;
             String face = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
-                ? ChineseSymbolFaces.face(key, s.sendsChinesePunctuation(), s.punctuationMarks())
+                ? s.symbolFace(key)
                 : koreanKeycaps ? KoreanKeyboardLayout.face(key, shifted)
                 : zhuyinKeycaps ? ZhuyinKeyboardLayout.face(key)
                 : LetterKeyFacePolicy.face(key, chineseMode, japanese, localMode, shifted);
@@ -962,13 +1016,14 @@ final class ImeLetterRows {
                 koreanKeyInputs.add(input);
             } else if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS) {
                 ShuangpinHintButton hintButton = s.shuangpinLetterKey(face, face, input.charAt(0));
+                s.imeKeyFaces.attachLetter(hintButton);
                 keyButton = hintButton;
                 s.shuangpinKeyButtons.add(hintButton);
                 s.shuangpinKeyInputs.add(input);
                 // 键面随中文标点切换，之后由 render() 里的 updateLetterCornerHints 就地更新。「显示字母键角标」关掉时不画；手势按 input 查 LetterHintTable，不读键面，长按和滑动不受影响（#10587）。
                 hintButton.setCornerHint(standardLetters && touchPreference(AndroidLocalSettings.LETTER_CORNER_HINTS)
-                    ? LetterHintTable.face(input, s.dedicatedEnglish, s.sendsChinesePunctuation(),
-                        s.punctuationMarks()) : null);
+                    ? LetterHintTable.face(input, s.dedicatedEnglish, s.japaneseKeyfaces(),
+                        s.sendsChinesePunctuation(), s.punctuationMarks()) : null);
                 KeyboardTypographyPolicy.setKeyTextSize(hintButton, 22);
                 bindLetterGestures(hintButton, standardLetters ? input : null);
             } else {
@@ -995,11 +1050,11 @@ final class ImeLetterRows {
         if (builtNumberRow) addNumberRow(rows.size());
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             java.util.List<String> keys = rows.get(rowIndex);
-            LinearLayout row = LayoutPolicy.row(s);
+            LinearLayout row = LayoutPolicy.keyRow(s);
             if (block != null) {
                 block.addView(row, LayoutPolicy.weightedWidthParams(1));
             } else {
-                row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
+                row.setTag(new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                     rows.size(), rowIndex, true));
                 s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
             }
@@ -1082,7 +1137,7 @@ final class ImeLetterRows {
         // 顶部数字行与 26 键相同：整行铺满键区宽度，画在三行字母块上方，键盘整体高出一行。
         builtNumberRow = s.numberRowDrawn();
         if (builtNumberRow) addNumberRow(rows.size());
-        LinearLayout container = LayoutPolicy.row(s);
+        LinearLayout container = LayoutPolicy.keyRow(s);
         s.imeStyler.adjustThreeRowBlockHeight(container);
         s.keyRows.addView(container, LayoutPolicy.matchWidthHeightPx(
             s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP * 3)));
@@ -1096,11 +1151,10 @@ final class ImeLetterRows {
             FourteenKeyLetterWidths.plan(rows, letterWeight, edgeWeight, widths.geometry());
         builtLetterWidths = widths;
         for (int rowIndex = 0; rowIndex < plan.size(); rowIndex++) {
-            LinearLayout row = LayoutPolicy.row(s);
-            row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
+            LinearLayout row = LayoutPolicy.keyRow(s);
+            row.setTag(new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                 plan.size(), rowIndex, true));
             letterColumn.addView(row, LayoutPolicy.matchWidthWrapParams());
-            int padHalfGaps = FourteenKeyLetterWidths.padHalfGaps(plan, rowIndex);
             KeyboardSpacer leadingPad = null;
             Button previousKey = null;
             for (FourteenKeyLetterWidths.Cell cell : plan.get(rowIndex)) {
@@ -1115,8 +1169,6 @@ final class ImeLetterRows {
                         KeyboardSpacer pad = new KeyboardSpacer(s);
                         if (previousKey == null) leadingPad = pad;
                         else pad.setOwner(previousKey);
-                        // 补齐这一排少扣的键距，由 ImeStyler 套用键距时按当前键距换成外边距。
-                        pad.setOuterHalfGaps(previousKey == null, padHalfGaps);
                         row.addView(pad, params);
                     }
                     case KEY -> {
@@ -1141,6 +1193,7 @@ final class ImeLetterRows {
         KeyboardTypographyPolicy.setKeyTextSize(separator, 15);
         if (separator instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         ImeGridHelpcodeEntry.bind(s, separator);
+        s.imeKeyFaces.attachFunction(separator, true);
         fourteenSeparatorKey = separator;
         return separator;
     }
@@ -1159,6 +1212,7 @@ final class ImeLetterRows {
         // 14 键和 18 键同一个基准字号：先定 22 sp，再交给 KeyHintButton 按键宽收（setGridFace），角标开关前后都一样。18 键原来只开了自适应字号、没设字号，角标一来就把工厂的 14 sp 记成基准，字母比 14 键小一圈。
         KeyboardTypographyPolicy.setKeyTextSize(keyButton, 22);
         keyButton.setGridFace(true);
+        s.imeKeyFaces.attachGridLetter(keyButton, eighteen);
         keyButton.setKeyboardRole(KeyboardKeyRole.KEY);
         gridLetterButtons.add(keyButton);
         gridLetterKeys.add(key);
@@ -1179,6 +1233,7 @@ final class ImeLetterRows {
             gridLetterButtons.get(index).setCornerHint(shown ? GridLetterHintTable.face(gridLetterKeys.get(index),
                 gridLettersEighteen, chinese, s.punctuationMarks()) : null);
         }
+        s.imeKeyFaces.refresh();
     }
 
     /**
@@ -1217,7 +1272,7 @@ final class ImeLetterRows {
                         DimensionPolicy.fromPixels(s, event.getY()), direction,
                         s.localSettings.integer(AndroidLocalSettings.SWIPE_SYMBOLS_DISTANCE), s.hasEngineComposition());
                     touching[0] = true;
-                    // 每个 14/18 键字母键按下都按「按键弹出」画气泡，与 26 键、九键相同；滑出符号或横滑选中字母时气泡换字（gridGesturePreview）。
+                    // 每个 14/18 键字母键按下都按「按键弹出」画气泡，与 26 键、九键相同；滑出符号时气泡换成符号、滑回取消时画淡（showSwipePreview，关掉「按键弹出」时也画），横滑选中字母时换成字母（gridGesturePreview）。
                     updateKeyPreview(key, event);
                     return false;
                 }
@@ -1235,11 +1290,7 @@ final class ImeLetterRows {
                 case MotionEvent.ACTION_UP -> {
                     touching[0] = false;
                     hideKeyPreview(key);
-                    GridKeyGesturePolicy.Mode before = current.mode();
-                    if (before != GridKeyGesturePolicy.Mode.OPTIONS && current.move(event.getPointerId(0),
-                            event.getPointerCount(), DimensionPolicy.fromPixels(s, event.getX()),
-                            DimensionPolicy.fromPixels(s, event.getY())))
-                        gridGestureChanged(key, gridKey, eighteen, current, before, face[0], event);
+                    // 只按移动判定，抬起那一点不算（与 26 键相同）：抬指时触点常会一跳，单凭它不能触发符号或改选字母。
                     key.setText(face[0]);
                     switch (current.mode()) {
                         case PENDING -> {
@@ -1255,6 +1306,8 @@ final class ImeLetterRows {
                             s.countKey(key);
                             s.imeLayoutRows.commitGridLetterHint(hint);
                         }
+                        // 滑出符号后又滑回取消：什么都不输入。
+                        case DISARMED -> cancelKeyTouch(key, event);
                         case LETTER -> {
                             key.setPressed(false);
                             char selected = current.selected();
@@ -1295,7 +1348,8 @@ final class ImeLetterRows {
             GridKeyGesturePolicy.Gesture gesture, GridKeyGesturePolicy.Mode before, String face, MotionEvent event) {
         if (before == GridKeyGesturePolicy.Mode.PENDING && gesture.consumed()) cancelKeyTouch(key, event);
         switch (gesture.mode()) {
-            case SYMBOL -> gridGesturePreview(key, symbolFace(gridKey, eighteen));
+            case SYMBOL -> showSwipePreview(key, symbolFace(gridKey, eighteen), false);
+            case DISARMED -> showSwipePreview(key, symbolFace(gridKey, eighteen), true);
             case LETTER -> {
                 char selected = gesture.selected();
                 String label = selected == 0 ? face : String.valueOf(selected);
@@ -1315,7 +1369,7 @@ final class ImeLetterRows {
         }
     }
 
-    /** 手势触发后气泡显示滑出的符号或选中的字母：已有气泡就换字，没有时按「按键弹出」画一个，关掉「按键弹出」时不画。 */
+    /** 横滑选中字母后气泡显示这个字母：已有气泡就换字，没有时按「按键弹出」画一个，关掉「按键弹出」时不画。滑出的符号见 {@link #showSwipePreview}。 */
     private void gridGesturePreview(Button key, String label) {
         if (keyPreviewOwner == key && keyPreview != null) keyPreview.setLabel(label);
         else if (touchPreference(AndroidLocalSettings.KEY_POPUP)) showKeyPreview(key, label);
@@ -1380,8 +1434,8 @@ final class ImeLetterRows {
      * @param letterRows 字母行数，数字行按其中第一行的份额分摊高度调整
      */
     private void addNumberRow(int letterRows) {
-        LinearLayout row = LayoutPolicy.row(s);
-        row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, letterRows, 0, true));
+        LinearLayout row = LayoutPolicy.keyRow(s);
+        row.setTag(new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, letterRows, 0, true));
         s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
         for (String digit : KeyboardLayout.NUMBER_ROW) {
             char input = digit.charAt(0);
@@ -1389,6 +1443,7 @@ final class ImeLetterRows {
             KeyboardTypographyPolicy.setKeyTextSize(key, 20);
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
             s.keyId(key, KeyPressIds.forCharacter(input));
+            s.imeKeyFaces.attachNumber(key);
             row.addView(key, LayoutPolicy.weightedMatchParentParams(1));
         }
         if (builtSplit) splitRow(row);
@@ -1397,8 +1452,8 @@ final class ImeLetterRows {
     /** 第五排与字母数字行使用同一高度角色，切层时保留行高及高度调整。 */
     private void addSymbolExtraRow() {
         builtLayerPunctuation = s.sendsChinesePunctuation();
-        LinearLayout row = LayoutPolicy.row(s);
-        row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, 3, 0, true));
+        LinearLayout row = LayoutPolicy.keyRow(s);
+        row.setTag(new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP, 3, 0, true));
         s.keyRows.addView(row, LayoutPolicy.matchWidthWrapParams());
         // 数字九宫格那一页的括号随九宫格的标点写法：日文没有中文标点开关，也写全角括号。
         boolean numberPad = numberPadDrawn();
@@ -1421,6 +1476,7 @@ final class ImeLetterRows {
         s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
         ViewPolicy.show(key);
         row.addView(key, index, LayoutPolicy.weightedMatchParentParams(weight));
+        s.imeKeyFaces.attachFunction(key, false);
     }
 
     /**
@@ -1438,11 +1494,11 @@ final class ImeLetterRows {
             : KeyboardLayout.numberLayer(chinese, chinesePunctuation, s.punctuationMarks().cornerQuotes(),
                 builtLayerToolbarEmoji, builtLayerLongSpace, builtLayerSymbolFirst);
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
-            LinearLayout row = LayoutPolicy.row(s);
+            LinearLayout row = LayoutPolicy.keyRow(s);
             // 最后一行是这一层自带的底行，和功能行一样挂底行角色：和一行键同高，分到四行均分后底行的那一份调整；前三行和字母键一样分摊其余部分，整层与字母层同高。底行原先挂的是 rowCount 为 1 的普通角色，整份调整量在三行之外又加了一遍：调高时这一层比字母层高出一截，调到 75% 时底行被压成 0 高。
             boolean bottomRow = rowIndex == rows.size() - 1;
-            row.setTag(bottomRow ? MSIMEInputService.KeyboardHeightRole.bottomRow()
-                : new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
+            row.setTag(bottomRow ? KeyboardHeightRole.bottomRow()
+                : new KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                     rows.size() - 1, rowIndex, true));
             s.keyRows.addView(row, bottomRow
                 ? LayoutPolicy.matchWidthHeightPx(s.pixels(KeyboardGeometry.KEY_ROW_HEIGHT_DP))
@@ -1555,7 +1611,7 @@ final class ImeLetterRows {
         bindSuperscriptShortcut(key, text);
     }
 
-    /** 123 / #+= 层的叹号：上滑 14 dp 输入 0，长按选择上标或下标 0；轻点仍输入叹号。 */
+    /** 123 / #+= 层的叹号：上滑 14 dp 输入 0，长按选择上标或下标 0；轻点仍输入叹号。滑出后可滑回 7 dp 以内取消、松手什么都不输入（#11822，{@link SymbolSwipe}），气泡跟着显示 0 或把它画淡。 */
     void bindSuperscriptShortcut(Button key, String text) {
         if (!SuperscriptShortcutPolicy.applies(text)) return;
         final String direction = SwipeHintPolicy.UP;
@@ -1564,43 +1620,48 @@ final class ImeLetterRows {
             s.imeLayoutRows.showSuperscriptOptions(key);
             return true;
         });
-        final float[] downY = new float[1];
-        final float threshold = SwipeHintPolicy.THRESHOLD_DP;
-        final boolean[] swiped = new boolean[1];
+        final SymbolSwipe swipe = new SymbolSwipe();
         key.setOnTouchListener((view, event) -> {
             switch (event.getActionMasked()) {
                 case android.view.MotionEvent.ACTION_DOWN -> {
-                    downY[0] = DimensionPolicy.fromPixels(s, event.getY());
-                    swiped[0] = false;
+                    // 与原来相同：只看纵向位移，不要求纵向为主。
+                    swipe.start(DimensionPolicy.fromPixels(s, event.getX()), DimensionPolicy.fromPixels(s, event.getY()),
+                        direction, SwipeHintPolicy.THRESHOLD_DP, false);
                     return false;
                 }
                 case android.view.MotionEvent.ACTION_MOVE -> {
-                    if (!swiped[0] && SuperscriptShortcutPolicy.swiped(direction, threshold, downY[0],
-                            DimensionPolicy.fromPixels(s, event.getY()))) {
-                        swiped[0] = true;
-                        key.cancelLongPress();
-                        android.view.MotionEvent cancel = android.view.MotionEvent.obtain(event);
-                        cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);
-                        key.onTouchEvent(cancel);
-                        cancel.recycle();
+                    boolean engaged = swipe.engaged();
+                    if (swipe.move(DimensionPolicy.fromPixels(s, event.getX()), DimensionPolicy.fromPixels(s, event.getY()))) {
+                        if (!engaged) {
+                            key.cancelLongPress();
+                            android.view.MotionEvent cancel = android.view.MotionEvent.obtain(event);
+                            cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);
+                            key.onTouchEvent(cancel);
+                            cancel.recycle();
+                        }
+                        showSwipePreview(key, SuperscriptShortcutPolicy.ZERO, !swipe.commits());
                     }
-                    return swiped[0];
+                    return swipe.engaged();
                 }
                 case android.view.MotionEvent.ACTION_UP -> {
-                    if (!swiped[0]) return false;
-                    swiped[0] = false;
+                    if (!swipe.engaged()) return false;
+                    boolean commits = swipe.commits();
+                    swipe.reset();
+                    hideSwipePreview(key);
                     key.setPressed(false);
+                    if (!commits) return true;
                     s.imeKeyFeedback.playFeedback(key);
                     s.countKey(key);
                     s.imeLayoutRows.commitNineKeyLiteral(SuperscriptShortcutPolicy.ZERO);
                     return true;
                 }
                 case android.view.MotionEvent.ACTION_CANCEL -> {
-                    swiped[0] = false;
+                    swipe.reset();
+                    hideSwipePreview(key);
                     key.setPressed(false);
                     return false;
                 }
-                default -> { return swiped[0]; }
+                default -> { return swipe.engaged(); }
             }
         });
     }

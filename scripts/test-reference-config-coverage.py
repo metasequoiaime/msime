@@ -167,6 +167,7 @@ MAPPING: dict[str, str] = {
     "input.fuzzy_s_sh": "fuzzy_pinyin.rules",
     "input.fuzzy_seeded": "fuzzy_pinyin.seeded",
     "input.fuzzy_uan_uang": "fuzzy_pinyin.rules",
+    "input.fuzzy_un_ong": "fuzzy_pinyin.rules",
     "input.fuzzy_z_zh": "fuzzy_pinyin.rules",
     "input.ime_mode_scope": "ime_mode_scope",
     "input.japanese_schema": "scheme",
