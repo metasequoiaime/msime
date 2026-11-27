@@ -20,10 +20,11 @@ export type InputSourceStartupStatus = {
   system_bundles?: string[];
 };
 
-/** 用户仍需在系统设置中添加输入源；安装失败、未安装和等待重新登录时不要求添加。 */
+/** 用户仍需在系统设置中添加输入源；安装失败、未安装和等待重新登录时不要求添加。建议迁移的用户目录安装也要能直接加回列表：没有管理员权限的用户迁移不了，只能这样恢复使用。 */
 export function inputSourceNeedsAdding(status: InputSourceStartupStatus | null): boolean {
   return (
-    status?.enabled === false && ["installed", "updated", "up_to_date"].includes(status.action)
+    status?.enabled === false &&
+    ["installed", "updated", "up_to_date", "migration_recommended"].includes(status.action)
   );
 }
 

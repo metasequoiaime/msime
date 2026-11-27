@@ -61,7 +61,8 @@ export function InputSourceStartupNotice({
   } else if (status.action === "migration_recommended") {
     title = "水杉输入法装在当前用户的目录里";
     detail =
-      "输入密码等安全输入期间，macOS 会停用装在用户目录的输入法，它会在输入法菜单里变灰。请在「维护与诊断」页的「输入法服务」中点「迁移」，确认管理员授权后迁移到系统目录；输入法列表、词库和偏好都保留。";
+      "输入密码等安全输入期间，macOS 会停用装在用户目录的输入法，它会在输入法菜单里变灰。请在「维护与诊断」页的「输入法服务」中点「迁移」，确认管理员授权后迁移到系统目录；输入法列表、词库和偏好都保留。" +
+      (needsAdding ? "没有管理员权限时，也可以先把它加回输入法列表：" : "");
   } else if (status.action === "cancelled") {
     title = "已取消管理员授权";
     detail = "输入法安装未完成。需要时可在「维护与诊断」页的「输入法服务」中点「修复」重试。";
@@ -95,9 +96,12 @@ export function InputSourceStartupNotice({
     !loginRequired &&
     !needsAdding &&
     (status.action === "installed" || status.action === "updated");
-  const systemBundles = status.system_bundles?.length
-    ? `「/Library/Input Methods」里还有一份水杉输入法（${status.system_bundles.join("、")}），它会让输入法列表出现重复项，或用上较旧的版本。请在「访达」中按 Shift+Command+G 前往该文件夹，把它移到废纸篓（需要管理员密码），然后注销并重新登录。`
-    : null;
+  // 建议迁移时，「迁移」会用新装的系统副本换掉这一份，不能再让用户手动删掉它、注销重登。
+  const systemBundles = !status.system_bundles?.length
+    ? null
+    : status.action === "migration_recommended"
+      ? `「/Library/Input Methods」里还有一份水杉输入法（${status.system_bundles.join("、")}），点「迁移」时会一并换掉它，不用手动删除。`
+      : `「/Library/Input Methods」里还有一份水杉输入法（${status.system_bundles.join("、")}），它会让输入法列表出现重复项，或用上较旧的版本。请在「访达」中按 Shift+Command+G 前往该文件夹，把它移到废纸篓（需要管理员密码），然后注销并重新登录。`;
 
   return (
     <div

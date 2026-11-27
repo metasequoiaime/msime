@@ -35,7 +35,9 @@ test.each(outcomes)(
       installed_version: "1.0.0",
       system_bundles: duplicate ? ["/synthetic/input-source.app"] : [],
     });
-    const adding = ["installed", "updated", "up_to_date"].includes(action) && enabled === false;
+    const adding =
+      ["installed", "updated", "up_to_date", "migration_recommended"].includes(action) &&
+      enabled === false;
     expect(inputSourceNeedsAdding(status)).toBe(adding);
     expect(inputSourceNeedsRecheck(status)).toBe(adding || duplicate);
     expect(inputSourceNoticeVisible(status)).toBe(
