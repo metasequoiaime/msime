@@ -14,10 +14,10 @@ Issue #11911：报告者在系统输入法列表里只加了「水杉双拼」�
 
 ## Decision
 
-方案以设置里存的为准。`MSIMEReportIsOnlyChineseEntryIn(info, scheme, reported, available)` 在下面几条同时成立时为真，控制器这时不改方案：
+方案以设置里存的为准。`MSIMEReportIsOnlyChineseEntryIn(info, scheme, lastChineseScheme, reported, available)` 在下面几条同时成立时为真，控制器这时不改方案（当前在日、한、越、藏上时回到 `lastChineseScheme`）：
 
 - 报告的是本 bundle 的中文入口（中、双、五、粤、注、笔），而且系统列表里有它；
-- 设置里方案自己的入口（`MSIMEInputModeIDForSchemeIn`）不在列表里；
+- 设置里存的中文方案自己的入口（`MSIMEInputModeIDForSchemeIn`）不在列表里。当前方案是 japanese、korean、vietnamese 或 tibetan 时，存的中文方案是 `lastChineseScheme`，和 `MSIMESchemeForReportedInputMode` 取 `chinese` 的方式一致：存了全拼、列表里只有「双」和「日」的人切到日再选回「双」，要看「水杉全拼」在不在列表里；只看当前方案「日」自己的入口，它在列表里，判断就落空，方案被存成双拼。这条路径上控制器回到 `lastChineseScheme`；
 - 列表里没有别的中文入口。
 
 这时用户想用水杉就只能落在被报告的入口上，报告说明不了用户想换方案，不论是刚切进来、`left` 未知，还是从「英」切回来。其余情况照旧：方案自己的入口在列表里、还有别的中文入口可选（例如同时加了「五」），或者报告的是日、한、越、藏这类换语言的入口，报告仍按用户的选择改方案。读不到列表、或者列表里还没有被报告的入口时也照旧，不去猜。
@@ -36,7 +36,7 @@ Issue #11911：报告者在系统输入法列表里只加了「水杉双拼」�
 - 进程刚启动、`left` 未知时，任何入口的报告都不改方案：规则最简单，覆盖得也最全。不选它，是因为它把同时加了「中」和「双」的人在登录后从 ABC 明确选「双」也吞掉了，而那时报告确实是选择；本篇只在报告不可能是选择（唯一可选的中文入口）时才不改。
 - 把日、한、越、藏也算进「唯一入口」：保持「设置为准」更彻底。不选它，是因为从别的输入源选「水杉日语」是换语言，列表里方案自己的入口缺不缺都不影响这一点；把它吞掉，用户得先切走再选回来才能进日语。
 - 把 `left` 持久化进 NSUserDefaults，让进程重启后也知道离开时的入口：11-12 那篇已经考虑过。它只能覆盖「离开时也在双」这一种，用户第一次装上、或上次离开时在「英」时仍然会被改掉；本篇的判断不依赖离开时的入口。
-- 方案自己的入口不在列表里时，控制器改选列表里唯一的中文入口，让系统菜单至少不停在「英」上：能减少一种显示不一致。这次没做，它会让控制器主动去选一个和方案不符的入口，回执的处理还要再推一遍；先把方案保住、在设置里说清楚缺哪个入口。
+- 方案自己的入口不在列表里时，控制器改选列表里唯一的中文入口，让系统菜单至少不停在「英」上：能减少一种显示不一致。这次没做，它会让控制器主动去选一个和方案不符的入口，回执的处理还要再推一遍；先把方案保住、在设置里说清楚缺哪个入口。这样留下的显示问题（从「英」切回中文后菜单栏仍停在「英」）在 #11963 跟进。
 
 ## Consequences
 
@@ -48,8 +48,8 @@ Issue #11911：报告者在系统输入法列表里只加了「水杉双拼」�
 
 ## Testing
 
-`platforms/macos/tests/input/InputModeIdentifiersTest.mm` 覆盖 `MSIMEReportIsOnlyChineseEntryIn` 的各个分支：只有「双」时为真（全拼和五笔都是），方案自己的入口在列表里、还有「中」或「五」、报告的是「英」「日」或别的输入源、读不到可用性、列表里还没有被报告的入口时为假；五笔版的五笔按 `Hans` 找。
+`platforms/macos/tests/input/InputModeIdentifiersTest.mm` 覆盖 `MSIMEReportIsOnlyChineseEntryIn` 的各个分支：只有「双」时为真（全拼和五笔都是），方案自己的入口在列表里、还有「中」或「五」、报告的是「英」「日」或别的输入源、读不到可用性、列表里还没有被报告的入口时为假；五笔版的五笔按 `Hans` 找；当前方案是日或韩时按 `lastChineseScheme` 的入口判断。
 
-`platforms/macos/tests/input/ShortcutTest.mm` 的 `TestOnlyListedShuangpinKeepsSavedScheme` 在真实控制器上模拟只加了「双」「英」的系统列表：进程刚启动报告「双」，方案留在全拼、本地偏好也没被改、不去选「中」；切到「英」再选回「双」仍是全拼；列表里有「五」或「中」时报告「双」照旧改成双拼。去掉控制器里的这道判断，第一条断言失败。
+`platforms/macos/tests/input/ShortcutTest.mm` 的 `TestOnlyListedShuangpinKeepsSavedScheme` 在真实控制器上模拟只加了「双」「英」的系统列表：进程刚启动报告「双」，方案留在全拼、本地偏好也没被改、不去选「中」；切到「英」再选回「双」仍是全拼；列表里只有「双」「日」时切到日再选回「双」回到全拼、本地偏好也是全拼；列表里有「五」或「中」时报告「双」照旧改成双拼。去掉控制器里的这道判断，第一条断言失败。
 
 `apps/desktop/tests/settings/macos-input-mode-entries-section.test.tsx` 覆盖全拼只加了「双」时常驻显示「水杉全拼」（不在「?」的读屏副本里）、全拼入口已加时不提示、`macosInputModeEntryForScheme` 对全部方案和五笔版的映射，以及五笔版缺「水杉五笔」时的提示。把映射换回 `entry.scheme === scheme` 时其中两条失败。

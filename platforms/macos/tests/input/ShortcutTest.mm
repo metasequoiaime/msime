@@ -3260,6 +3260,16 @@ static void TestOnlyListedShuangpinKeepsSavedScheme() {
     [controller systemDidReportInputMode:MSIMEShuangpinInputModeID client:client];
     assert(!appearance.englishMode && [appearance.inputScheme isEqual:@"quanpin"]);
 
+    // 列表里只有「双」和「日」：切到「日」再选回「双」，「日」自己的入口在列表里，但看的是存的中文方案（全拼）的入口，方案回到全拼，不存成双拼。
+    client = freshProcess(@[MSIMEShuangpinInputModeID, MSIMEJapaneseInputModeID, MSIMEEnglishInputModeID]);
+    [controller systemDidReportInputMode:MSIMEShuangpinInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"quanpin"]);
+    [controller systemDidReportInputMode:MSIMEJapaneseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"japanese"] && [appearance.lastChineseScheme isEqual:@"quanpin"]);
+    [controller systemDidReportInputMode:MSIMEShuangpinInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"quanpin"] && !appearance.englishMode);
+    assert([[defaults stringForKey:@"MSIMEClientInputScheme"] isEqual:@"quanpin"]);
+
     // 「双」和「五」都在列表里：选「双」是用户在两个入口之间挑的，方案改成双拼。
     client = freshProcess(@[MSIMEShuangpinInputModeID, MSIMEWubiInputModeID, MSIMEEnglishInputModeID]);
     [controller systemDidReportInputMode:MSIMEShuangpinInputModeID client:client];

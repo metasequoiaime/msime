@@ -341,14 +341,22 @@ static inline BOOL MSIMERecordRestoredSystemInputMode(MSIMESystemInputModeState 
     return YES;
 }
 
+// 换语言的方案：japanese、korean、vietnamese、tibetan。它们不是设置里存的中文方案，切到它们之前的中文方案记在 lastChineseScheme。
+static inline BOOL MSIMESchemeIsLanguageScheme(NSString *scheme) {
+    return [@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:scheme];
+}
+
 // 设置里存的方案自己的入口不在系统的输入法列表里，而报告的入口是本 bundle 唯一一个可选的中文入口时，这份报告不是用户在入口之间做的选择：用户想用水杉就只能落在它上面。只加了「水杉双拼」、在设置里选了全拼的人，每次重新登录、更新后切进来系统都报告「双」，`left` 这时还不知道（MSIMEReportRepeatsLeftInputMode 管不到），以前这份报告把方案改成双拼（#11911）。这样的报告不改方案，以设置里存的方案为准。系统里还有别的中文入口可选（例如同时加了「五」），或者报告的是 日、한、越、藏 这类换语言的入口，报告仍是用户的选择。读不到列表、或列表里还没有被报告的那个入口时不算，照旧按报告走。`info` 是本版本 bundle 的 Info.plist，用来按 MSIMEInputModeIDForSchemeIn 找方案自己的入口。
-static inline BOOL MSIMEReportIsOnlyChineseEntryIn(NSDictionary *info, NSString *scheme, NSString *reported,
+//
+// 当前方案是 japanese、korean、vietnamese 或 tibetan 时，设置里存的中文方案是 `lastChineseScheme`，按它的入口判断，和 MSIMESchemeForReportedInputMode 取 `chinese` 的方式一致：存了全拼、列表里只有「双」和「日」的人从 日 选回 双，看的是「水杉全拼」在不在列表里，而不是「日」在不在。这时返回 YES 的调用方要回到 `lastChineseScheme`，见 InputController 的 systemDidReportInputMode:client:。
+static inline BOOL MSIMEReportIsOnlyChineseEntryIn(NSDictionary *info, NSString *scheme, NSString *lastChineseScheme, NSString *reported,
                                                    MSIMEInputModeAvailability available) {
     if (!available || !MSIMEIsInputModeID(reported)) return NO;
     NSArray<NSString *> *chinese = @[ MSIMEChineseInputModeID, MSIMEShuangpinInputModeID, MSIMEWubiInputModeID,
                                       MSIMECantoneseInputModeID, MSIMEZhuyinInputModeID, MSIMEStrokeInputModeID ];
     if (![chinese containsObject:reported] || !available(reported)) return NO;
-    NSString *own = MSIMEInputModeIDForSchemeIn(info, scheme);
+    NSString *saved = MSIMESchemeIsLanguageScheme(scheme) ? lastChineseScheme : scheme;
+    NSString *own = MSIMEInputModeIDForSchemeIn(info, saved);
     if ([own isEqualToString:reported] || available(own)) return NO;
     for (NSString *mode in chinese)
         if (![mode isEqualToString:reported] && available(mode)) return NO;
@@ -361,7 +369,7 @@ static inline BOOL MSIMEReportIsOnlyChineseEntryIn(NSDictionary *info, NSString 
 static inline NSString *MSIMESchemeForReportedInputMode(MSIMEInputMode mode, NSString *scheme, NSString *lastChineseScheme,
                                                         MSIMEInputModeAvailability available, BOOL switchedIn) {
     if (mode != MSIMEInputMode::Chinese) return MSIMESchemeForInputMode(mode);
-    const BOOL returning = [@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:scheme];
+    const BOOL returning = MSIMESchemeIsLanguageScheme(scheme);
     NSString *chinese = returning ? lastChineseScheme : scheme;
     const MSIMEInputMode own = MSIMEInputModeFor(NO, chinese);
     if (!switchedIn && own != MSIMEInputMode::Chinese && available && available(MSIMEInputModeID(own))) return MSIMEEditionDefaultScheme();
