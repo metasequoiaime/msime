@@ -3290,7 +3290,7 @@ Note
 | `js-sys` | 0.3.105 | MIT OR Apache-2.0 | L04、L08 |
 | `libc` | 0.2.191 | MIT OR Apache-2.0 | L32、L33 |
 | `log` | 0.4.34 | MIT OR Apache-2.0 | L04、L05 |
-| `lru` | 0.19.0 | MIT | L34 |
+| `lru` | 0.19.2 | MIT | L34 |
 | `lunar-lite` | 0.1.0 | MIT | L35 |
 | `memchr` | 2.8.3 | Unlicense OR MIT | L01、L02、L03 |
 | `memmap2` | 0.9.12 | MIT OR Apache-2.0 | L36、L37 |
@@ -3308,9 +3308,9 @@ Note
 | `phf_shared` | 0.11.3 | MIT | L41 |
 | `pin-project-lite` | 0.2.17 | Apache-2.0 OR MIT | L39、L22 |
 | `powerfmt` | 0.2.0 | MIT OR Apache-2.0 | L42、L43 |
-| `regex` | 1.13.1 | MIT OR Apache-2.0 | L04、L05 |
-| `regex-automata` | 0.4.18 | MIT OR Apache-2.0 | L04、L05 |
-| `regex-syntax` | 0.8.11 | MIT OR Apache-2.0 | L04、L05 |
+| `regex` | 1.13.2 | MIT OR Apache-2.0 | L04、L05 |
+| `regex-automata` | 0.4.19 | MIT OR Apache-2.0 | L04、L05 |
+| `regex-syntax` | 0.8.12 | MIT OR Apache-2.0 | L04、L05 |
 | `rink-core` | 0.9.0 | MPL-2.0 | L44 |
 | `rsqlite-vfs` | 0.1.1 | MIT | 未附带 |
 | `rusqlite` | 0.41.1 | MIT | L45 |
@@ -3411,7 +3411,7 @@ For more information, please refer to <http://unlicense.org/>
 
 ### L04（LICENSE-APACHE）
 
-用于：`bitflags` 2.13.1、`cfg-if` 1.0.4、`equivalent` 1.0.2、`fastrand` 2.5.0、`hashbrown` 0.16.1、`hashbrown` 0.17.1、`indexmap` 2.14.2、`js-sys` 0.3.105、`log` 0.4.34、`num-bigint` 0.4.8、`num-integer` 0.1.47、`num-rational` 0.4.2、`num-traits` 0.2.19、`once_cell` 1.21.4、`regex` 1.13.1、`regex-automata` 0.4.18、`regex-syntax` 0.8.11、`smallvec` 1.16.0、`tempfile` 3.27.0、`unicode-segmentation` 1.13.3、`wasm-bindgen` 0.2.128、`wasm-bindgen-shared` 0.2.128
+用于：`bitflags` 2.13.1、`cfg-if` 1.0.4、`equivalent` 1.0.2、`fastrand` 2.5.0、`hashbrown` 0.16.1、`hashbrown` 0.17.1、`indexmap` 2.14.2、`js-sys` 0.3.105、`log` 0.4.34、`num-bigint` 0.4.8、`num-integer` 0.1.47、`num-rational` 0.4.2、`num-traits` 0.2.19、`once_cell` 1.21.4、`regex` 1.13.2、`regex-automata` 0.4.19、`regex-syntax` 0.8.12、`smallvec` 1.16.0、`tempfile` 3.27.0、`unicode-segmentation` 1.13.3、`wasm-bindgen` 0.2.128、`wasm-bindgen-shared` 0.2.128
 
 ````text
                               Apache License
@@ -3619,7 +3619,7 @@ limitations under the License.
 
 ### L05（LICENSE-MIT）
 
-用于：`bitflags` 2.13.1、`log` 0.4.34、`num-bigint` 0.4.8、`num-integer` 0.1.47、`num-rational` 0.4.2、`num-traits` 0.2.19、`regex` 1.13.1、`regex-automata` 0.4.18、`regex-syntax` 0.8.11
+用于：`bitflags` 2.13.1、`log` 0.4.34、`num-bigint` 0.4.8、`num-integer` 0.1.47、`num-rational` 0.4.2、`num-traits` 0.2.19、`regex` 1.13.2、`regex-automata` 0.4.19、`regex-syntax` 0.8.12
 
 ````text
 Copyright (c) 2014 The Rust Project Developers
@@ -5915,7 +5915,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### L34（LICENSE）
 
-用于：`lru` 0.19.0
+用于：`lru` 0.19.2
 
 ````text
 MIT License
