@@ -358,7 +358,7 @@ enum KeyboardLayoutPreference {
   static func saveReturnToLettersSymbols(_ symbols: [String], stateRoot: URL? = nil) -> Bool {
     let normalized = normalizeReturnToLettersSymbols(symbols)
     guard MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: stateRoot, { document in
-      // 空数组也要写进文档：清空就是关闭，缺键会被当成「还没配过」而回落成默认清单。
+      // 空列表照常传给共享层，保存时按文档规则省略，读回缺键即关闭。
       document["touch_return_to_letters_symbols"] = normalized
     }) else { return false }
     defaults.set(normalized, forKey: returnToLettersSymbolsKey)

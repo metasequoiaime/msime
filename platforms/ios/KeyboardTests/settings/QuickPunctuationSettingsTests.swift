@@ -90,7 +90,7 @@ final class QuickPunctuationSettingsTests: XCTestCase {
     XCTAssertEqual(SymbolReturnPolicy.faces(symbol: ",", drawnFace: nil), Set([","]))
   }
 
-  /// 与快捷符号共用单字素规则；清空后文档里留下空数组（不是删键），键盘读到空数组即关闭。
+  /// 与快捷符号共用单字素规则；清空后空列表不写进文档，缺键即关闭。
   func testReturnSymbolsSaveNormalizesAndEmptyTurnsItOff() {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -101,9 +101,10 @@ final class QuickPunctuationSettingsTests: XCTestCase {
       ["，", "。", "😀"])
     XCTAssertEqual(KeyboardLayoutPreference.returnToLettersSymbols, ["，", "。", "😀"])
     XCTAssertTrue(KeyboardLayoutPreference.saveReturnToLettersSymbols([], stateRoot: root))
-    XCTAssertEqual(
-      MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: root)?["touch_return_to_letters_symbols"] as? [String],
-      [String](), "清空后文档里留下空数组，不再回落")
+    // 空列表按共享文档规则不落盘：读回没有这个键，键盘缺省即关闭。
+    XCTAssertNil(
+      MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: root)?["touch_return_to_letters_symbols"],
+      "清空后空列表不写进文档，缺键即关闭")
     XCTAssertEqual(KeyboardLayoutPreference.returnToLettersSymbols, [String]())
   }
 
