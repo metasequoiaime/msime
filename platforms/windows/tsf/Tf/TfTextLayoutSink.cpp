@@ -240,6 +240,45 @@ HRESULT CTfTextLayoutSink::_UnadviseTextLayoutSink()
 }
 
 /**
+ * 组字范围量不到时按光标范围再量一次。
+ *
+ * Firefox 系 textarea 对整段组字常常答 `TS_E_NOLAYOUT` 或「isClipped + 空矩形」，对折叠到光标的空范围一般
+ * 会给真实的行高；#11787 的日记里每段组字开始时都是前者，而光标明明就在框里可见。宽度为 0 是光标范围的
+ * 正常样子，所以只要求上下边界有效。返回 false 时 `lpRect` 不动，调用方照旧收起候选窗。
+ */
+static bool GetCaretTextExtent(_In_ ITfContext *pContext, _In_ ITfContextView *pContextView, TfEditCookie ec,
+                               _In_ ITfRange *pRangeComposition, _Out_ RECT *lpRect)
+{
+    if (pContext == nullptr || pContextView == nullptr || pRangeComposition == nullptr || lpRect == nullptr)
+    {
+        return false;
+    }
+    // 不用 ITfRange::Clone：Windows SDK 的签名是 `Clone(ec, ppClone)`，MinGW 的 msctf.h 少了编辑 cookie，
+    // 照它的声明调用会把 vtable 上的参数错位。改用两边签名一致的路径：从文档起点取一个范围，再把终点移到
+    // 组字末尾、折叠成空范围。
+    ITfRange *pCaretRange = nullptr;
+    if (FAILED(pContext->GetStart(ec, &pCaretRange)) || pCaretRange == nullptr)
+    {
+        return false;
+    }
+    bool usable = false;
+    if (SUCCEEDED(pCaretRange->ShiftEndToRange(ec, pRangeComposition, TF_ANCHOR_END)) &&
+        SUCCEEDED(pCaretRange->Collapse(ec, TF_ANCHOR_END)))
+    {
+        RECT caretRect = {0, 0, 0, 0};
+        BOOL caretClipped = TRUE;
+        if (SUCCEEDED(pContextView->GetTextExt(ec, pCaretRange, &caretRect, &caretClipped)) &&
+            caretRect.bottom > caretRect.top)
+        {
+            *lpRect = caretRect;
+            usable = true;
+        }
+    }
+    pCaretRange->Release();
+    return usable;
+}
+
+/**
  * @brief 获取 caret 的坐标
  *
  * 本质上是通过 _pContextView->GetTextExt 获取 caret 坐标，
@@ -262,6 +301,27 @@ HRESULT CTfTextLayoutSink::_GetTextExt(_Out_ RECT *lpRect, _Out_ POINT *lpAnchor
         return hr;
     }
 
+    // 组字开始量不到坐标就收起候选窗是既有的约定，但宿主可能只是没给整段组字排版（Firefox 的 textarea
+    // 一直这样答），而光标处是排好版的。先按光标范围量一次：量到了就把这次组字当作已有锚点，后面每键的
+    // 空 extent 都会留在它上面；量不到才退回屏幕外的哨兵值。
+    auto caretFallback = [&](const wchar_t *reason) -> bool {
+        RECT caretRect = {0, 0, 0, 0};
+        if (!GetCaretTextExtent(_pContextDocument, pContextView, _tfEditCookie, _pRangeComposition, &caretRect))
+        {
+            return false;
+        }
+        *lpRect = caretRect;
+        *lpAnchor = GetPhysicalTextAnchor(pContextView, caretRect);
+        _hasValidAnchor = true;
+        if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
+        {
+            QueueTsfDiagnosticLog(fmt::format(L"[candidate-layout] caret range anchor={},{} after {}", lpAnchor->x,
+                                              lpAnchor->y, reason));
+        }
+        pContextView->Release();
+        return true;
+    };
+
     hr = pContextView->GetTextExt(_tfEditCookie, _pRangeComposition, lpRect, &isClipped);
 
     // TS_E_NOLAYOUT 的意思是「宿主还没给这一段排版，再问一次」，不是「光标没了」。Chromium 系宿主
@@ -281,6 +341,10 @@ HRESULT CTfTextLayoutSink::_GetTextExt(_Out_ RECT *lpRect, _Out_ POINT *lpAnchor
 
     if (FAILED(hr))
     {
+        if (!_hasValidAnchor && caretFallback(L"a failed composition range measure"))
+        {
+            return S_OK;
+        }
         // Set default value to make sure the window is hidden by moving it out of the screen
         lpRect->left = 0;
         lpRect->bottom = Global::INVALID_Y;
@@ -309,6 +373,10 @@ HRESULT CTfTextLayoutSink::_GetTextExt(_Out_ RECT *lpRect, _Out_ POINT *lpAnchor
                     lpRect->left, lpRect->top, lpRect->right, lpRect->bottom));
             }
             return E_FAIL;
+        }
+        if (caretFallback(L"an empty clipped composition range extent"))
+        {
+            return S_OK;
         }
         if (Global::TsfDiagnosticLogEnabled.load(std::memory_order_relaxed))
         {
