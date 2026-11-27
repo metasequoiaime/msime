@@ -1571,7 +1571,7 @@ add_test(
           "${CMAKE_CURRENT_SOURCE_DIR}/scripts/install.sh")
 add_executable(input-source-registration-test tests/input/InputSourceRegistrationTests.mm src/input/InputSourceRegistration.mm src/core/DiagnosticLog.cpp)
 target_compile_options(input-source-registration-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
-target_link_libraries(input-source-registration-test PRIVATE "-framework AppKit" "-framework Carbon" "-framework Foundation")
+target_link_libraries(input-source-registration-test PRIVATE "-framework AppKit" "-framework Carbon" "-framework CoreGraphics" "-framework Foundation")
 add_test(NAME input-source-registration COMMAND input-source-registration-test)
 # The page-size rules had a test file and no target: it had never been built, let alone run, which is
 # how a clamp that rewrote the shared default stayed in place.
