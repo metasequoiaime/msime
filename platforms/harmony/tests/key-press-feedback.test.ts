@@ -2,6 +2,10 @@
  * 按键区按下即振动（#10757）：按下留令牌、上屏路径消耗、抬手后撤回，以及多指、快速连点和没有上屏的按下。规则与 Android `KeyPressFeedbackPolicySmoke` 相同，这里钉住鸿蒙这一份。
  */
 import { KeyPressFeedback } from "../entry/src/main/ets/keyboard/input/KeyPressFeedback";
+import { EighteenKeySwipePolicy } from "../entry/src/main/ets/keyboard/input/EighteenKeySwipePolicy";
+import { GridKeyTouchController } from "../entry/src/main/ets/keyboard/input/GridKeyTouchController";
+import { GridLetterHintTable } from "../entry/src/main/ets/keyboard/input/GridLetterHintTable";
+import { SwipeSymbolsDirection } from "../entry/src/main/ets/keyboard/input/SwipeHintPolicy";
 
 let failures = 0;
 
@@ -142,6 +146,14 @@ function methods(source: string, names: string[]): string {
     .join("\n");
 }
 
+// 视图的字段初始化（例如 `gridKeys` 连同它的宿主接线）原样取出，放进拼出的类里执行。
+function field(source: string, name: string): string {
+  const start = source.indexOf(`  private readonly ${name}: `);
+  const end = source.indexOf("\n  });\n", start);
+  if (start < 0 || end < 0) throw new Error(`没有找到真实字段 ${name}`);
+  return source.slice(start, end + "\n  });".length);
+}
+
 const sessionSource = require("fs").readFileSync(
   "platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets",
   "utf8",
@@ -178,13 +190,18 @@ function adapter() {
     "NineKeyLayout",
     "KeyIdPolicy",
     "GlideTypingPolicy",
+    "GridKeyTouchController",
+    "GridLetterHintTable",
+    "EighteenKeySwipePolicy",
     require("module").stripTypeScriptTypes(
-      `class View {${methods(viewSource, [
+      `class View {${field(viewSource, "gridKeys")}\n${methods(viewSource, [
         "keyPressTouch",
         "nineKeyFlickTouch",
         "typeNineKeyFlickCharacter",
-        "eighteenKeySwipeTouch",
-        "drawsEighteenKey",
+        "gridKeyTouch",
+        "tapGridKey",
+        "typeGridLetterHint",
+        "typeEighteenKeyLetter",
         "commaSwipeTouch",
         "letterHintTouch",
         "glideUp",
@@ -196,12 +213,19 @@ function adapter() {
     { FIRST: 1, SECOND: 2, THIRD: 3, NONE: 0 },
     { character: (): string => "a" },
     { digitHint: (): string => "2" },
-    { nineKey: (): string => "synthetic-key", character: (): string => "synthetic-key" },
+    {
+      nineKey: (): string => "synthetic-key",
+      character: (): string => "synthetic-key",
+      eighteenKey: (): string => "synthetic-key",
+      fourteenKey: (): string => "synthetic-key",
+    },
     { request: (): string => "synthetic-glide" },
+    GridKeyTouchController,
+    GridLetterHintTable,
+    EighteenKeySwipePolicy,
   );
   const view = new View();
   view.keyFacesShowKeys = (): boolean => true;
-  view.drawsEighteenKey = (): boolean => true;
   view.nineKeyFlicks = { up: (): number => 1, swallows: (): boolean => true };
   const event = (type: number, id: number) => ({ type, changedTouches: [{ id }] });
   return { session, view, event, timers, vibrations: (): number => vibrations };
@@ -236,19 +260,45 @@ group("九键子控件松手上屏在容器收到抬起之前绑定自己的按�
   check(f.vibrations() === 2, "滑数字和另一根手指的点击都各自去重");
 });
 
+// 14/18 键走真实的 `gridKeyTouch` 和 `gridKeys`（`GridKeyTouchController`）：松手先交还这根手指的按压再上屏，点按、横滑精确字母和纵滑角标都不重复振动。
+const gridKey = { letters: "io", input: "i", label: "IO", description: "按键 I O" };
+const gridEnd: Record<string, [number, number]> = {
+  "grid-tap": [100, 100],
+  "grid-letter": [130, 100],
+  "grid-symbol": [100, 80],
+};
+function gridEvent(type: number, x: number, y: number) {
+  return {
+    type,
+    changedTouches: [{ id: 20, windowX: x, windowY: y }],
+    touches: [],
+    target: { area: { globalPosition: { x: 75, y: 75 }, width: 50, height: 50 } },
+  };
+}
+
 group("其他子控件松手上屏也绑定自己的按压", () => {
-  for (const gesture of ["eighteen", "comma", "letter", "glide"]) {
+  for (const gesture of ["grid-tap", "grid-letter", "grid-symbol", "comma", "letter", "glide"]) {
     const f = adapter();
-    f.view.keyPressTouch(f.event(touchTypes.Down, 10));
-    f.view.keyPressTouch(f.event(touchTypes.Down, 20));
-    const up = f.event(touchTypes.Up, 20);
+    const grid: boolean = gesture in gridEnd;
+    let commits = 0;
+    f.session.composing = (): boolean => false;
+    f.session.commitRaw = (): void => {};
+    f.session.pressGridKey = (): void => {
+      commits += 1;
+      f.session.keyFeedback();
+    };
+    f.view.feedback = { swipeSymbols: true, swipeSymbolsDirection: SwipeSymbolsDirection.UP, keyPopup: false };
     f.view.swipesEighteenKey = (): boolean => true;
-    f.view.eighteenSwipes = { up: (): string => "A" };
+    f.view.compactKeyFace = (): string => gridKey.label;
+    f.view.showKeyPreview = (): void => {};
+    f.view.showEighteenSwipeFace = (): void => {};
     f.view.endEighteenSwipeFace = (): void => {};
-    f.view.typeEighteenKeyLetter = (): void => f.session.keyFeedback();
     f.view.commaSwipeEnabled = (): boolean => true;
     f.view.commaSwipe = { up: (): boolean => true };
-    f.session.punctuation = (): void => f.session.keyFeedback();
+    f.session.punctuation = (): void => {
+      commits += 1;
+      f.session.keyFeedback();
+    };
     f.view.cancelHintHold = (): void => {};
     f.view.hideKeyPreview = (): void => {};
     f.view.helpcodeSwipes = { up: (): string => "" };
@@ -260,12 +310,22 @@ group("其他子控件松手上屏也绑定自己的按压", () => {
     f.view.addGlidePoint = (): void => {};
     f.view.glideReset = (): void => {};
     f.session.glide = (): void => f.session.keyFeedback();
-    if (gesture === "eighteen") f.view.eighteenKeySwipeTouch({ letters: "AB" }, up);
-    else if (gesture === "comma") f.view.commaSwipeTouch(up);
+    f.view.keyPressTouch(f.event(touchTypes.Down, 10));
+    // 子控件的触摸先于冒泡到按键区容器的 `keyPressTouch`。
+    if (grid) f.view.gridKeyTouch(gridKey, true, gridEvent(touchTypes.Down, 100, 100));
+    f.view.keyPressTouch(f.event(touchTypes.Down, 20));
+    const up = grid ? gridEvent(touchTypes.Up, ...gridEnd[gesture]) : f.event(touchTypes.Up, 20);
+    if (grid) {
+      if (gesture !== "grid-tap") f.view.gridKeyTouch(gridKey, true, gridEvent(touchTypes.Move, ...gridEnd[gesture]));
+      f.view.gridKeyTouch(gridKey, true, up);
+    } else if (gesture === "comma") f.view.commaSwipeTouch(up);
     else if (gesture === "letter") f.view.letterHintTouch("a", "synthetic-hint", up);
     else f.view.glideUp(up);
     f.view.keyPressTouch(up);
+    // ArkUI 在抬手之后才送点击；点按的整组由这次点击上屏。
+    if (grid) f.view.gridKeys.click(gridKey, true, ...gridEnd[gesture]);
     while (f.timers.length > 0) f.timers.shift()!();
+    if (grid) check(commits === 1, `${gesture} 只上屏一次：${commits}`);
     f.view.keyPressTouch(f.event(touchTypes.Up, 10));
     f.session.keyFeedback();
     check(f.vibrations() === 2, `${gesture} 松手不重复振动，也不偷另一根手指的令牌`);

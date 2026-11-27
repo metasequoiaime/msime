@@ -13,7 +13,7 @@ Linux 版本发布和 nightly 都从同一轮构建的 x86_64 RPM 生成 `msime-
 
 ## 每次发布后更新
 
-在 `develop` 的检出里（Arch 上，以普通用户运行，生成 `.SRCINFO` 要 `makepkg`），改完经普通 PR 合入 `develop`：
+在 `main` 的检出里（Arch 上，以普通用户运行，生成 `.SRCINFO` 要 `makepkg`），改完经普通 PR 合入 `main`：
 
 ```sh
 python3 platforms/linux/packaging/arch/render.py <版本> --sha256sums <发布的 SHA256SUMS>

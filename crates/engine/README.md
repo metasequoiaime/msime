@@ -63,7 +63,7 @@ preedit: ni'hao
 commit: 你好
 ```
 
-完整的版本是随包发布的 [`examples/quickstart.rs`](https://github.com/metasequoiaime/msime/blob/develop/crates/engine/examples/quickstart.rs)，数据目录从命令行给出：在仓库里 `cargo run --release --example quickstart -- <数据目录>`。`prepare_runtime_paths` 按全部方案准备，要 `msime-pinyin.db` 和 `msime-english.db`。只用几个方案时用 `prepare_runtime_paths_for`，传入与 `SessionOptions::enabled_schemes` 相同的 `SchemeSet`，数据目录只要有这些方案读的文件：没有全拼、双拼、五笔时两个库都不要求，韩文、越南文、藏文什么也不用带，日文只要 `msime-japanese.dat`（没有时只出假名），粤语、注音、笔画只要各自的语言库；带了 `msime-english.db` 时专用英文照样有补全、回车学词。重置学习用同一个集合调 `reset_learned_data_for`。逐个方案的文件与许可证见 [docs/data-formats.md 的「每个方案的最小数据集」](https://github.com/metasequoiaime/msime/blob/develop/docs/data-formats.md#20-每个方案的最小数据集)；从 C 或别的语言用，见 [msime-engine-capi](https://github.com/metasequoiaime/msime/blob/develop/crates/engine-capi/README.md#快速上手)。
+完整的版本是随包发布的 [`examples/quickstart.rs`](https://github.com/metasequoiaime/msime/blob/main/crates/engine/examples/quickstart.rs)，数据目录从命令行给出：在仓库里 `cargo run --release --example quickstart -- <数据目录>`。`prepare_runtime_paths` 按全部方案准备，要 `msime-pinyin.db` 和 `msime-english.db`。只用几个方案时用 `prepare_runtime_paths_for`，传入与 `SessionOptions::enabled_schemes` 相同的 `SchemeSet`，数据目录只要有这些方案读的文件：没有全拼、双拼、五笔时两个库都不要求，韩文、越南文、藏文什么也不用带，日文只要 `msime-japanese.dat`（没有时只出假名），粤语、注音、笔画只要各自的语言库；带了 `msime-english.db` 时专用英文照样有补全、回车学词。重置学习用同一个集合调 `reset_learned_data_for`。逐个方案的文件与许可证见 [docs/data-formats.md 的「每个方案的最小数据集」](https://github.com/metasequoiaime/msime/blob/main/docs/data-formats.md#20-每个方案的最小数据集)；从 C 或别的语言用，见 [msime-engine-capi](https://github.com/metasequoiaime/msime/blob/main/crates/engine-capi/README.md#快速上手)。
 
 ## 能做什么
 
@@ -72,9 +72,9 @@ commit: 你好
 - 纠错：全拼的拼写纠错，触屏键盘的触点纠错。
 - 学习：用户选过的词与个人词典存在本地 SQLite，按日志回放。回车（`Command::CommitRaw`）缺省只把专用英文里打的词学进英文词库；`SessionOptions::learn_typed_spellings_on_enter` 打开后，临时英文的字母和拼不成完整音节的拼音也学（msime 自己的策略），`Command::CommitRawWithoutLearning` 上屏同样的原文而不学。
 
-引擎只带算法和几张小的内嵌表，不带词库。运行时要由调用方给出词库文件（`msime-pinyin.db`、`msime-english.db` 等，格式与来源见 [docs/third-party.md](https://github.com/metasequoiaime/msime/blob/develop/docs/third-party.md)），这些数据按各自的许可证分发，不随引擎改为 MPL-2.0：默认的中文词库含 rime-ice 的 GPL-3.0 数据，n-gram 表的计数来自中文维基百科（CC-BY-SA-4.0），全拼、双拼、五笔都要的 `msime-english.db` 含 rime-ice-en 的 GPL-3.0 数据（只用日文、韩文、越南文、藏文、粤语、注音、笔画时可以不带它）。用哪套数据由采用方自己决定。
+引擎只带算法和几张小的内嵌表，不带词库。运行时要由调用方给出词库文件（`msime-pinyin.db`、`msime-english.db` 等，格式与来源见 [docs/third-party.md](https://github.com/metasequoiaime/msime/blob/main/docs/third-party.md)），这些数据按各自的许可证分发，不随引擎改为 MPL-2.0：默认的中文词库含 rime-ice 的 GPL-3.0 数据，n-gram 表的计数来自中文维基百科（CC-BY-SA-4.0），全拼、双拼、五笔都要的 `msime-english.db` 含 rime-ice-en 的 GPL-3.0 数据（只用日文、韩文、越南文、藏文、粤语、注音、笔画时可以不带它）。用哪套数据由采用方自己决定。
 
-给其他语言用的 C ABI 是单独的 [`msime-engine-capi`](https://github.com/metasequoiaime/msime/blob/develop/crates/engine-capi/README.md)，发布里有预编译好的库；可嵌入引擎库的设计见仓库里的 `.agents/notes/proposed/architecture/2026-10-29-embeddable-engine-library.md`。
+给其他语言用的 C ABI 是单独的 [`msime-engine-capi`](https://github.com/metasequoiaime/msime/blob/main/crates/engine-capi/README.md)，发布里有预编译好的库；可嵌入引擎库的设计见仓库里的 `.agents/notes/proposed/architecture/2026-10-29-embeddable-engine-library.md`。
 
 ## 从 crates.io 使用
 
@@ -93,11 +93,11 @@ commit: 你好
 
 ## 许可证
 
-代码按 [Mozilla Public License 2.0](LICENSE) 授权，不附 Exhibit B（「Incompatible With Secondary Licenses」），所以按 MPL-2.0 第 3.3 条仍能与 GPL 代码组合；Exhibit A 声明在 `LICENSE` 开头和 `src/lib.rs` 第一行。仓库的其余部分仍是 GPL-3.0-only，见根目录的 [README](https://github.com/metasequoiaime/msime/blob/develop/README.md#许可证)。同一仓库里的 `msime-path-trust`（本 crate 的依赖）也是 MPL-2.0。
+代码按 [Mozilla Public License 2.0](LICENSE) 授权，不附 Exhibit B（「Incompatible With Secondary Licenses」），所以按 MPL-2.0 第 3.3 条仍能与 GPL 代码组合；Exhibit A 声明在 `LICENSE` 开头和 `src/lib.rs` 第一行。仓库的其余部分仍是 GPL-3.0-only，见根目录的 [README](https://github.com/metasequoiaime/msime/blob/main/README.md#许可证)。同一仓库里的 `msime-path-trust`（本 crate 的依赖）也是 MPL-2.0。
 
 引擎移植自 GPL-3.0 的 C++ msime-engine 与 msime-windows 的引擎代码。被移植或收进本 crate 与 `msime-path-trust` 的贡献，其版权人都同意以 MPL-2.0（不附 Exhibit B）再许可，同意记录由维护者留存。
 
-下面这些文件保留各自的许可证，不按 MPL-2.0。`Cargo.toml` 的 `license` 字段是引擎代码和编进引擎的数据的 SPDX 表达式，包括了它们。只给测试读的夹具不在 MPL-2.0 与这个表达式之内，仍按仓库的 GPL-3.0-only：`tests/golden/real/` 是对着含 rime-ice 数据（GPL-3.0）的词库录下的候选列表，`src/handwriting/testdata/` 是手写参考实现的输出；`Cargo.toml` 的 `include` 白名单把它们排除在发布到 crates.io 的包之外。许可证全文在本 crate 的 `licenses/` 目录，随包发布，与仓库 `resources/licenses/` 里的同名文件逐字节相同；分发编进了引擎的二进制时要随附它们和 `LICENSE`。msime 自己各平台的声明渠道见 [docs/third-party.md](https://github.com/metasequoiaime/msime/blob/develop/docs/third-party.md#通知文件在哪)。
+下面这些文件保留各自的许可证，不按 MPL-2.0。`Cargo.toml` 的 `license` 字段是引擎代码和编进引擎的数据的 SPDX 表达式，包括了它们。只给测试读的夹具不在 MPL-2.0 与这个表达式之内，仍按仓库的 GPL-3.0-only：`tests/golden/real/` 是对着含 rime-ice 数据（GPL-3.0）的词库录下的候选列表，`src/handwriting/testdata/` 是手写参考实现的输出；`Cargo.toml` 的 `include` 白名单把它们排除在发布到 crates.io 的包之外。许可证全文在本 crate 的 `licenses/` 目录，随包发布，与仓库 `resources/licenses/` 里的同名文件逐字节相同；分发编进了引擎的二进制时要随附它们和 `LICENSE`。msime 自己各平台的声明渠道见 [docs/third-party.md](https://github.com/metasequoiaime/msime/blob/main/docs/third-party.md#通知文件在哪)。
 
 | 文件 | 来源 | 许可证 | 全文 |
 | --- | --- | --- | --- |
@@ -119,4 +119,4 @@ commit: 你好
 
 ## 贡献
 
-向本 crate（`crates/engine`）和 `crates/path-trust` 提交的贡献，按「GPL-3.0-only OR MPL-2.0」授权：提交 PR 即表示你同意你的改动既可按仓库的 GPL-3.0-only、也可按这两个 crate 的 MPL-2.0 使用。不能接受这一点的话请不要改这两个目录。引入第三方代码或数据时，在上表加一行，把许可证全文放进仓库的 `resources/licenses/` 并复制一份到本 crate 的 `licenses/`（`scripts/test-engine-license.py` 核对两份相同），再接到各平台的声明渠道。流程见 [CONTRIBUTING](https://github.com/metasequoiaime/msime/blob/develop/.github/CONTRIBUTING.md)。
+向本 crate（`crates/engine`）和 `crates/path-trust` 提交的贡献，按「GPL-3.0-only OR MPL-2.0」授权：提交 PR 即表示你同意你的改动既可按仓库的 GPL-3.0-only、也可按这两个 crate 的 MPL-2.0 使用。不能接受这一点的话请不要改这两个目录。引入第三方代码或数据时，在上表加一行，把许可证全文放进仓库的 `resources/licenses/` 并复制一份到本 crate 的 `licenses/`（`scripts/test-engine-license.py` 核对两份相同），再接到各平台的声明渠道。流程见 [CONTRIBUTING](https://github.com/metasequoiaime/msime/blob/main/.github/CONTRIBUTING.md)。

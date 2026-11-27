@@ -45,7 +45,7 @@ int main() {
         NSMutableDictionary<NSString *, NSButton *> *fuzzyRules = [NSMutableDictionary dictionary];
         for (NSControl *control in MSIMEFindPreferenceControls(prefsRoot, @selector(fuzzyPinyinRuleChanged:)))
             fuzzyRules[control.identifier] = (id)control;
-        assert(fuzzy != nil && fuzzyCard != nil && fuzzyRules.count == 11 && !fuzzyRules[@"z-zh"].enabled);
+        assert(fuzzy != nil && fuzzyCard != nil && fuzzyRules.count == 12 && !fuzzyRules[@"z-zh"].enabled);
         fuzzy.state = NSControlStateValueOn;
         [NSApp sendAction:fuzzy.action to:fuzzy.target from:fuzzy];
         assert(prefs.fuzzyPinyinEnabled && fuzzyRules[@"z-zh"].enabled);

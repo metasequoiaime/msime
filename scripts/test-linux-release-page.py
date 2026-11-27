@@ -433,7 +433,7 @@ class DefinitionsPointAtLinuxSourcesTest(unittest.TestCase):
         arch = workflow.split("\n  arch-bin:\n", 1)[1].split("\n  publish:\n", 1)[0]
         self.assertIn("\n    if: ${{ needs.source.outputs.packaging == 'true' }}\n", arch)
         # nightly 里 Arch 失败不拖住 DEB 和 RPM；发布时 continue-on-error 为假，publish 仍要求它成功。
-        self.assertIn("\n    continue-on-error: ${{ !inputs.publish }}\n", arch)
+        self.assertIn("\n    continue-on-error: ${{ needs.source.outputs.publish != 'true' }}\n", arch)
         self.assertIn("msime-linux-arch-${{ steps.version.outputs.value }}", arch)
 
     def test_arch_package_is_built_from_the_full_edition_rpm(self):

@@ -1,17 +1,19 @@
 name: Release iOS
+# 发版就是在 main 上推 ios-vX.Y.Z（正式版）或 ios-vX.Y.Z-beta.N（测试版，prerelease）tag（AGENTS.md「发版」）。推 tag 的运行没有输入，各输入取默认值（上传 TestFlight 并送外部组）。在别的 ref 上手动触发只构建；ref 是已有的 tag 时与推送它相同。
 on:
+  push:
+    tags: ['ios-v*']
   workflow_dispatch:
     inputs:
-      version: {description: Semantic version (defaults to platforms/ios/version.txt), required: false, type: string}
-      prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
-      publish: {description: Publish the build as an ios-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
+      version: {description: Semantic version (defaults to platforms/ios/version.txt; on a tag it must equal the tag's version), required: false, type: string}
+      publish: {description: Publish when the ref is an ios-v tag (a run on any other ref only uploads workflow artifacts), required: false, default: true, type: boolean}
       testflight: {description: 签名归档并上传 App Store Connect（内部测试组自动拿到）, required: false, default: true, type: boolean}
       testflight_external: {description: 上传后加入外部测试组并提交 TestFlight 审核（不发布时，这个版本号已有 ios-v release 才送外部组）, required: false, default: true, type: boolean}
   workflow_call:
     inputs:
       version: {description: Semantic version, required: false, default: '', type: string}
-      prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
-      publish: {description: Publish the build, required: false, default: false, type: boolean}
+      prerelease: {description: Unused; a release is a prerelease exactly when its tag is -beta.N. Kept so existing callers stay valid, required: false, default: false, type: boolean}
+      publish: {description: Publish when the caller runs on an ios-v tag, required: false, default: false, type: boolean}
       testflight: {description: Upload to TestFlight, required: false, default: false, type: boolean}
       testflight_external: {description: Submit external TestFlight review, required: false, default: false, type: boolean}
     outputs:
@@ -32,15 +34,17 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ github.sha }}", fetch-depth: 0, persist-credentials: false}
-      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
+      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release name and title carry the tag's -beta.N, if any, and a beta is always published as a prerelease, which the stable update channel skips. scripts/release-ref.py checks a ios-v tag against the version file and origin/main before anything is built; a run on any other ref only builds.
+      # testflight 和 testflight_external 在推 tag 的运行里没有输入，按手动触发的默认值（true）算。上传和送外部组都在 build job 里、发布之前，推 tag 之后再取消已经来不及，所以推 tag 前把仓库变量 IOS_TAG_TESTFLIGHT_EXTERNAL 设成 false，这次推 tag 的运行就只传内部测试组、不送外部组；不设或设成别的值时照常送。
       - id: version
         name: Resolve independent iOS version
-        env: {REQUESTED: "${{ inputs.version }}"}
+        env: {REQUESTED: "${{ inputs.version }}", PUBLISH_INPUT: "${{ inputs.publish }}", TESTFLIGHT: "${{ github.event_name == 'push' || inputs.testflight }}", TESTFLIGHT_EXTERNAL: "${{ github.event_name == 'push' && vars.IOS_TAG_TESTFLIGHT_EXTERNAL != 'false' || github.event_name != 'push' && inputs.testflight_external }}"}
         run: |
-          version="${REQUESTED:-$(tr -d '[:space:]' < platforms/ios/version.txt)}"
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          set -euo pipefail
+          # release-ref.py appends version, release, tag, prerelease and publish to GITHUB_OUTPUT itself; the steps below read the version as value.
+          version="$(python3 scripts/release-ref.py --prefix ios-v --version-file platforms/ios/version.txt --requested "$REQUESTED" | sed -n 's/^version=//p')"
           echo "value=$version" >> "$GITHUB_OUTPUT"
-          case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
+          { echo "testflight=$TESTFLIGHT"; echo "testflight_external=$TESTFLIGHT_EXTERNAL"; } >> "$GITHUB_OUTPUT"
       # build-app.sh takes the directory install_resources verified and unpacked, not the repository's
       # resources/ directory -- that one holds the lock files install_resources reads. ci-ios.yml
       # resolves it the same way before every Xcode build.
@@ -78,7 +82,7 @@ jobs:
           if-no-files-found: error
       # 以下把同一份代码签名上传 TestFlight。流程取自 2026-09 的旧 release-ios.yml 与 #518 的修正：内部测试组自动拿到每个上传的构建，不能也不必再加；外部组要显式加入并提交审核；分发前要等 App Store Connect 处理完。
       - name: Prepare iOS signing and App Store Connect credentials
-        if: ${{ inputs.testflight }}
+        if: ${{ steps.version.outputs.testflight == 'true' }}
         id: signing
         env:
           IOS_API_KEY_BASE64: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_BASE64 }}
@@ -125,10 +129,10 @@ jobs:
       # nightly 和手动发布各有自己的 run_number，不能用它生成共享的 TestFlight 构建号。以 2020 年起的秒数编号，两条入口共用 release-ios 并发组，重跑也取新编号。
       - name: Choose the build number
         id: build-number
-        if: ${{ inputs.testflight }}
+        if: ${{ steps.version.outputs.testflight == 'true' }}
         run: echo "value=$(($(date -u +%s) - 1577836800))" >> "$GITHUB_OUTPUT"
       - name: Upload the signed build to App Store Connect
-        if: ${{ inputs.testflight }}
+        if: ${{ steps.version.outputs.testflight == 'true' }}
         env:
           MSIME_IOS_OMIT_ON_DEMAND: "1"
           MSIME_IOS_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
@@ -149,16 +153,46 @@ jobs:
           bash platforms/ios/build-app.sh "$resource_dir" testflight
       # upload-testflight.sh 从归档里打出的 dSYM 留 90 天，用来符号化遥测崩溃里的「二进制 + 偏移」；App Store Connect 那边另有 uploadSymbols 传上去的一份，供 Xcode Organizer 用。不像 macos-symbols 那样放滚动 release：nightly 在版本号已发布后也送外部组，同一版本号每天都有新构建，release 的附件会无限增长，而排查用到的是最近几个月的构建。
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: ${{ inputs.testflight }}
+        if: ${{ steps.version.outputs.testflight == 'true' }}
         with:
           name: msime-ios-${{ steps.version.outputs.value }}-${{ steps.build-number.outputs.value }}-dsym
           path: target/ios/testflight/msime-ios-*-dsym.zip
           if-no-files-found: warn
           retention-days: 90
+      # 测试者在 TestFlight 里看到的「What to Test」。nightly 从上一个送进 TestFlight 的 iOS nightly 算起（滚动 release nightly 的状态里记着它的源码提交，前一天 iOS 失败时自动累积到今天），这样每天看到的是这一版新改了什么；正式发布和下面「Publish independent iOS release」取同一个起点。生成失败不拦下分发，下一步找不到文件时会报红。
+      - name: Write the TestFlight test notes
+        id: notes
+        if: ${{ steps.version.outputs.testflight == 'true' }}
+        continue-on-error: true
+        # 生成器经 gh 读 PR 的作者和关闭的 issue（致谢与「修复 #N」靠它）；这个 workflow 的 github.token 只有 contents 权限读不到 PR，与下面的发布步骤一样优先用 RELEASE_PUBLISH_TOKEN。
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", PUBLISH: "${{ steps.version.outputs.publish }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}", BUILD_NUMBER: "${{ steps.build-number.outputs.value }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
+        run: |
+          set -euo pipefail
+          head=$(git rev-parse HEAD)
+          start=
+          if [[ "$PUBLISH" != true ]]; then
+            state=$(gh release view nightly --repo "$GITHUB_REPOSITORY" --json body --jq .body 2>/dev/null | awk 'found { print; exit } /^<!-- msime-nightly-state$/ { found = 1 }' || true)
+            start=$(printf '%s' "$state" | jq -r '.platforms.ios.source // empty' 2>/dev/null || true)
+            [[ "$start" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "${start}^{commit}" 2>/dev/null || start=
+          fi
+          if [[ -z "$start" ]]; then
+            stable='^ios-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
+            start=$(git tag --list 'ios-v*' --sort=-v:refname | grep -vxF "ios-v${RELEASE}" | grep -E "$stable" | head -1 || true)
+          fi
+          notes="$RUNNER_TEMP/testflight-notes.md"
+          python3 scripts/generate-release-notes.py --platform ios --version "$RELEASE" --start-tag "$start" --end-ref "$head" --output "$notes"
+          footer="构建 ${BUILD_NUMBER} · 源码 ${head:0:10}"
+          # 起点可能是标签，链接和比较都用它指向的提交。
+          base=$([[ -n "$start" ]] && git rev-parse "${start}^{commit}" || true)
+          [[ -z "$base" || "$base" == "$head" ]] || footer+=$'\n'"完整改动：${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${base:0:12}...${head:0:12}"
+          { echo "file=$notes"; echo "footer<<EOF"; echo "$footer"; echo EOF; } >> "$GITHUB_OUTPUT"
+          cat "$notes"
       - name: Hand the build to its testers
         id: testers
-        if: ${{ inputs.testflight }}
+        if: ${{ steps.version.outputs.testflight == 'true' }}
         env:
+          NOTES_FILE: ${{ steps.notes.outputs.file || format('{0}/testflight-notes.md', runner.temp) }}
+          NOTES_FOOTER: ${{ steps.notes.outputs.footer }}
           BUILD_NUMBER: ${{ steps.build-number.outputs.value }}
           IOS_API_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
           IOS_API_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
@@ -166,8 +200,8 @@ jobs:
           IOS_APP_ID: ${{ vars.IOS_APP_STORE_CONNECT_APP_ID }}
           IOS_INTERNAL_GROUP: ${{ vars.IOS_TESTFLIGHT_INTERNAL_GROUP }}
           IOS_EXTERNAL_GROUP: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP }}
-          EXTERNAL: ${{ inputs.testflight_external }}
-          PUBLISH: ${{ inputs.publish }}
+          EXTERNAL: ${{ steps.version.outputs.testflight_external }}
+          PUBLISH: ${{ steps.version.outputs.publish }}
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
@@ -183,6 +217,7 @@ jobs:
           python3 -m pip install --quiet --disable-pip-version-check --break-system-packages 'pyjwt[crypto]==2.10.1'
           python3 platforms/ios/scripts/submit_testflight_review.py \
             --app "$IOS_APP_ID" --build-version "$BUILD_NUMBER" --group "$group" ${review:+$review} \
+            --whats-new-file "$NOTES_FILE" --whats-new-footer "$NOTES_FOOTER" \
             --key-id "$IOS_API_KEY_ID" --issuer-id "$IOS_API_KEY_ISSUER_ID" --key-path "$SIGNING_DIR/AuthKey_${IOS_API_KEY_ID}.p8"
       - name: Remove the signing keychain and keys
         if: ${{ always() && steps.signing.outputs.keychain != '' }}
@@ -190,15 +225,15 @@ jobs:
         run: |
           security delete-keychain "$KEYCHAIN" || true
           rm -rf -- "$SIGNING_DIR"
-      # The build takes the dispatched commit, and the release is tagged at that checked-out commit (git rev-parse HEAD), so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
+      # Only a run on a release tag that scripts/release-ref.py accepted publishes, and the release goes on that tag's commit (git rev-parse HEAD); a build of any other ref stays a workflow artifact.
       - name: Publish independent iOS release
-        if: ${{ inputs.publish }}
-        # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
-        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
+        if: ${{ steps.version.outputs.publish == 'true' }}
+        # The release goes on the pushed tag; the workflow never creates one. RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) publishes it, falling back to GITHUB_TOKEN without the secret, as on a fork. scripts/publish-release.sh never writes the tag ref, not even on a re-run: a ref update made with this token raises a tag push event and would start a second release run.
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}", PRERELEASE: "${{ steps.version.outputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           tag="ios-v${RELEASE}"
           [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true
-          # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
+          # The pushed tag already exists, and a re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta.N one at the latest release of either kind.
           stable='^ios-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
           start=$(git tag --list 'ios-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
           python3 scripts/generate-release-notes.py --platform ios --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md

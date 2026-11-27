@@ -16,7 +16,7 @@ zhoumo   →  周末   weekend      →  weekend
 
 **[메타세쿼이아 IME 다운로드](https://msime.app/download/)** · Windows · macOS · Linux · Android · iOS · HarmonyOS · 무료 오픈 소스(GPL-3.0-only)
 
-- **켜는 방법**: 기본으로 모두 꺼져 있습니다. 설정에서 「영어 뜻 표시」(显示英文释义, Android와 iOS에서는 「오프라인 영어 뜻」离线英文释义)를 켜고, 읽는 법도 보려면 「읽는 법 표시」(显示读音)도 켭니다. 영어 뜻에는 발음 기호, 일본어 뜻에는 헵번식 로마자, 한국어 뜻에는 국어의 로마자 표기법(개정 로마자 표기법)에 따른 로마자, 프랑스어·스페인어·러시아어·독일어 뜻에는 IPA(독일어는 실제 발음을 적은 정밀 표기)가 붙습니다. 뜻과 읽는 법은 기기 안의 사전에서 찾으므로 표시할 때 네트워크를 쓰지 않습니다(Android, iOS, Linux에서는 영어 발음 기호 사전과 나머지 여섯 언어의 읽는 법 사전을 설정에서 각각 한 번 내려받습니다). 「후보 번역」도 온라인 번역 서비스를 고르지 않으면 기기 안의 사전만 찾습니다.
+- **켜는 방법**: 기본으로 모두 꺼져 있습니다. 설정에서 「영어 뜻 표시」(显示英文释义, Android에서는 「오프라인 뜻」离线释义, iOS에서는 「오프라인 영어 뜻」离线英文释义)를 켜고, 읽는 법도 보려면 「읽는 법 표시」(显示读音)도 켭니다. 영어 뜻에는 발음 기호, 일본어 뜻에는 헵번식 로마자, 한국어 뜻에는 국어의 로마자 표기법(개정 로마자 표기법)에 따른 로마자, 프랑스어·스페인어·러시아어·독일어 뜻에는 IPA(독일어는 실제 발음을 적은 정밀 표기)가 붙습니다. 뜻과 읽는 법은 기기 안의 사전에서 찾으므로 표시할 때 네트워크를 쓰지 않습니다(Android, iOS, Linux에서는 영어 발음 기호 사전과 나머지 여섯 언어의 읽는 법 사전을 설정에서 각각 한 번 내려받습니다). 「후보 번역」도 온라인 번역 서비스를 고르지 않으면 기기 안의 사전만 찾습니다.
 - **그 밖에**: 「후보 번역」의 대상 언어는 프랑스어, 일본어, 스페인어, 러시아어, 독일어, 한국어로도 바꿀 수 있습니다(HarmonyOS 휴대폰에는 러시아어가 없습니다). 「단어 외우기」(背单词)에는 중고 입시(中考)부터 GRE까지 단어장 여덟 권이 들어 있고, 간격 반복으로 복습 일정을 잡습니다.
 - **플랫폼별 차이**: 읽는 법은 현재 macOS, Linux, Android, iOS, HarmonyOS, Windows 새 버전 미리 보기에서 표시됩니다. Windows 정식판은 [msime-windows](https://github.com/metasequoiaime/msime-windows)가 배포하며 「영어 뜻 표시」라는 별도 스위치가 없고 「후보 번역」(候选词翻译)을 켜면 오프라인 영어 뜻이 표시되며 Ctrl+Enter도 쓸 수 있지만, 발음 기호와 간격 반복 「단어 외우기」 단어장은 아직 없습니다. 모바일 앱은 아직 베타입니다.
 
@@ -28,17 +28,17 @@ zhoumo   →  周末   weekend      →  weekend
 
 > **이름에 관하여**: MSIME는 Metasequoia IME(水杉输入法)의 약칭이며, Microsoft IME와 무관하고 Microsoft와도 아무런 관계가 없습니다. 코드, 패키지 이름, 저장소 이름에 쓰인 `msime`는 모두 이 의미입니다. 설정의 `shuangpin_profile: microsoft`는 「마이크로소프트 쌍병(微软双拼)」 방식으로, Xiaohe(小鹤), Ziranma(自然码), Shoudao(首道)와 나란히 있는 네 가지 키 배치 방식 중 하나이며, 이 키 배치에 익숙한 사용자가 선택할 수 있도록 제공하는 것일 뿐 역시 어떠한 관계도 의미하지 않습니다.
 
-[![Core CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci.yml?branch=develop&label=Core%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci.yml?query=branch%3Adevelop)
-[![Native Platform CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci-platforms.yml?branch=develop&label=Platform%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci-platforms.yml?query=branch%3Adevelop)
-[![CodeQL](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/codeql.yml?branch=develop&event=schedule&label=CodeQL&logo=github)](https://github.com/metasequoiaime/msime/actions/workflows/codeql.yml)
-[![Cargo audit](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/cargo-audit.yml?branch=develop&event=schedule&label=cargo%20audit&logo=rust)](https://github.com/metasequoiaime/msime/actions/workflows/cargo-audit.yml)
+[![Core CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci.yml?branch=main&label=Core%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci.yml?query=branch%3Amain)
+[![Native Platform CI](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/ci-platforms.yml?branch=main&label=Platform%20CI&logo=githubactions&logoColor=white)](https://github.com/metasequoiaime/msime/actions/workflows/ci-platforms.yml?query=branch%3Amain)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/codeql.yml?branch=main&event=schedule&label=CodeQL&logo=github)](https://github.com/metasequoiaime/msime/actions/workflows/codeql.yml)
+[![Cargo audit](https://img.shields.io/github/actions/workflow/status/metasequoiaime/msime/cargo-audit.yml?branch=main&event=schedule&label=cargo%20audit&logo=rust)](https://github.com/metasequoiaime/msime/actions/workflows/cargo-audit.yml)
 
-[![Android version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fandroid%2Fversion.txt&query=%24&prefix=v&label=Android&logo=android&logoColor=white&color=34A853)](../../platforms/android/README.md)
-[![iOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fios%2Fversion.txt&query=%24&prefix=v&label=iOS&logo=apple&logoColor=white&color=147EFB)](../../platforms/ios/README.md)
-[![macOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fmacos%2Fversion.txt&query=%24&prefix=v&label=macOS&logo=apple&logoColor=white&color=000000)](../../platforms/macos/README.md)
-[![Linux version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Flinux%2Fversion.txt&query=%24&prefix=v&label=Linux&logo=linux&logoColor=white&color=D97706)](../../platforms/linux/README.md)
-[![Windows version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fwindows%2Fversion.txt&query=%24&prefix=v&label=Windows&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDBoMTEuMzc3djExLjM3Mkgwem0xMi42MjMgMEgyNHYxMS4zNzJIMTIuNjIzek0wIDEyLjYyM2gxMS4zNzdWMjRIMHptMTIuNjIzIDBIMjRWMjRIMTIuNjIzeiIvPjwvc3ZnPg%3D%3D&logoColor=white&color=0078D4)](../../platforms/windows/README.md)
-[![HarmonyOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fdevelop%2Fplatforms%2Fharmony%2Fversion.txt&query=%24&prefix=v&label=HarmonyOS&logo=harmonyos&logoColor=white&color=CF0A2C)](../../platforms/harmony/README.md)
+[![Android version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fmain%2Fplatforms%2Fandroid%2Fversion.txt&query=%24&prefix=v&label=Android&logo=android&logoColor=white&color=34A853)](../../platforms/android/README.md)
+[![iOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fmain%2Fplatforms%2Fios%2Fversion.txt&query=%24&prefix=v&label=iOS&logo=apple&logoColor=white&color=147EFB)](../../platforms/ios/README.md)
+[![macOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fmain%2Fplatforms%2Fmacos%2Fversion.txt&query=%24&prefix=v&label=macOS&logo=apple&logoColor=white&color=000000)](../../platforms/macos/README.md)
+[![Linux version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fmain%2Fplatforms%2Flinux%2Fversion.txt&query=%24&prefix=v&label=Linux&logo=linux&logoColor=white&color=D97706)](../../platforms/linux/README.md)
+[![Windows version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fmain%2Fplatforms%2Fwindows%2Fversion.txt&query=%24&prefix=v&label=Windows&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDBoMTEuMzc3djExLjM3Mkgwem0xMi42MjMgMEgyNHYxMS4zNzJIMTIuNjIzek0wIDEyLjYyM2gxMS4zNzdWMjRIMHptMTIuNjIzIDBIMjRWMjRIMTIuNjIzeiIvPjwvc3ZnPg%3D%3D&logoColor=white&color=0078D4)](../../platforms/windows/README.md)
+[![HarmonyOS version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmetasequoiaime%2Fmsime%2Fmain%2Fplatforms%2Fharmony%2Fversion.txt&query=%24&prefix=v&label=HarmonyOS&logo=harmonyos&logoColor=white&color=CF0A2C)](../../platforms/harmony/README.md)
 [![npm @msime/web-engine](https://img.shields.io/npm/v/@msime/web-engine?label=%40msime%2Fweb-engine&logo=npm)](https://www.npmjs.com/package/@msime/web-engine)
 [![crates.io msime-engine](https://img.shields.io/crates/v/msime-engine?label=msime-engine&logo=rust)](https://crates.io/crates/msime-engine)
 
@@ -47,7 +47,7 @@ zhoumo   →  周末   weekend      →  weekend
 [![Website](https://img.shields.io/badge/website-msime.app-2E7D32)](https://msime.app/)
 [![GitHub stars](https://img.shields.io/github/stars/metasequoiaime/msime?style=flat&logo=github)](https://github.com/metasequoiaime/msime/stargazers)
 [![Contributors](https://img.shields.io/github/contributors/metasequoiaime/msime)](https://github.com/metasequoiaime/msime/graphs/contributors)
-[![Last commit](https://img.shields.io/github/last-commit/metasequoiaime/msime/develop)](https://github.com/metasequoiaime/msime/commits/develop)
+[![Last commit](https://img.shields.io/github/last-commit/metasequoiaime/msime/main)](https://github.com/metasequoiaime/msime/commits/main)
 <a href="https://depot.dev/?utm_source=metasequoiaime"><img src="https://depot.dev/badges/built-with-depot.svg" alt="Built with Depot" height="20"></a>
 
 ## Star History
@@ -79,7 +79,7 @@ zhoumo   →  周末   weekend      →  weekend
 
 ## CI와 릴리스
 
-`develop`의 기본 검사는 `Core CI`가 담당하며, 실제로 실행되는 것은 actionlint의 workflow 검증과 의존성 검토입니다. 저장소의 텍스트 계약은 `scripts/` 아래의 `test-*.py` 묶음으로, `scripts/run-checks.sh`가 파일 이름으로 자동 탐색해 실행합니다. `Core CI`의 contracts job은 Linux에서 이를 실행하고, `scripts/verify-local.sh`는 로컬에서 같은 스크립트를 실행합니다. 필요한 도구나 참조 저장소가 없는 검사는 CI에서 skipped를 출력하고 통과합니다. iOS와 macOS의 빌드와 테스트는 각자의 네이티브 호스트 workflow가 담당합니다. Android, Linux, HarmonyOS, Windows는 해당 플랫폼이나 공유 계층에 변경이 있을 때 Native Platform CI가 실행하며, 변경이 없으면 명시적으로 건너뜁니다. 이 계층은 호스트 계약, JVM 스모크 테스트, 컨테이너 빌드, 크로스 컴파일을 다룹니다. 기기 수준의 입력 인수 검증은 각 플랫폼 README에 기록된 기기 테스트 스위트와 수동 절차가 맡으며, CI가 대신하지 않습니다. 각 workflow의 실행 상태는 [GitHub Actions](https://github.com/metasequoiaime/msime/actions)에서 볼 수 있습니다. develop은 병합이 잦아 대기 중인 실행이 이후의 푸시로 자주 취소되므로, 결과를 볼 때는 가장 최근에 끝까지 실행되고 취소되지 않은 실행을 기준으로 합니다.
+`main`의 기본 검사는 `Core CI`가 담당하며, 실제로 실행되는 것은 actionlint의 workflow 검증과 의존성 검토입니다. 저장소의 텍스트 계약은 `scripts/` 아래의 `test-*.py` 묶음으로, `scripts/run-checks.sh`가 파일 이름으로 자동 탐색해 실행합니다. `Core CI`의 contracts job은 Linux에서 이를 실행하고, `scripts/verify-local.sh`는 로컬에서 같은 스크립트를 실행합니다. 필요한 도구나 참조 저장소가 없는 검사는 CI에서 skipped를 출력하고 통과합니다. iOS와 macOS의 빌드와 테스트는 각자의 네이티브 호스트 workflow가 담당합니다. Android, Linux, HarmonyOS, Windows는 해당 플랫폼이나 공유 계층에 변경이 있을 때 Native Platform CI가 실행하며, 변경이 없으면 명시적으로 건너뜁니다. 이 계층은 호스트 계약, JVM 스모크 테스트, 컨테이너 빌드, 크로스 컴파일을 다룹니다. 기기 수준의 입력 인수 검증은 각 플랫폼 README에 기록된 기기 테스트 스위트와 수동 절차가 맡으며, CI가 대신하지 않습니다. 각 workflow의 실행 상태는 [GitHub Actions](https://github.com/metasequoiaime/msime/actions)에서 볼 수 있습니다. main은 병합이 잦아 대기 중인 실행이 이후의 푸시로 자주 취소되므로, 결과를 볼 때는 가장 최근에 끝까지 실행되고 취소되지 않은 실행을 기준으로 합니다.
 
 여섯 플랫폼의 릴리스는 완전히 독립적입니다: 각 플랫폼마다 자체 수동 release workflow, 버전 파일, 동시성 그룹, 빌드 산출물, GitHub Release tag가 있습니다. 릴리스 workflow는 GitHub Release만 생성하며, 앱 스토어에 자동으로 업로드하거나 서명 자격 증명을 사용하지 않습니다.
 

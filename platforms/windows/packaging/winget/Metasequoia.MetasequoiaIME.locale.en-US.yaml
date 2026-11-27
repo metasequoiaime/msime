@@ -7,11 +7,11 @@ PackageLocale: en-US
 Publisher: Metasequoia
 PublisherUrl: https://msime.app/
 PublisherSupportUrl: https://github.com/metasequoiaime/msime/issues
-PrivacyUrl: https://github.com/metasequoiaime/msime/blob/develop/PRIVACY.md
+PrivacyUrl: https://github.com/metasequoiaime/msime/blob/main/PRIVACY.md
 PackageName: Metasequoia IME
 PackageUrl: https://github.com/metasequoiaime/msime
 License: GPL-3.0-only
-LicenseUrl: https://github.com/metasequoiaime/msime/blob/develop/LICENSE
+LicenseUrl: https://github.com/metasequoiaime/msime/blob/main/LICENSE
 ShortDescription: "Metasequoia IME (水杉输入法): Chinese input method for Windows"
 Description: |-
   Metasequoia IME (水杉输入法, MSIME) is a Chinese input method for Windows, macOS, Linux, Android, iOS and HarmonyOS. On Windows it is a Text Services Framework input method with its own Server process, a native candidate window and a settings app.

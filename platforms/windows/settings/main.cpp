@@ -69,6 +69,7 @@
 #include "GameProcessList.h"
 #include "HelpcodeModesModel.h"
 #include "HistoryPagination.h"
+#include "InfoTipHost.h"
 #include "InputSettingsModel.h"
 #include "LexiconImportModel.h"
 #include "LearningResetFeedback.h"
@@ -107,6 +108,7 @@
 #include <winrt/base.h>
 #include <microsoft.ui.xaml.window.h>
 
+#include <winrt/Microsoft.UI.Composition.SystemBackdrops.h>
 #include <winrt/Microsoft.UI.Dispatching.h>
 #include <winrt/Microsoft.UI.Input.h>
 #include <winrt/Microsoft.UI.Windowing.h>
@@ -968,12 +970,11 @@ Color rgba(int red, int green, int blue, double alpha) {
 
 Color transparent_color() { return Color{0, 0, 0, 0}; }
 
-// 设置与输入浮层采用 macOS 的品牌绿及分层表面；Windows 控件仍由 WinUI 提供。`window_bg` 是侧栏（窗口底色），`content_bg` 是正文和它上方的标题栏那一列，`edge` 是侧栏右侧的边线，`title_edge` 是标题栏内容列底部的细线，`hover` 是侧栏导航项悬停、按下和选中共用的中性底色，数值取自共享设置 UI 的 macOS 外壳（`settings-style.ts` 的 `sidebar`、`content`、`macosToolbar` 和 `platform-tokens.ts` 的 `hover`）。`accent` 只用于开关、复选框、滑块这类不带文字的填充；底上是白字的填充（主按钮、提示条按钮、头像、社区资源图块）用 `accent_strong`，深浅两种外观都是浅色模式的品牌绿，与共享页的 `--accent-strong` 一样保证白字可读。
+// 设置与输入浮层用品牌绿作强调色，中性表面跟随 WinUI 3 的 Fluent token（见 `make_palette`）。`hover` 是整行按钮悬停和按下的中性底色。`accent` 只用于开关、复选框、滑块这类不带文字的填充；底上是白字的填充（主按钮、提示条按钮、头像、社区资源图块）用 `accent_strong`，深浅两种外观都是浅色模式的品牌绿，与共享页的 `--accent-strong` 一样保证白字可读。
 struct Palette {
   bool dark = false;
   Color text, sub, faint, subtle, subtle2, card, stroke, stroke2, divider,
-      accent, accent_strong, on_accent, seg_well, preview_bg, window_bg, content_bg, edge,
-      title_edge, hover;
+      accent, accent_strong, on_accent, seg_well, preview_bg, window_bg, hover;
 };
 
 Palette make_palette(bool dark) {
@@ -982,41 +983,35 @@ Palette make_palette(bool dark) {
   p.accent = dark ? rgba(0x5F, 0xBF, 0x84, 1) : rgba(0x2C, 0x7A, 0x4B, 1);
   p.accent_strong = rgba(0x2C, 0x7A, 0x4B, 1);
   p.on_accent = rgba(255, 255, 255, 1);
+  // 中性色取 WinUI 3（Fluent）的主题 token，与 ThemeResource 解析出的值相同：文字是 TextFillColorPrimary／Secondary／Tertiary，卡片是 CardBackgroundFillColorDefault 与 CardStrokeColorDefault，分隔线是 DividerStrokeColorDefault，悬停是 SubtleFillColorSecondary。卡片底是半透明的，叠在 NavigationView 正文的 LayerFillColorDefault 和窗口的 Mica 上，与 Windows 11 设置一样。`window_bg` 只在系统不支持 Mica 时铺（SolidBackgroundFillColorBase）。
   if (dark) {
-    p.text = rgba(0xF5, 0xF5, 0xF7, 1);
-    p.sub = rgba(0x98, 0x98, 0x9D, 1);
-    p.faint = rgba(255, 255, 255, .6);
+    p.text = rgba(255, 255, 255, 1);
+    p.sub = rgba(255, 255, 255, 0xC5 / 255.0);
+    p.faint = rgba(255, 255, 255, 0x87 / 255.0);
     p.subtle = rgba(255, 255, 255, .0605);
     p.subtle2 = rgba(255, 255, 255, .0837);
-    // macOS 的深色分组底是 #1F1F21 正文上叠 4.5% 白（rgba(255,255,255,.045)），这里取合成后的不透明色。
-    p.card = rgba(0x29, 0x29, 0x2B, 1);
-    p.stroke = rgba(255, 255, 255, .07);
+    p.card = rgba(255, 255, 255, 0x0D / 255.0);
+    p.stroke = rgba(0, 0, 0, 0x19 / 255.0);
     p.stroke2 = rgba(255, 255, 255, .093);
-    p.divider = rgba(255, 255, 255, .0837);
+    p.divider = rgba(255, 255, 255, 0x15 / 255.0);
     p.seg_well = rgba(0, 0, 0, .12);
     p.preview_bg = rgba(0x2C, 0x2C, 0x2C, 1);
-    p.window_bg = rgba(0x2E, 0x2E, 0x30, 1);
-    p.content_bg = rgba(0x1F, 0x1F, 0x21, 1);
-    p.edge = rgba(0, 0, 0, .5);
-    p.title_edge = rgba(255, 255, 255, .08);
-    p.hover = rgba(255, 255, 255, .1);
+    p.window_bg = rgba(0x20, 0x20, 0x20, 1);
+    p.hover = rgba(255, 255, 255, 0x0F / 255.0);
   } else {
-    p.text = rgba(0x1D, 0x1D, 0x1F, 1);
-    p.sub = rgba(0x6E, 0x6E, 0x73, 1);
-    p.faint = rgba(0, 0, 0, .45);
+    p.text = rgba(0, 0, 0, 0xE4 / 255.0);
+    p.sub = rgba(0, 0, 0, 0x9E / 255.0);
+    p.faint = rgba(0, 0, 0, 0x72 / 255.0);
     p.subtle = rgba(0, 0, 0, .0373);
     p.subtle2 = rgba(0, 0, 0, .0578);
-    p.card = rgba(255, 255, 255, 1);
-    p.stroke = rgba(0, 0, 0, .0578);
+    p.card = rgba(255, 255, 255, 0xB3 / 255.0);
+    p.stroke = rgba(0, 0, 0, 0x0F / 255.0);
     p.stroke2 = rgba(0, 0, 0, .0803);
-    p.divider = rgba(0, 0, 0, .0803);
+    p.divider = rgba(0, 0, 0, 0x0F / 255.0);
     p.seg_well = rgba(0, 0, 0, .04);
     p.preview_bg = rgba(255, 255, 255, 1);
-    p.window_bg = rgba(0xE8, 0xE8, 0xEA, 1);
-    p.content_bg = rgba(0xF2, 0xF2, 0xF4, 1);
-    p.edge = rgba(0, 0, 0, .08);
-    p.title_edge = rgba(0, 0, 0, .07);
-    p.hover = rgba(0, 0, 0, .06);
+    p.window_bg = rgba(0xF3, 0xF3, 0xF3, 1);
+    p.hover = rgba(0, 0, 0, 0x09 / 255.0);
   }
   return p;
 }
@@ -1115,7 +1110,7 @@ constexpr const wchar_t *privacy_url = L"https://msime.app/privacy/";
 // 共享设置「帮助」页「完整文档」打开的地址（`packages/ui/src/settings/app-resources.ts` 的 `documentationUrl`）。
 constexpr const wchar_t *documentation_url = L"https://msime.app/docs/";
 constexpr const wchar_t *license_url =
-    L"https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
+    L"https://github.com/metasequoiaime/msime/blob/main/LICENSE";
 constexpr const wchar_t *releases_url =
     L"https://github.com/metasequoiaime/msime/releases";
 
@@ -3511,6 +3506,9 @@ struct MainWindow : WindowT<MainWindow> {
     // 窗口标题与 macOS 设置窗口相同，写作「水杉输入法 · 设置」（任务栏和 Alt+Tab 里看得到）；标题和侧栏的产品名按版本取，full 仍是「水杉输入法」。
     Title(MSIME_EDITION_DISPLAY_NAME L" · 设置");
     ExtendsContentIntoTitleBar(true);
+    // Windows 11 上整个窗口铺 Mica，侧栏和标题栏透出它；Windows 10 不支持 Mica，`build_shell` 改铺不透明的窗口底色。
+    mica_ = Microsoft::UI::Composition::SystemBackdrops::MicaController::IsSupported();
+    if (mica_) SystemBackdrop(Microsoft::UI::Xaml::Media::MicaBackdrop());
     reload_document();
     load_catalog();
     system_dark_ = system_dark();
@@ -3755,6 +3753,8 @@ private:
 
   void on_activated(Inspectable const &, WindowActivatedEventArgs const &args) {
     if (args.WindowActivationState() == WindowActivationState::Deactivated) {
+      // 窗口切走了，点开固定的说明也跟着收起（共享页、iOS 都由窗口失焦收起）；鼠标只是移到别的窗口时窗口不算失活，悬停弹出的气泡仍归 WinUI 管。
+      info_tips_.close();
       flush_pending();
       retry_unsaved_edit();
       return;
@@ -3851,6 +3851,29 @@ private:
     root.AddHandler(UIElement::PointerReleasedEvent(), released, true);
     root.AddHandler(UIElement::PointerCanceledEvent(), released, true);
     root.AddHandler(UIElement::PointerCaptureLostEvent(), released, true);
+    // 点页面别处收起点开的说明。处理函数的参数是根元素而不是点击落点，落点取指针事件的 OriginalSource：控件自己处理过的点击（按钮、开关）也照旧冒到这里。
+    root.AddHandler(UIElement::PointerPressedEvent(),
+                    box_value(PointerEventHandler(
+                        [this](Inspectable const &, PointerRoutedEventArgs const &args) {
+                          info_tips_.close_unless_inside(
+                              info_tips_.contains(args.OriginalSource().try_as<DependencyObject>()));
+                        })),
+                    true);
+  }
+
+  // Esc 收起点开的说明，优先于页面自己的快捷键：说明开着时 Esc 只关它，不交给搜索框清空查询或者关掉对话框。窗口级的 KeyDown 拿不到控件已经处理掉的按键，而对话框在冒出窗口前就把 Esc 处理成了关闭，所以从 Content 上以 handledEventsToo 监听隧道路由的 PreviewKeyDown；问号在自己的 Click 里已经吞掉了空格和回车，Esc 不受影响。
+  void track_keys(UIElement const &root) {
+    using Microsoft::UI::Xaml::Input::KeyEventHandler;
+    using Microsoft::UI::Xaml::Input::KeyRoutedEventArgs;
+    root.AddHandler(UIElement::PreviewKeyDownEvent(),
+                    box_value(KeyEventHandler(
+                        [this](Inspectable const &, KeyRoutedEventArgs const &args) {
+                          if (args.Key() != Windows::System::VirtualKey::Escape || !info_tips_.open())
+                            return;
+                          info_tips_.close();
+                          args.Handled(true);
+                        })),
+                    true);
   }
 
   // ---- Saving ----
@@ -4017,7 +4040,7 @@ private:
   void build_shell(double offset) {
     Grid root;
     root.RequestedTheme(palette_.dark ? ElementTheme::Dark : ElementTheme::Light);
-    root.Background(brush(palette_.window_bg));
+    root.Background(brush(mica_ ? transparent_color() : palette_.window_bg));
     apply_accent_resources(root.Resources());
 
     RowDefinition title_row;
@@ -4036,6 +4059,7 @@ private:
     root.Children().Append(navigation_);
 
     track_pointer(root);
+    track_keys(root);
     root.SizeChanged([this](Inspectable const &, SizeChangedEventArgs const &) {
       update_intro_size();
     });
@@ -4077,18 +4101,7 @@ private:
     bar.ColumnDefinitions().Append(content);
     bar.ColumnDefinitions().Append(caption);
 
-    // 与 macOS 的页面工具栏一样，标题栏里正文上方那一列（连同窗口按钮）用正文底色，底部一条细线；左边那条 1 DIP 边线接着下面侧栏右侧的边线。侧栏那一列留给窗口底色，和侧栏连成一片。只是着色，整条标题栏仍是 SetTitleBar 的拖动区。
-    Border content_fill;
-    content_fill.Background(brush(palette_.content_bg));
-    content_fill.BorderBrush(brush(palette_.edge));
-    content_fill.BorderThickness(Thickness{1, 0, 0, 0});
-    Border content_rule;
-    content_rule.BorderBrush(brush(palette_.title_edge));
-    content_rule.BorderThickness(Thickness{0, 0, 0, 1});
-    content_fill.Child(content_rule);
-    Grid::SetColumn(content_fill, 1);
-    Grid::SetColumnSpan(content_fill, 2);
-    bar.Children().Append(content_fill);
+    // 标题栏不着色，与 Windows 11 设置一样整条透出窗口底下的 Mica；正文的分层底色从下面 NavigationView 的正文格开始。
 
     // 品牌行照 macOS 侧栏顶部：24 DIP 图标、8 DIP 间距、15 DIP 半粗体产品名，左缘取导航项的 12 DIP 外边距加 10 DIP 内边距，与下面各项的图标列对齐。图标不另裁圆角：msime.ico 的四角本来就是透明的。
     StackPanel identity;
@@ -4265,41 +4278,12 @@ private:
     view.IsTitleBarAutoPaddingEnabled(false);
     view.AlwaysShowHeader(false);
 
-    // 通过模板资源统一侧栏和正文配色，保留原生导航行为。
+    // 侧栏、选中指示条、导航项尺寸和正文格（LayerFillColorDefault 底色、左上 8 DIP 圆角加描边）都用 WinUI 模板的默认值，与 Windows 11 设置一致。侧栏底色设成透明，让窗口的 Mica 透出来。
     auto resources = view.Resources();
-    auto put = [&resources](const wchar_t *key, Color const &color) {
-      resources.Insert(box_value(hstring(key)), brush(color));
-    };
-    put(L"NavigationViewContentBackground", palette_.content_bg);
-    // 侧栏右侧的 1 DIP 边线由正文格的左边框画出，正文格不再有 Windows 11 那个带上边框的左上圆角：上方是标题栏底部的细线，与 macOS 的侧栏和工具栏一致。
-    put(L"NavigationViewContentGridBorderBrush", palette_.edge);
-    resources.Insert(box_value(L"NavigationViewContentGridBorderThickness"),
-                     box_value(Thickness{1, 0, 0, 0}));
-    resources.Insert(box_value(L"NavigationViewContentGridCornerRadius"),
-                     box_value(CornerRadius{0, 0, 0, 0}));
-    put(L"NavigationViewExpandedPaneBackground", transparent_color());
-    put(L"NavigationViewDefaultPaneBackground", transparent_color());
-    put(L"NavigationViewSelectionIndicatorForeground", transparent_color());
-    // 选中项与 macOS 一样只铺一层中性底色，文字和图标仍是正文色，没有强调色胶囊；悬停和按下用同一层底色（macOS 的 `--p-hover`）。模板里图标的前景也取 NavigationViewItemForeground* 这组键。
-    put(L"NavigationViewItemBackgroundSelected", palette_.hover);
-    put(L"NavigationViewItemBackgroundSelectedPointerOver", palette_.hover);
-    put(L"NavigationViewItemBackgroundPointerOver", palette_.hover);
-    put(L"NavigationViewItemBackgroundPressed", palette_.hover);
-    put(L"NavigationViewItemForegroundPressed", palette_.text);
-    put(L"NavigationViewItemForegroundSelected", palette_.text);
-    put(L"NavigationViewItemForegroundSelectedPointerOver", palette_.text);
-    put(L"NavigationViewItemForegroundSelectedPressed", palette_.text);
-    put(L"NavigationViewItemIconForegroundSelected", palette_.text);
-    put(L"NavigationViewItemIconForegroundSelectedPointerOver", palette_.text);
-    put(L"NavigationViewItemIconForegroundSelectedPressed", palette_.text);
-    put(L"NavigationViewItemBackgroundSelectedPressed", palette_.hover);
-    // 导航项照 macOS 侧栏：可见的底色块高 36 DIP，项与项之间 2 DIP。模板在底色块外留 NavigationViewItemButtonMargin（默认左右 4、上下 2），这里收成上下各 1，左右的间距改由导航项自己的 12 DIP 外边距给出，与侧栏搜索框的左右边距一致；所以导航项本身高 38。
-    resources.Insert(box_value(L"NavigationViewItemOnLeftMinHeight"), box_value(36.0));
-    resources.Insert(box_value(L"NavigationViewItemButtonMargin"),
-                     box_value(Thickness{0, 1, 0, 1}));
-    // 模板把图标装进这个高度的 Viewbox 里缩放（默认 16），macOS 侧栏的图标是 15。
-    resources.Insert(box_value(L"NavigationViewItemOnLeftIconBoxHeight"), box_value(15.0));
-    put(L"NavigationViewItemSeparatorForeground", palette_.divider);
+    resources.Insert(box_value(L"NavigationViewExpandedPaneBackground"),
+                     brush(transparent_color()));
+    resources.Insert(box_value(L"NavigationViewDefaultPaneBackground"),
+                     brush(transparent_color()));
 
     view.PaneHeader(make_search_field());
     view.PaneCustomContent(make_search_results());
@@ -4312,18 +4296,8 @@ private:
       const auto &label = page_label(page.id);
       NavigationViewItem item;
       item.Content(box_value(hstring(label.title)));
-      // 产品图标照 macOS 侧栏：15 DIP、不透明度 0.9（`settings-style.ts` 的 `navIcon`）。前景交给模板的 NavigationViewItemForeground* 这组键，也就是正文色。
-      auto icon = make_nav_icon(page.id, 15);
-      icon.Opacity(0.9);
-      item.Icon(icon);
-      item.FontSize(14);
-      item.MinHeight(38);
-      item.Height(38);
-      // 圆角经模板的 TemplateBinding 落到底色块上；不能改 ControlCornerRadius，那会连正文里的控件一起改掉。
-      item.CornerRadius(CornerRadius{8, 8, 8, 8});
-      item.Margin(Thickness{12, 0, 12, 0});
-      item.Padding(Thickness{10, 0, 10, 0});
-      item.VerticalContentAlignment(VerticalAlignment::Center);
+      // 图标 16 DIP，与模板的 NavigationViewItemOnLeftIconBoxHeight 相同；字号、行高、圆角和边距都交给模板。
+      item.Icon(make_nav_icon(page.id, 16));
       item.Tag(box_value(text(page.id)));
       A11y::SetAutomationId(item, text(page.id));
       view.MenuItems().Append(item);
@@ -4342,6 +4316,10 @@ private:
     A11y::SetAutomationId(scroll_, L"settings-content");
     scroll_.VerticalScrollBarVisibility(ScrollBarVisibility::Auto);
     scroll_.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled);
+    // 滚动后气泡会脱离它所在的那一行（位置只在打开时量一次），所以一滚就收起，与共享页一样。滚轮滚到卡片上时事件不走正文的滚动区，这里同时听父级的 ViewChanged。
+    scroll_.ViewChanged([this](Inspectable const &, ScrollViewerViewChangedEventArgs const &) {
+      info_tips_.close();
+    });
     view.Content(scroll_);
     return view;
   }
@@ -4675,6 +4653,8 @@ private:
   void render_page_at(double offset) {
     if (!scroll_)
       return;
+    // 整页重画换掉了页面上的问号，旧的气泡要么已经被拆掉，要么还悬在没有问号的屏上（改一项设置后能看到）：重画前先收起点开的那个说明。
+    info_tips_.close();
     // 背单词子页与 macOS 的 `vocabulary` 子页一样，标题栏写它自己的「背单词」。
     toolbar_title_.Text(vocabulary_subpage() ? L"背单词" : page_label(current_page_).title);
     forget_stale_card_previews();
@@ -5094,10 +5074,9 @@ private:
     put(L"ButtonForegroundPressed", palette_.text);
     ToolTipService::SetToolTip(button, tip);
     A11y::SetName(button, hstring(info_tip_name(title, text)));
-    // 从按钮上取回 ToolTip，不在处理函数里捕获它：按钮经 ToolTipService 持有它，再反过来捕获会成环。
-    button.Click([](Inspectable const &sender, RoutedEventArgs const &) {
-      if (auto shown = ToolTipService::GetToolTip(sender.as<DependencyObject>()).try_as<ToolTip>())
-        shown.IsOpen(!shown.IsOpen());
+    // 点按固定或收起，别处的点击、Esc、滚动、换页由 info_tips_ 收起（见 InfoTipHost.h），这里不自己开关。
+    button.Click([this](Inspectable const &sender, RoutedEventArgs const &) {
+      info_tips_.toggle(sender.as<FrameworkElement>());
     });
     return button;
   }
@@ -14972,7 +14951,26 @@ private:
       // 学习选词习惯决定「高级选项」里「拼音方案调频」组画不画，改它时重画这一页。
       bool_row(candidates, 0xE82D, L"学习选词习惯", L"根据选词调整候选顺序", L"learning",
                true, true);
-      // 后加的可选键，默认关，共享序列化关着时不写它，回退值必须是 false（client-core 的 `next_word_prediction`）。位置和共享页桌面一样，紧跟学习开关。
+      // 五笔自造词入库位置（共享偏好 `wubi_phrase_placement`）：默认「同码词后」等于没有这个选项时的现状。造词本身受学习开关控制，所以只在五笔方案且学习开启时出现，与学习开关同组。选项取值和文字在 InputSettingsModel.h 的 `wubi_phrase_placements`，Win7 设置用同一张表。
+      if (ism::wubi_phrase_placement_offered(
+              document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W) == L"wubi",
+              document_.Boolean(L"learning", true))) {
+        const auto stored_placement = document_.String(L"wubi_phrase_placement", L"bottom");
+        std::vector<Option> placements;
+        for (auto const &placement : ism::wubi_phrase_placements)
+          placements.push_back({std::wstring(placement.id), std::wstring(placement.label)});
+        auto placement_combo = select_control(
+            L"自造词位置", std::move(placements),
+            std::wstring(ism::wubi_phrase_placement_id(stored_placement)),
+            [this](std::wstring const &value) {
+              change([&](PreferencesDocument &doc) { doc.SetString(L"wubi_phrase_placement", value); }, false);
+            });
+        A11y::SetAutomationId(placement_combo, L"wubi-phrase-placement");
+        add_row(candidates, 0xE8CB, L"自造词位置",
+                L"新造的五笔词排在同码已有词之后（默认，等于现状）还是之前；入库这一次之后照常参与调频。",
+                placement_combo);
+      }
+      // 后加的可选键，默认关，共享序列化关着时不写它，回退值必须是 false（client-core 的 `next_word_prediction`）。位置和共享页桌面一样，在学习开关和自造词位置之后。
       bool_row(candidates, 0xE8BD, L"上屏后联想",
                L"选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示",
                L"next_word_prediction", false);
@@ -15009,7 +15007,13 @@ private:
                std::wstring(msime::settings::quick_phrase::title),
                std::wstring(msime::settings::quick_phrase::description),
                std::wstring(msime::settings::quick_phrase::preference),
-               msime::settings::quick_phrase::fallback, false, mixed_enabled, true);
+               msime::settings::quick_phrase::fallback, true, mixed_enabled, true);
+      bool_row(candidates_more, 0xE8C1,
+               std::wstring(msime::settings::quick_phrase::first_title),
+               std::wstring(msime::settings::quick_phrase::first_description),
+               std::wstring(msime::settings::quick_phrase::first_preference), false, false,
+               mixed_enabled && document_.Boolean(msime::settings::quick_phrase::preference,
+                   msime::settings::quick_phrase::fallback, true));
       // 后加的可选键，关着时共享序列化不写它，回退值必须是 false（client-core 的 `caret_edit_suffix`）。
       bool_row(candidates_more, 0xE8C1, L"移动光标后编辑光标后的部分",
                L"组字光标移到拼音中间时，光标前的部分固定为当前转换，候选改为编辑光标后的部分；首选是整句",
@@ -21263,7 +21267,7 @@ private:
     redraw_plugins();
   }
 
-  // 导入用的系统对话框，与 Tauri 一样分成文件夹和 .zip 两种：系统的对话框只能选文件或只能选文件夹。用户取消或对话框打不开时返回空。
+  // 导入对话框分文件夹与文件两种；文件可选 ZIP 插件包或 TXT 辅助码表。用户取消或对话框打不开时返回空。
   std::optional<std::filesystem::path> pick_plugin_source(bool folder) {
     com_ptr<IFileDialog> dialog;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
@@ -21275,7 +21279,7 @@ private:
       dialog->SetTitle(L"选择插件文件夹");
       dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
     } else {
-      const COMDLG_FILTERSPEC filter{L"插件", L"*.zip"};
+      const COMDLG_FILTERSPEC filter{L"插件压缩包或辅助码表", L"*.zip;*.txt"};
       dialog->SetFileTypes(1, &filter);
       dialog->SetTitle(L"选择插件");
       dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST);
@@ -22054,7 +22058,7 @@ private:
     build_plugin_list(page);
   }
 
-  // 我的插件，照 macOS 的插件库（`plugin-library-view.tsx` 的 `PluginLibraryView`）：各块上下相隔 20，依次是「声音与效果」「@ 名单」两张快捷卡片（可用宽度够 380 时排成两列，相隔 12），标题「已安装 N 个插件」和右边的「导入文件夹」「导入 .zip」，导入后的说明，搜索框，带计数的类型筛选，按类型分节的卡片，无法载入的文件夹，最后是折叠的「插件导入说明」。标题、说明、搜索框和筛选之间相隔 12。筛选和搜索记在窗口里，打开详情再回来时还在。
+  // 我的插件，照 macOS 的插件库（`plugin-library-view.tsx` 的 `PluginLibraryView`）：各块上下相隔 20，依次是「声音与效果」「@ 名单」两张快捷卡片（可用宽度够 380 时排成两列，相隔 12），标题「已安装 N 个插件」和右边的「导入文件夹」「导入 .zip 或 .txt」，导入后的说明，搜索框，带计数的类型筛选，按类型分节的卡片，无法载入的文件夹，最后是折叠的「插件导入说明」。标题、说明、搜索框和筛选之间相隔 12。筛选和搜索记在窗口里，打开详情再回来时还在。
   void build_plugin_list(StackPanel const &page) {
     const auto modes = plugin_table_modes();
     const bool loaded = plugin_catalog_state_ == PluginCatalogState::loaded;
@@ -22136,7 +22140,7 @@ private:
       rows.emplace_back(L"create", create);
     }
     for (bool folder : {true, false}) {
-      const std::wstring label = folder ? L"导入文件夹" : L"导入 .zip";
+      const std::wstring label = folder ? L"导入文件夹" : L"导入 .zip 或 .txt";
       record(label, L"");
       auto button = button_control(label, [this, folder] { import_plugin_pack(folder); }, !plugins_busy_);
       mark_search_target(label, button);
@@ -28379,7 +28383,10 @@ private:
   // AI 服务商下拉的品牌图标，按服务商 id 缓存解码好的位图（没有图标的服务商存空），见 ai_provider_icon。
   std::map<std::wstring, Imaging::BitmapImage> provider_icon_bitmaps_;
   NavigationView navigation_{nullptr};
+  bool mica_ = false;
   ScrollViewer scroll_{nullptr};
+  // 设置页「?」的说明气泡里点开固定的那一颗，收起点见 InfoTipHost.h。
+  msime::settings::ui::InfoTipPins info_tips_{};
   Border preview_host_{nullptr};
   Grid preview_frame_{nullptr};
   Border toolbar_preview_host_{nullptr};

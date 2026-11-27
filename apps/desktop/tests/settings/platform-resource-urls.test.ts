@@ -4,7 +4,7 @@ import { platformResourceUrls } from "@msime/ui";
 test("uses the Linux resources for a Linux host", () => {
   expect(platformResourceUrls({ clientHostedPlatform: true, linux: true })).toEqual({
     releasesPageUrl: "https://github.com/metasequoiaime/msime/releases",
-    licenseUrl: "https://github.com/metasequoiaime/msime/blob/develop/LICENSE",
+    licenseUrl: "https://github.com/metasequoiaime/msime/blob/main/LICENSE",
     issuesUrl: "https://github.com/metasequoiaime/msime/issues",
     privacyUrl: "https://msime.app/privacy/",
   });
@@ -13,7 +13,7 @@ test("uses the Linux resources for a Linux host", () => {
 test("keeps the default resources for an unhosted platform", () => {
   expect(platformResourceUrls({ clientHostedPlatform: false, linux: false })).toEqual({
     releasesPageUrl: "https://github.com/metasequoiaime/msime/releases",
-    licenseUrl: "https://github.com/metasequoiaime/msime/blob/develop/LICENSE",
+    licenseUrl: "https://github.com/metasequoiaime/msime/blob/main/LICENSE",
     issuesUrl: "https://github.com/metasequoiaime/msime/issues",
     privacyUrl: "https://msime.app/privacy/",
   });

@@ -119,7 +119,10 @@ public final class FourteenKeyLetterWidths {
             List<Cell> row = new ArrayList<>(keys.size() + 2);
             if (last) row.add(new Cell(Kind.EDGE, null, geometry.fillRows() ? edgeWeight : rest));
             else if (rest > EPSILON) row.add(new Cell(Kind.PAD, null, rest));
-            for (FourteenKeyLayout.Key key : keys) row.add(new Cell(Kind.KEY, key, weight(key, letterWeight, geometry)));
+            // 铺满时第三排的字母键平分两端之间的宽度，这一排与首排合计相同，分词和 ⌫ 的内边与上面各排的键边对齐（14 键每格 1.75 份，18 键仍是 1 份）。
+            float scale = last && geometry.fillRows() && !keys.isEmpty()
+                ? Math.max(0f, firstRow - 2 * edgeWeight) / letters(keys, letterWeight, geometry) : 1f;
+            for (FourteenKeyLayout.Key key : keys) row.add(new Cell(Kind.KEY, key, weight(key, letterWeight, geometry) * scale));
             if (last) row.add(new Cell(Kind.EDGE, null, geometry.fillRows() ? edgeWeight : rest));
             else if (rest > EPSILON) row.add(new Cell(Kind.PAD, null, rest));
             plan.add(List.copyOf(row));
@@ -130,20 +133,6 @@ public final class FourteenKeyLetterWidths {
     /** 一个字母键的份额：双字母键 `letterWeight`，单字母键再乘 {@link Geometry#singleLetterWeight}。 */
     public static float weight(FourteenKeyLayout.Key key, float letterWeight, Geometry geometry) {
         return key.letters().length() > 1 ? letterWeight : letterWeight * geometry.singleLetterWeight();
-    }
-
-    /**
-     * 第 `rowIndex` 排的每个占位格朝外要补几个半键距的外边距。键（字母键、分词、⌫）各带左右两个半键距，行宽先扣掉外边距再按份额分；这一排比首排少几个键，就少扣几个键距，两端的占位格各补回同样多个半键距，三排的单位宽度才一样（18 键宽窄第二排是 1，14 键前两排键数相同是 0）。没有占位格的排也照算，调用方只套在占位格上。
-     */
-    public static int padHalfGaps(List<List<Cell>> plan, int rowIndex) {
-        return Math.max(0, spaced(plan.get(0)) - spaced(plan.get(rowIndex)));
-    }
-
-    /** 一排里带键距外边距的格数：占位格不算。 */
-    private static int spaced(List<Cell> row) {
-        int count = 0;
-        for (Cell cell : row) if (cell.kind() != Kind.PAD) count++;
-        return count;
     }
 
     /** 一排各格份额之和。 */

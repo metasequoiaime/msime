@@ -66,4 +66,7 @@ public final class InputSchemeTraits {
 
     // 宿主专用：字母直接拼成书写的文字（韩文音节、越南语单词、按区分大小写的威利转写拼出的藏文音节），所以 Shift 是字母大小写而不是语言切换，也没有可以以词定字的词。
     public static boolean letterComposition(int scheme) { return scheme == KOREAN || scheme == VIETNAMESE || scheme == TIBETAN; }
+
+    // 宿主专用：组字区里写的是按键本身（拼音、双拼码、五笔码、粤拼字母、笔画字形），不是用户写下的字。结束组字区等于把读音写成正文，所以只能删掉；日文读音、韩语音节这些就地组字的方案不在其中。
+    public static boolean composesKeyLetters(int scheme) { return scheme == QUANPIN || scheme == SHUANGPIN || scheme == WUBI || scheme == CANTONESE || scheme == STROKE; }
 }

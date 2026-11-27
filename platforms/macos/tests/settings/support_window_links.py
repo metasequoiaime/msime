@@ -7,7 +7,7 @@ from pathlib import Path
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
 expected = {
     "issues": "https://github.com/metasequoiaime/msime/issues",
-    "license": "https://github.com/metasequoiaime/msime/blob/develop/LICENSE",
+    "license": "https://github.com/metasequoiaime/msime/blob/main/LICENSE",
     "privacy": "https://msime.app/privacy/",
 }
 

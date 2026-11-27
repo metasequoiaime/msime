@@ -6,7 +6,11 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 
-/** 九键键帽：全拼的数字画成右上角标记（10 sp，距上边 3 dp、右边 12 dp），主标签居中；双拼以数字为主标签，底部声母提示复用 {@link KeyHintButton} 的空间适配。 */
+/**
+ * 九键键帽：全拼的数字画成右上角标记（10 sp，距上边 3 dp、右边 12 dp），主标签居中；双拼以数字为主标签，底部声母提示复用 {@link KeyHintButton} 的空间适配。
+ *
+ * <p>放进键组时右上角的数字是键组的右上角位置（{@link KeyFaceTemplates#NINE_LETTERS}），字号和离边距离由键组按模板算，这里不再自己画。
+ */
 public final class NineKeyDigitButton extends KeyHintButton {
     /** 圆角或胶囊键帽的右上角在顶部会向内收，数字角标比普通字母角标多留一段距离。 */
     public static final float DIGIT_HINT_RIGHT_DP = 12f;
@@ -27,7 +31,17 @@ public final class NineKeyDigitButton extends KeyHintButton {
         String next = TextPolicy.emptyIfNull(value);
         if (digitText.equals(next)) return;
         digitText = next;
-        invalidate();
+        if (faceGroup() != null) faceTextChanged(KeyFaceSlot.TOP_RIGHT, next);
+        else invalidate();
+    }
+
+    /** 右上角是数字标记。 */
+    @Override public String faceText(KeyFaceSlot slot) {
+        return slot == KeyFaceSlot.TOP_RIGHT ? digitText : super.faceText(slot);
+    }
+
+    @Override protected int faceColor(KeyFaceSlot slot) {
+        return slot == KeyFaceSlot.TOP_RIGHT ? digitColor : super.faceColor(slot);
     }
 
     public void setDigitColor(int color) {
@@ -39,7 +53,7 @@ public final class NineKeyDigitButton extends KeyHintButton {
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if (digitText.isEmpty() || getWidth() <= 0 || getHeight() <= 0) return;
+        if (faceGroup() != null || digitText.isEmpty() || getWidth() <= 0 || getHeight() <= 0) return;
         ViewPolicy.setTextSize(digitPaint, KeyboardTypographyPolicy.keySp(getContext(), KeyHintButton.CORNER_HINT_SP));
         digitPaint.setColor(digitColor);
         digitPaint.setAlpha(ColorPolicy.enabledAlpha(isEnabled(), 255, 96));

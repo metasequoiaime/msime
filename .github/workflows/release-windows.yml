@@ -1,17 +1,19 @@
 name: Release Windows
+# 发版就是在 main 上推 windows-vX.Y.Z（正式版）或 windows-vX.Y.Z-beta.N（测试版，prerelease）tag（AGENTS.md「发版」）。推 tag 的运行没有输入，各输入取默认值（editions 为 full）。在别的 ref 上手动触发只构建；ref 是已有的 tag 时与推送它相同。
 on:
+  push:
+    tags: ['windows-v*']
   workflow_dispatch:
     inputs:
-      version: {description: Semantic version (defaults to platforms/windows/version.txt), required: false, type: string}
-      prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
-      publish: {description: Publish the installer as a windows-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
+      version: {description: Semantic version (defaults to platforms/windows/version.txt; on a tag it must equal the tag's version), required: false, type: string}
+      publish: {description: Publish when the ref is a windows-v tag (a run on any other ref only uploads workflow artifacts), required: false, default: true, type: boolean}
       editions: {description: 发布范围（full 节省签名额度，all 发布全部独立版本）, required: false, default: full, type: choice, options: [full, all]}
       signpath_test: {description: Sign with the SignPath test-signing policy (untrusted test certificate) to exercise the signing jobs; such a run never publishes, required: false, default: false, type: boolean}
   workflow_call:
     inputs:
       version: {description: Semantic version, required: false, default: '', type: string}
-      prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
-      publish: {description: Publish the build, required: false, default: false, type: boolean}
+      prerelease: {description: Unused; a release is a prerelease exactly when its tag is -beta.N. Kept so existing callers stay valid, required: false, default: false, type: boolean}
+      publish: {description: Publish when the caller runs on a windows-v tag, required: false, default: false, type: boolean}
       editions: {description: '发布范围：full 或 all；留空时发布用 full，非发布构建用 all', required: false, default: '', type: string}
       signpath_test: {description: Exercise the SignPath test-signing policy, required: false, default: false, type: boolean}
 permissions: {contents: write}
@@ -21,7 +23,7 @@ env:
 # 签名测试不发布，单独一个并发组，不让它排在真正的发布前面。
 concurrency: {group: "release-windows${{ inputs.signpath_test && '-signpath-test' || '' }}", cancel-in-progress: false}
 jobs:
-  # Resolves the dispatched commit up front, so every edition, the coexistence check and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
+  # Resolves the commit and the release up front, so every edition, the coexistence check and the publish job (release target, release notes) use the same source and version even if a branch moves during the run.
   source:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -30,27 +32,24 @@ jobs:
         with: {ref: "${{ github.sha }}", persist-credentials: false}
       - id: commit
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      # Build-Client.ps1 stamps the version into the Tauri and Server metadata, which take three numeric components only; release-ref.py accepts nothing else. The release name and title carry the tag's -beta.N, if any, and a beta is always published as a prerelease. The in-app update check (crates/client-services/src/update_check.rs) skips it on the stable channel, but on the beta channel it offers -beta.N releases and the background check notifies about them, so a beta release, and a re-run that replaces one in place with a new run ID, reaches every user who chose the beta channel. scripts/release-ref.py checks a windows-v tag against the version file and origin/main before anything is built; a run on any other ref only builds.
+      - id: version
+        env: {REQUESTED: "${{ inputs.version }}", PUBLISH_INPUT: "${{ inputs.publish }}"}
+        run: python3 scripts/release-ref.py --prefix windows-v --version-file platforms/windows/version.txt --requested "$REQUESTED"
+      # 推 tag 的运行没有输入，editions 按默认值 full 算。
       - id: editions
-        env: {SELECTION: "${{ inputs.editions || (inputs.publish && 'full' || 'all') }}"}
+        env: {SELECTION: "${{ inputs.editions || (steps.version.outputs.publish == 'true' && 'full' || 'all') }}"}
         run: |
           csv="$(python3 platforms/windows/scripts/edition_windows.py editions --selection "$SELECTION")"
           matrix="$(python3 platforms/windows/scripts/edition_windows.py editions --selection "$SELECTION" --json)"
           echo "csv=$csv" >> "$GITHUB_OUTPUT"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-      - id: version
-        shell: pwsh
-        env: {REQUESTED: "${{ inputs.version }}"}
-        run: |
-          # Build-Client.ps1 stamps this into the Tauri and Server metadata, which take three numeric components only.
-          $v = if ($env:REQUESTED) {$env:REQUESTED.Trim()} else {(Get-Content platforms/windows/version.txt -Raw).Trim()}; if ($v -notmatch '^\d+\.\d+\.\d+$') {throw 'invalid version'}; "value=$v" >> $env:GITHUB_OUTPUT
-          # The release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease. The in-app update check (crates/client-services/src/update_check.rs) skips it on the stable channel, but on the beta channel it offers -beta releases (never -alpha) and the background check notifies about them, so a -beta release, and a re-run that replaces one in place with a new run ID, reaches every user who chose the beta channel.
-          $suffix = switch ($env:GITHUB_REF_NAME) {'main' {''} 'develop' {'-beta'} default {'-alpha'}}; "release=$v$suffix" >> $env:GITHUB_OUTPUT
       # 签名配置只在本仓库启用；SimplySign 使用受发布工作流限制的专用 runner，密钥不进入 GitHub。
       - id: signing
         env:
           PROVIDER: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
           TEST: ${{ inputs.signpath_test }}
-          PUBLISH: ${{ inputs.publish }}
+          PUBLISH: ${{ steps.version.outputs.publish }}
           TOKEN_SET: ${{ secrets.SIGNPATH_TOKEN != '' }}
           ORGANIZATION: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           PROJECT: ${{ vars.SIGNPATH_PROJECT_SLUG }}
@@ -62,8 +61,10 @@ jobs:
       editions: ${{ steps.editions.outputs.csv }}
       edition_matrix: ${{ steps.editions.outputs.matrix }}
       sha: ${{ steps.commit.outputs.sha }}
-      version: ${{ steps.version.outputs.value }}
+      version: ${{ steps.version.outputs.version }}
       release: ${{ steps.version.outputs.release }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      publish: ${{ steps.version.outputs.publish }}
       policy: ${{ steps.signing.outputs.policy }}
       signpath: ${{ steps.signing.outputs.signpath }}
       simplysign: ${{ steps.signing.outputs.simplysign }}
@@ -445,7 +446,7 @@ jobs:
           name: msime-signpath-request-payload-${{ needs.release.outputs.version }}
           path: ${{ runner.temp }}/signpath-payload/
           if-no-files-found: error
-      - uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+      - uses: signpath/github-action-submit-signing-request@a2c5b60d9c75f073142b653c354b632eedce097b # v3.2
         with:
           api-token: ${{ secrets.SIGNPATH_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -611,7 +612,7 @@ jobs:
           name: msime-signpath-request-installers-${{ needs.release.outputs.version }}
           path: ${{ runner.temp }}/installers/*.exe
           if-no-files-found: error
-      - uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+      - uses: signpath/github-action-submit-signing-request@a2c5b60d9c75f073142b653c354b632eedce097b # v3.2
         with:
           api-token: ${{ secrets.SIGNPATH_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -728,7 +729,7 @@ jobs:
           ./platforms/windows/installer/tests/install-smoke.ps1 -Installer "dist/${base}_v$env:VERSION.exe" -Edition $env:EDITION -X64PowerShell (Join-Path $pwshX64 'pwsh.exe')
   publish:
     needs: [source, release, coexistence, arm64]
-    if: ${{ inputs.publish && !inputs.signpath_test && !cancelled() && !failure() }}
+    if: ${{ needs.source.outputs.publish == 'true' && !inputs.signpath_test && !cancelled() && !failure() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -758,8 +759,8 @@ jobs:
           merge-multiple: true
       - name: Publish independent Windows release
         shell: bash
-        # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
-        env: {EDITIONS: "${{ needs.source.outputs.editions }}", GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.release.outputs.version }}", RELEASE: "${{ needs.release.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
+        # The release goes on the pushed tag; the workflow never creates one. RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) publishes it, falling back to GITHUB_TOKEN without the secret, as on a fork. scripts/publish-release.sh never writes the tag ref, not even on a re-run: a ref update made with this token raises a tag push event and would start a second release run.
+        env: {EDITIONS: "${{ needs.source.outputs.editions }}", GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.release.outputs.version }}", RELEASE: "${{ needs.release.outputs.release }}", PRERELEASE: "${{ needs.source.outputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           # 每个版本的安装程序和符号包都要在，也不能多：少一个就什么都不发，免得版本页上缺了某个版本的包，或者发出去的版本没有符号可查。
           editions="$EDITIONS"
@@ -781,7 +782,7 @@ jobs:
           done
           tag="windows-v${RELEASE}"
           [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true
-          # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
+          # The pushed tag already exists, and a re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta.N one at the latest release of either kind.
           stable='^windows-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
           start=$(git tag --list 'windows-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
           python3 scripts/generate-release-notes.py --platform windows --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output changes.md
@@ -794,7 +795,7 @@ jobs:
           python3 scripts/release-build-marker.py "$RELEASE" "$(git rev-parse HEAD)" "$GITHUB_RUN_ID" >> release-notes.md
           # 版本发布页只放给用户下载的安装程序、SHA256SUMS 和上面说的 .sha256；符号包放在 windows-symbols（下一步）。重跑同一版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产，包括以前和安装程序放在一起的符号包。
           bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Windows ${RELEASE}" release-notes.md dist/*.exe dist/SHA256SUMS dist/*.exe.sha256
-      # 本次选中的各版本符号包都长期留在滚动的 windows-symbols release 上，文件名带发布名（预发布带 -beta / -alpha 后缀，免得覆盖同一版本号的正式版）。
+      # 本次选中的各版本符号包都长期留在滚动的 windows-symbols release 上，文件名带发布名（测试版带 -beta.N 后缀，免得覆盖同一版本号的正式版）。
       - name: Upload the symbols to windows-symbols
         env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.release.outputs.version }}", RELEASE: "${{ needs.release.outputs.release }}"}
         run: bash platforms/windows/scripts/publish-symbols.sh "$VERSION" "$RELEASE" dist/msime-windows-*-symbols.zip

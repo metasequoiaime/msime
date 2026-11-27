@@ -1,6 +1,9 @@
 name: Release Windows 7
 
+# 发版就是在 main 上推 windows7-vX.Y.Z tag（AGENTS.md「发版」）。Windows 7 只有正式版，没有测试版通道，带 -beta 的 tag 直接失败。scripts/release-ref.py 在构建前核对 tag 与 platforms/windows/version-win7.txt 一致、提交在 origin/main 上。推 tag 的运行没有输入，按默认值只打 full。在别的 ref 上手动触发只构建；ref 是已有的 tag 时与推送它相同。
 on:
+  push:
+    tags: ['windows7-v*']
   workflow_dispatch:
     inputs:
       edition:
@@ -10,9 +13,9 @@ on:
         type: choice
         options: [full, wubi, pinyin, japanese, vietnamese, tibetan]
       publish:
-        description: '发布正式版到 GitHub Release（仅 full，必须从 main 触发）'
+        description: 'ref 是 windows7-v tag 时发布到 GitHub Release（仅 full）；其他 ref 只构建'
         required: false
-        default: false
+        default: true
         type: boolean
 
 permissions:
@@ -23,6 +26,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # 先定下这次发不发布：只有通过 release-ref.py 核对的 windows7-v tag 运行才发布，而且只发 full。
+  version:
+    name: 核对发布 tag
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: resolve
+        env:
+          PUBLISH_INPUT: ${{ inputs.publish }}
+          EDITION: ${{ github.event.inputs.edition || 'full' }}
+        run: |
+          set -euo pipefail
+          publish="$(python3 scripts/release-ref.py --prefix windows7-v --version-file platforms/windows/version-win7.txt --stable-only | sed -n 's/^publish=//p')"
+          [[ "$publish" != true || "$EDITION" == full ]] || { echo '正式版只支持 full' >&2; exit 1; }
+    outputs:
+      publish: ${{ steps.resolve.outputs.publish }}
+
   official-plugins:
     name: 构建官方插件包
     runs-on: depot-ubuntu-24.04-4
@@ -148,7 +172,7 @@ jobs:
 
   package:
     name: Windows 7 安装包（${{ github.event.inputs.edition || 'full' }}）
-    needs: [official-plugins, runtime]
+    needs: [version, official-plugins, runtime]
     runs-on: windows-2022
     timeout-minutes: 240
     env:
@@ -326,7 +350,7 @@ jobs:
             $env:MSIME_REQUIRE_WORDBOOKS = '1'
             $env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES = '1'
             ./platforms/windows/installer/Prepare-PackageFiles.ps1 -Edition $env:EDITION -Windows7Architecture $arch -TargetVersion $version -NoticesDirectory "$PWD/target/windows7-notices" -DesktopResourcesDirectory $env:MSIME_DESKTOP_RESOURCES -PackageDirectory "$PWD/target/windows7-package/$env:EDITION/$arch"
-            if ('${{ inputs.publish }}' -ne 'true') {
+            if ('${{ needs.version.outputs.publish }}' -ne 'true') {
               ./platforms/windows/installer/Sign-PackageBinaries-Local.ps1 -PackageDirectory "$PWD/target/windows7-package/$env:EDITION/$arch"
             }
             ./platforms/windows/installer/Compile-Installer.ps1 -IsccPath $iscc -Edition $env:EDITION -Windows7Architecture $arch -TargetVersion $version -SourceDirectory "$PWD/target/windows7-package/$env:EDITION/$arch" -OutputDirectory "$PWD/target/windows7-installer"
@@ -336,7 +360,7 @@ jobs:
           foreach ($arch in @('x64', 'x86')) {
             $installer = Join-Path $PWD "target/windows7-installer/${base}_v${version}_win7_${arch}.exe"
             if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { throw "安装包不存在：$installer" }
-            if ('${{ inputs.publish }}' -ne 'true') {
+            if ('${{ needs.version.outputs.publish }}' -ne 'true') {
               ./platforms/windows/installer/Sign-Installer-Local.ps1 -InstallerPath $installer
             }
             $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -372,7 +396,7 @@ jobs:
           $identityPath = Join-Path $env:RUNNER_TEMP 'windows7-identity.xml'
           $xml.Save($identityPath)
           $installer = "target/windows7-installer/${base}_v${version}_win7_x64.exe"
-          $skipSignature = '${{ inputs.publish }}' -eq 'true'
+          $skipSignature = '${{ needs.version.outputs.publish }}' -eq 'true'
           ./platforms/windows/installer/tests/windows7-install-smoke.ps1 -Installer $installer -IdentityFile $identityPath -Architecture x64 -SkipSignatureCheck:$skipSignature
 
       - name: 上传 Win7 安装包
@@ -387,8 +411,8 @@ jobs:
 
   publish:
     name: 发布 Win7 正式版
-    needs: package
-    if: ${{ inputs.publish }}
+    needs: [version, package]
+    if: ${{ needs.version.outputs.publish == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -418,8 +442,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REF" == refs/heads/main ]] || { echo '正式版只能从 main 发布' >&2; exit 1; }
-          [[ '${{ inputs.edition }}' == full ]] || { echo '正式版只支持 full' >&2; exit 1; }
+          # 只在 version 作业核对过的 windows7-v tag 上运行：tag 的版本号等于 version-win7.txt，提交在 origin/main 上，版本只有 full。
           version="$(tr -d '\r\n' < platforms/windows/version-win7.txt)"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Win7 版本号无效' >&2; exit 1; }
           base="$(python3 platforms/windows/scripts/edition_windows.py field --edition full installer_base_name)"

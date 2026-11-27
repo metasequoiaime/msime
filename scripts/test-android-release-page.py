@@ -104,7 +104,8 @@ class PublishStepTests(unittest.TestCase):
             "GH_TOKEN": "synthetic",
             "VERSION": "1.1.0",
             "RELEASE": release,
-            "PRERELEASE": "false",
+            # release-ref.py 只把 -beta.N tag 标成预发布。
+            "PRERELEASE": "true" if "-" in release else "false",
             "GITHUB_REPOSITORY": "metasequoiaime/msime",
         }
         # GitHub 托管 runner 上 run 的默认 shell 是 `bash -e {0}`。
@@ -141,11 +142,11 @@ class PublishStepTests(unittest.TestCase):
         self.assertEqual(changes, "\n## 更新内容\n\n- 合成的更新条目\n")
 
     def test_beta_notes_say_it_is_a_preview(self):
-        result = self.publish("1.1.0-beta")
+        result = self.publish("1.1.0-beta.2")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.published()[0], "android-v1.1.0-beta")
+        self.assertEqual(self.published()[0], "android-v1.1.0-beta.2")
         notes = (self.work / "published-notes.md").read_text(encoding="utf-8")
-        self.assertIn(f"({DOWNLOAD}android-v1.1.0-beta/msime-android.apk)", notes)
+        self.assertIn(f"({DOWNLOAD}android-v1.1.0-beta.2/msime-android.apk)", notes)
         self.assertIn("这是预览版", notes)
 
     def test_missing_apk_publishes_nothing(self):

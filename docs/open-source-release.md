@@ -38,7 +38,9 @@
 
 ## 发布前人工确认
 
-六个平台各有独立的手动发布工作流（`.github/workflows/release-<平台>.yml`），版本号默认取自 `platforms/<平台>/version.txt`，一个平台发版不牵动其余五个。从 `main` 触发的是正式版；从 `develop` 触发的 tag 和标题带 `-beta`，从其他分支触发的带 `-alpha`，两者都自动标为 prerelease（规则见 [AGENTS.md](../AGENTS.md)「发版」）。触发前按下面五条逐项确认。
+六个平台各有独立的发布工作流（`.github/workflows/release-<平台>.yml`），由推送到 `main` 上的平台 tag 触发，版本号取自 `platforms/<平台>/version.txt`，一个平台发版不牵动其余五个。`<平台>-vX.Y.Z` 是正式版；`<平台>-vX.Y.Z-beta.N` 是测试版，自动标为 prerelease；tag 里的版本号与被打 tag 的提交里的 `version.txt` 不一致、或那个提交不在 `main` 上时，工作流在构建前失败（规则见 [AGENTS.md](../AGENTS.md)「发版」）。推 tag 前按下面五条逐项确认。
+
+输入引擎的 crate 与 C 接口各有自己的 tag：两者一起改版本号时，先推 `msime-engine-vX.Y.Z`、等它的发布运行成功，再推 `msime-engine-capi-vX.Y.Z`，顺序反过来或同时推，C 接口那次运行会失败（规则见 [AGENTS.md](../AGENTS.md)「发版」）。
 
 发布说明由 `scripts/generate-release-notes.py` 按平台 tag 和实际改动路径筛选，只传入目标平台与纯共享改动，并按 PR 归并提交、经 `gh` 取回 PR 的作者、正文和关闭的 issue。所有平台的发布说明都按 [`scripts/release-notes-example.md`](../scripts/release-notes-example.md) 的格式写：标题 `## vX.Y.Z 更新内容`，分组依次是可选的专题、✨ 新功能、⚡ 性能、🐛 问题修复、🔧 开发与构建、⚠️ 升级须知、🙏 感谢，每条末尾标注 `(感谢 @作者，#PR，修复 #issue)`，维护者（脚本里的 `MAINTAINERS`）自己的 PR 和自提的 issue 不进致谢。要改格式就改这份样例。配置仓库 Secret `EVERYAPI_RELEASE_NOTES_TOKEN` 后，会把样例和改动交给 EveryAPI 的模型生成说明；模型不可用、或返回的标题不是 `## vX.Y.Z 更新内容` 时，自动用同一批改动按相同分组生成确定性说明。可选的仓库变量 `EVERYAPI_RELEASE_NOTES_MODEL` 用来指定模型，默认是 `claude-sonnet-5-5`。
 

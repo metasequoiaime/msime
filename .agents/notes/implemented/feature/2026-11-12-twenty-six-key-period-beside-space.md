@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Android 标准底行逗号键上的句号角标已去掉（长按仍输入句号），见 [Android 26 键标准底行的逗号不再画误导的句号角标](../bug-fix/2026-11-22-android-comma-period-hint-beside-period-key.md)。
+
 ## Problem
 
 用户反馈（Android，五笔 86）：英文状态下「符」旁边有句号，中文状态下没有，希望中英文底行统一。

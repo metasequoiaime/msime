@@ -7,6 +7,7 @@
 """
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -28,6 +29,10 @@ def load_module():
 class TestFlightSubmissionTests(unittest.TestCase):
     def setUp(self):
         self.module = load_module()
+        # 等待函数拿凭据、每次请求现签 token；桩掉签名，这里不需要真的私钥。
+        signing = mock.patch.object(self.module, "token", return_value="t")
+        signing.start()
+        self.addCleanup(signing.stop)
 
     def test_a_build_that_has_not_appeared_yet_is_waited_for(self):
         """altool 一把字节交给 Apple 就返回,build 要几分钟后才出现在 API 里。
@@ -47,7 +52,7 @@ class TestFlightSubmissionTests(unittest.TestCase):
 
         with mock.patch.object(self.module, "request", side_effect=answer), \
                 mock.patch.object(self.module.time, "sleep"):
-            found = self.module.find_build("t", "1", "1002.68.1", 600)
+            found = self.module.find_build(("k", "i", None), "1", "1002.68.1", self.module.time.time() + 600)
         self.assertEqual(found["id"], "late")
         self.assertEqual(len(attempts), 3, "没有重试,第一次查不到就放弃了")
 
@@ -61,14 +66,14 @@ class TestFlightSubmissionTests(unittest.TestCase):
         with mock.patch.object(self.module, "request", side_effect=answer), \
                 mock.patch.object(self.module.time, "sleep"):
             with self.assertRaises(self.module.Failure) as raised:
-                self.module.find_build("t", "1", "1002.68.1", 0)
+                self.module.find_build(("k", "i", None), "1", "1002.68.1", 0)
         self.assertIn("1002.68.1", str(raised.exception))
         self.assertIn("1002.71.1", str(raised.exception))
 
     def test_the_exact_build_is_chosen_and_a_miss_names_what_is_there(self):
         builds = {"data": [{"id": "b1", "attributes": {"version": "1003.1.1"}}]}
         with mock.patch.object(self.module, "request", return_value=builds):
-            self.assertEqual(self.module.find_build("t", "1", "1003.1.1", 0)["id"], "b1")
+            self.assertEqual(self.module.find_build(("k", "i", None), "1", "1003.1.1", 0)["id"], "b1")
 
         # 过滤是服务端做的,但返回里混进别的版本时不能将就着用 —— 提交错一个 build 比失败更难发现。
         def answer(method, path, auth, body=None):
@@ -79,7 +84,7 @@ class TestFlightSubmissionTests(unittest.TestCase):
 
         with mock.patch.object(self.module, "request", side_effect=answer):
             with self.assertRaises(self.module.Failure) as raised:
-                self.module.find_build("t", "1", "1003.1.1", 0)
+                self.module.find_build(("k", "i", None), "1", "1003.1.1", 0)
         # 报错要说出它看到了什么,否则发布当天只知道"没找到"。
         self.assertIn("1003.1.1", str(raised.exception))
         self.assertIn("1002.71.1", str(raised.exception))
@@ -89,7 +94,7 @@ class TestFlightSubmissionTests(unittest.TestCase):
         answer = lambda *a, **k: {"data": {"attributes": {"processingState": next(states)}}}
         with mock.patch.object(self.module, "request", side_effect=answer), \
              mock.patch.object(self.module.time, "sleep"):
-            self.module.await_processing("t", "b1", timeout=600)
+            self.module.await_processing(("k", "i", None), "b1", self.module.time.time() + 600)
 
     def test_a_build_that_fails_processing_stops_the_step(self):
         for state in ("INVALID", "FAILED"):
@@ -98,17 +103,17 @@ class TestFlightSubmissionTests(unittest.TestCase):
                  mock.patch.object(self.module, "request", side_effect=answer), \
                  mock.patch.object(self.module.time, "sleep"):
                 with self.assertRaises(self.module.Failure) as raised:
-                    self.module.await_processing("t", "b1", timeout=600)
+                    self.module.await_processing(("k", "i", None), "b1", self.module.time.time() + 600)
                 self.assertIn(state, str(raised.exception))
 
     def test_waiting_forever_is_a_failure_not_a_hang(self):
         answer = lambda *a, **k: {"data": {"attributes": {"processingState": "PROCESSING"}}}
-        clock = iter([0, 1, 2_000, 2_000])
+        clock = iter([0, 2_000])
         with mock.patch.object(self.module, "request", side_effect=answer), \
              mock.patch.object(self.module.time, "sleep"), \
              mock.patch.object(self.module.time, "time", side_effect=lambda: next(clock)):
             with self.assertRaises(self.module.Failure):
-                self.module.await_processing("t", "b1", timeout=1)
+                self.module.await_processing(("k", "i", None), "b1", 1)
 
     def test_the_group_is_found_by_name_with_its_kind(self):
         groups = {"data": [{"id": "g1", "attributes": {"name": "外部测试", "isInternalGroup": False}},
@@ -196,6 +201,108 @@ class TestFlightSubmissionTests(unittest.TestCase):
         # 分组在提交之前 —— 顺序反了的话,审核提交的是一个还没分发给任何人的 build。
         posts = [path for method, path in calls if method == "POST"]
         self.assertEqual(posts, ["/betaGroups/g1/relationships/builds", "/betaAppReviewSubmissions"])
+
+    def test_release_notes_become_plain_text_for_testflight(self):
+        """TestFlight 不渲染 Markdown，标题井号、粗体星号和反引号都会原样出现在测试者面前。"""
+        markdown = ("## v0.54.0-beta 更新内容\n\n### ✨ 新功能\n\n**输入**\n\n- 双拼下按 `Shift+Enter` 上屏全拼 (#1)\n"
+                    "- **中英混合滑行**：同一笔轨迹给中英文候选 (#3)\n\n**新安装的默认配置**（老用户升级不受影响）\n\n\n### 🐛 问题修复\n\n- 修好了 (#2)\n")
+        text = self.module.testflight_text(markdown, "完整改动：https://example.test/compare/a...b")
+        # 单独成行的粗体是小组名，用方头括号标出；条目开头的「**名称**：」只去星号。App Store Connect 不接受 emoji，分组标题里的要一起去掉。
+        self.assertEqual(text, "v0.54.0-beta 更新内容\n\n新功能\n\n【输入】\n\n- 双拼下按 Shift+Enter 上屏全拼 (#1)\n"
+                               "- 中英混合滑行：同一笔轨迹给中英文候选 (#3)\n\n【新安装的默认配置】（老用户升级不受影响）\n\n"
+                               "问题修复\n\n- 修好了 (#2)\n\n完整改动：https://example.test/compare/a...b")
+
+    def test_emoji_are_removed_before_app_store_sees_the_text(self):
+        """App Store Connect 的 whatsNew 不接受 emoji（2026-11-26 nightly 的 ⚡、🔧、🐞、✨、🙏）。"""
+        markdown = "## v1 更新内容\n\n### 🙏 感谢\n\n- 感谢 @someone 的 🙂 报告 (#1)\n"
+        text = self.module.testflight_text(markdown)
+        self.assertEqual(text, "v1 更新内容\n\n感谢\n\n- 感谢 @someone 的 报告 (#1)")
+        self.assertIsNone(self.module.EMOJI.search(text))
+
+    def test_long_notes_are_cut_at_a_line_and_keep_the_footer(self):
+        """超过 4000 个 UTF-16 码元 App Store Connect 拒绝整个请求；截在整行上，链接留着让测试者看全。"""
+        markdown = "## v1 更新内容\n\n### 🐛 问题修复\n\n" + "".join(f"- 第 {n} 条修复，带一点说明文字 🐛 (#{n})\n" for n in range(400))
+        footer = "完整改动：https://example.test/compare/a...b"
+        text = self.module.testflight_text(markdown, footer)
+        self.assertLessEqual(self.module.utf16_length(text), self.module.WHATS_NEW_LIMIT)
+        self.assertTrue(text.endswith(f"{self.module.TRUNCATED}\n\n{footer}"))
+        kept = text.split(f"\n{self.module.TRUNCATED}")[0].splitlines()
+        self.assertTrue(kept[-1].startswith("- 第 ") and kept[-1].endswith(")"), f"截在了半行上：{kept[-1]!r}")
+
+    def test_whats_new_is_written_for_every_locale_testers_may_see(self):
+        """主语言和测试信息里的每种语言都要写；Apple 已建好的条目改写，没有的新建。"""
+        calls = []
+
+        def answer(method, path, auth, body=None):
+            calls.append((method, path, body))
+            if path.startswith("/apps/1?"):
+                return {"data": {"attributes": {"primaryLocale": "zh-Hans"}}}
+            if path.startswith("/apps/1/betaAppLocalizations"):
+                return {"data": [{"attributes": {"locale": "zh-Hans"}}, {"attributes": {"locale": "en-US"}}]}
+            if path.startswith("/builds/b1/betaBuildLocalizations"):
+                return {"data": [{"id": "loc-zh", "attributes": {"locale": "zh-Hans"}}]}
+            return {}
+
+        with mock.patch.object(self.module, "request", side_effect=answer):
+            self.assertEqual(self.module.set_whats_new("t", "1", "b1", "说明"), ["zh-Hans", "en-US"])
+        writes = [(method, path, body) for method, path, body in calls if method in ("PATCH", "POST")]
+        self.assertEqual(writes[0][:2], ("PATCH", "/betaBuildLocalizations/loc-zh"))
+        self.assertEqual(writes[0][2]["data"]["attributes"], {"whatsNew": "说明"})
+        self.assertEqual(writes[1][:2], ("POST", "/betaBuildLocalizations"))
+        self.assertEqual(writes[1][2]["data"]["attributes"], {"locale": "en-US", "whatsNew": "说明"})
+        self.assertEqual(writes[1][2]["data"]["relationships"]["build"]["data"]["id"], "b1")
+
+    def test_notes_are_set_before_the_build_goes_out_for_review(self):
+        """外部审核连同「What to Test」一起审，所以说明要在加入外部组、提交审核之前写好。"""
+        calls = []
+
+        def answer(method, path, auth, body=None):
+            calls.append((method, path))
+            if path.startswith("/builds?filter[app]"):
+                return {"data": [{"id": "b1", "attributes": {"version": "9"}}]}
+            if path.startswith("/builds/b1/betaBuildLocalizations"):
+                return {"data": []}
+            if path.startswith("/builds/"):
+                return {"data": {"attributes": {"processingState": "VALID"}}}
+            if path.startswith("/apps/1?"):
+                return {"data": {"attributes": {"primaryLocale": "zh-Hans"}}}
+            if path.startswith("/betaGroups?"):
+                return {"data": [{"id": "g1", "attributes": {"name": "外部测试"}}]}
+            return {"data": []}
+
+        with tempfile.TemporaryDirectory() as directory:
+            notes = Path(directory) / "notes.md"
+            notes.write_text("## v1 更新内容\n\n- 改了 (#1)\n", encoding="utf-8")
+            argv = ["submit", "--app", "1", "--build-version", "9", "--group", "外部测试", "--submit-review",
+                    "--whats-new-file", str(notes), "--key-id", "K", "--issuer-id", "I", "--key-path", str(SCRIPTS)]
+            with mock.patch.object(self.module, "request", side_effect=answer), \
+                 mock.patch.object(self.module, "token", return_value="t"), \
+                 mock.patch.object(sys, "argv", argv):
+                self.assertEqual(self.module.main(), 0)
+        posts = [path for method, path in calls if method == "POST"]
+        self.assertEqual(posts, ["/betaBuildLocalizations", "/betaGroups/g1/relationships/builds", "/betaAppReviewSubmissions"])
+
+    def test_failing_to_write_notes_still_hands_the_build_over_but_fails_the_step(self):
+        """测试者拿不到 build 比拿到没写说明的 build 更糟，所以照常分发；但步骤要报红，说明才不会又悄悄空着。"""
+        calls = []
+
+        def answer(method, path, auth, body=None):
+            calls.append((method, path))
+            if path.startswith("/builds?filter[app]"):
+                return {"data": [{"id": "b1", "attributes": {"version": "9"}}]}
+            if path.startswith("/builds/"):
+                return {"data": {"attributes": {"processingState": "VALID"}}}
+            if path.startswith("/betaGroups?"):
+                return {"data": [{"id": "gi", "attributes": {"name": "internal", "isInternalGroup": True}}]}
+            return {}
+
+        argv = ["submit", "--app", "1", "--build-version", "9", "--group", "internal",
+                "--whats-new-file", "/nonexistent/notes.md", "--key-id", "K", "--issuer-id", "I", "--key-path", str(SCRIPTS)]
+        with mock.patch.object(self.module, "request", side_effect=answer), \
+             mock.patch.object(self.module, "token", return_value="t"), \
+             mock.patch.object(sys, "argv", argv):
+            self.assertEqual(self.module.main(), 1)
+        self.assertIn(("GET", "/betaGroups?filter[app]=1&limit=50"), calls)
 
 
 if __name__ == "__main__":

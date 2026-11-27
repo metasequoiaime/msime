@@ -44,6 +44,11 @@ public final class SuperscriptShortcutDeviceSmoke extends DeviceSmoke {
         swipeUp(describedPrefix("！；上滑输入 0；长按选择上标"));
         await(field(PLAIN).and(node -> equalsText("⁰0", node.getText())));
 
+        // 滑回取消（#11822）：上滑出 0 后回到起点，松手什么都不输入。
+        stage = "swipe back to the start cancels zero";
+        swipeBack(describedPrefix("！；上滑输入 0；长按选择上标"));
+        assertText("⁰0");
+
         stage = "long press subscript zero";
         exclamation = await(describedPrefix("！；上滑输入 0；长按选择上标"));
         if (!exclamation.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
@@ -84,6 +89,9 @@ public final class SuperscriptShortcutDeviceSmoke extends DeviceSmoke {
             stage = "nine-key swipe up commits zero";
             swipeUp(key("！"));
             await(field(PLAIN).and(node -> equalsText("！0", node.getText())));
+            stage = "nine-key swipe back to the start cancels zero";
+            swipeBack(key("！"));
+            assertText("！0");
             stage = "nine-key physical hold offers superscript zero";
             hold(key("！"));
             tap(described("输入 ⁰"));
@@ -119,6 +127,33 @@ public final class SuperscriptShortcutDeviceSmoke extends DeviceSmoke {
                 if (!automation.injectInputEvent(up, true)) throw new AssertionError("Long-press up rejected");
             } finally { up.recycle(); }
         }
+    }
+
+    /** 上滑过阈值后回到起点再抬起；每个事件同步注入，整次远短于长按时长。 */
+    private void swipeBack(Predicate<AccessibilityNodeInfo> match) throws Exception {
+        Rect bounds = new Rect();
+        awaitStableBounds(match).getBoundsInScreen(bounds);
+        float x = bounds.centerX();
+        float startY = bounds.centerY();
+        float endY = startY - SWIPE_DP * getTargetContext().getResources().getDisplayMetrics().density;
+        long downTime = SystemClock.uptimeMillis();
+        float[] ys = {startY, endY, startY, startY};
+        int[] actions = {MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP};
+        for (int index = 0; index < actions.length; index++) {
+            MotionEvent event = MotionEvent.obtain(downTime, downTime + 40L * index, actions[index], x, ys[index], 0);
+            event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+            try {
+                if (!automation.injectInputEvent(event, true))
+                    throw new AssertionError("Superscript shortcut swipe-back injection failed");
+            } finally { event.recycle(); }
+        }
+        automation.waitForIdle(300, 3000);
+    }
+
+    /** 等界面空闲后输入框仍是 `expected`：取消的滑动不能晚一步再上屏。 */
+    private void assertText(String expected) {
+        SystemClock.sleep(300);
+        await(field(PLAIN).and(node -> equalsText(expected, node.getText())));
     }
 
     private void swipeUp(java.util.function.Predicate<AccessibilityNodeInfo> match) throws Exception {

@@ -8,7 +8,7 @@
     "homepage": "https://github.com/metasequoiaime/msime",
     "license": {
         "identifier": "GPL-3.0-only",
-        "url": "https://github.com/metasequoiaime/msime/blob/develop/LICENSE"
+        "url": "https://github.com/metasequoiaime/msime/blob/main/LICENSE"
     },
     "notes": [
         "Metasequoia IME was installed machine-wide by its own installer (Program Files\\metasequoiaime-full), not into the Scoop directory.",

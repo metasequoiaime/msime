@@ -4,16 +4,16 @@
   <metadata>
     <id>msime</id>
     <version>@VERSION@</version>
-    <packageSourceUrl>https://github.com/metasequoiaime/msime/tree/develop/platforms/windows/packaging/chocolatey</packageSourceUrl>
+    <packageSourceUrl>https://github.com/metasequoiaime/msime/tree/main/platforms/windows/packaging/chocolatey</packageSourceUrl>
     <owners>Metasequoia</owners>
     <title>Metasequoia IME (水杉输入法)</title>
     <authors>Metasequoia</authors>
     <projectUrl>https://github.com/metasequoiaime/msime</projectUrl>
-    <iconUrl>https://raw.githubusercontent.com/metasequoiaime/msime/develop/apps/desktop/src-tauri/icons/128x128.png</iconUrl>
-    <licenseUrl>https://github.com/metasequoiaime/msime/blob/develop/LICENSE</licenseUrl>
+    <iconUrl>https://raw.githubusercontent.com/metasequoiaime/msime/main/apps/desktop/src-tauri/icons/128x128.png</iconUrl>
+    <licenseUrl>https://github.com/metasequoiaime/msime/blob/main/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <projectSourceUrl>https://github.com/metasequoiaime/msime</projectSourceUrl>
-    <docsUrl>https://github.com/metasequoiaime/msime/tree/develop/platforms/windows</docsUrl>
+    <docsUrl>https://github.com/metasequoiaime/msime/tree/main/platforms/windows</docsUrl>
     <bugTrackerUrl>https://github.com/metasequoiaime/msime/issues</bugTrackerUrl>
     <tags>msime metasequoia ime input-method chinese pinyin shuangpin wubi tsf</tags>
     <summary>Metasequoia IME (水杉输入法): Chinese input method for Windows</summary>

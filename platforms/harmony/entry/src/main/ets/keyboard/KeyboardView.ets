@@ -87,9 +87,10 @@ import {
   fourteenKeyLetterWidthMode,
   fourteenKeyLetterWidthPlan
 } from './input/FourteenKeyLetterWidths';
-import { EighteenKeySwipeGesture, EighteenKeyTap } from './input/EighteenKeySwipePolicy';
+import { EighteenKeySwipePolicy } from './input/EighteenKeySwipePolicy';
 import { LayerCharacterRoute, LayerKey, LayerKeyKind, NumberSymbolLayout } from './input/NumberSymbolLayout';
 import { ChineseSymbolFaces } from './input/ChineseSymbolFaces';
+import { JapaneseSymbolFaces } from './input/JapaneseSymbolFaces';
 import {
   NineKeyPanelBackspace, NineKeyPanelMode, NineKeyPanelPolicy, NineKeyStroke
 } from './input/NineKeyPanelPolicy';
@@ -105,6 +106,9 @@ import { PendingTouches, TouchKey, TouchPoint, TouchPointPolicy } from './input/
 import { LetterHintTable } from './input/LetterHintTable';
 import { HintKeyRect, LetterHintGesture } from './input/LetterHintGesture';
 import { HelpcodeSwipeGesture } from './input/HelpcodeSwipePolicy';
+import { GridLetterHintTable } from './input/GridLetterHintTable';
+import { GridKeyPoint, GridKeyTouchController } from './input/GridKeyTouchController';
+import { SwipeSymbolsDirection } from './input/SwipeHintPolicy';
 import { KeyPreviewFrame, KeyPreviewLayout } from './KeyPreviewLayout';
 import {
   EmojiCatalogModel, EmojiCategory, EmojiItem, EMOJI_PAGE_SIZE, EMOJI_RECENTS_ICON
@@ -842,7 +846,8 @@ struct KeyboardView {
   private readonly keyPressedBrightness: number = KeyboardFormFactor.isDesktop() ? 1 : KEY_PRESSED_BRIGHTNESS;
   private readonly keyPressedScale: number = KeyboardFormFactor.isDesktop() ? 1 : KEY_PRESSED_SCALE;
   private readonly letterCase: EnglishLetterCaseState = new EnglishLetterCaseState();
-  private settings: KeyboardPreferences = KeyboardSession.shared.preferences();
+  // 候选图片、画布和布局直接读取该快照，替换快照必须使对应 ArkUI 节点失效并重新计算。
+  @State private settings: KeyboardPreferences = KeyboardSession.shared.preferences();
   private readonly cursorDrag: SpaceCursorMovement = new SpaceCursorMovement();
   /** 空格键的长按语音、拖动移光标与普通空格之间的判定。 */
   private readonly spaceGesture: SpaceVoiceGesture = new SpaceVoiceGesture();
@@ -938,8 +943,36 @@ struct KeyboardView {
   private semicolonKey: GlideKeyRect | null = null;
   /** 每个被跟踪手指的长按计时器。 */
   private hintHoldTimers: Map<number, number> = new Map<number, number>();
-  /** 14/18 键两个字母的键上的横滑。 */
-  private eighteenSwipes: EighteenKeySwipeGesture = new EighteenKeySwipeGesture();
+  /** 14/18 键字母键的触摸、点击和长按（`GridKeyTouchController`）。 */
+  private readonly gridKeys: GridKeyTouchController = new GridKeyTouchController({
+    composing: (): boolean => KeyboardSession.shared.composing(),
+    swipeDirection: (): SwipeSymbolsDirection | null =>
+      this.feedback.swipeSymbols ? this.feedback.swipeSymbolsDirection : null,
+    exactSwipes: (letters: string): boolean =>
+      this.swipesEighteenKey() && EighteenKeySwipePolicy.swipeable(letters),
+    keyPopup: (): boolean => this.feedback.keyPopup,
+    keyFace: (key: FourteenKey): string => this.compactKeyFace(key),
+    hintFace: (key: FourteenKey, eighteen: boolean): string | null => GridLetterHintTable.face(key.letters,
+      eighteen, !this.english, this.cornerQuotes, this.hollowBrackets),
+    showPreview: (finger: number, label: string, rect: HintKeyRect): void => this.showKeyPreview(finger, label, rect),
+    hidePreview: (finger: number): void => this.hideKeyPreview(finger),
+    showLetter: (letters: string, letter: string): void => this.showEighteenSwipeFace(letters, letter),
+    endLetter: (letters: string): void => this.endEighteenSwipeFace(letters),
+    keyUp: (finger: number): void => KeyboardSession.shared.keyUp(finger),
+    tap: (key: FourteenKey, eighteen: boolean): void => this.tapGridKey(key, eighteen),
+    typeHint: (key: FourteenKey, eighteen: boolean, hint: string): void => {
+      KeyboardSession.shared.softKeyPress(eighteen
+        ? KeyIdPolicy.eighteenKey(key.letters) : KeyIdPolicy.fourteenKey(key.letters));
+      this.typeGridLetterHint(hint);
+    },
+    typeLetter: (key: FourteenKey, eighteen: boolean, letter: string): void => {
+      if (eighteen) {
+        this.typeEighteenKeyLetter(key, letter);
+      } else {
+        this.typeFourteenKeyLetter(key, letter);
+      }
+    }
+  });
   /** 横滑正选中字母的那个 14/18 键（`FourteenKey.letters`）和选中的大写字母；没有时都为空串。 */
   @State eighteenSwipeKey: string = '';
   @State eighteenSwipeLetter: string = '';
@@ -1836,6 +1869,16 @@ struct KeyboardView {
     KeyboardSession.shared.insert(hint);
   }
 
+  /** 网格角标的 ASCII 标点交给 Engine，其余符号按字面插入。 */
+  private typeGridLetterHint(hint: string): void {
+    KeyboardSession.shared.commitRaw();
+    if (GridLetterHintTable.routesThroughEngine(hint)) {
+      KeyboardSession.shared.punctuation(hint.charCodeAt(0));
+    } else {
+      KeyboardSession.shared.insert(hint);
+    }
+  }
+
   /** 竖向滑动辅助码沿已有的 Shift+字母路径送入 Engine；引擎从大写字母本身读取辅助码。 */
   private typeHelpcodeSwipe(letter: string): void {
     const input: string = ChineseHelpcodePolicy.letterInput(letter, true);
@@ -1978,7 +2021,7 @@ struct KeyboardView {
     this.letterHints.clear();
     this.helpcodeSwipes.clear();
     this.pendingTouches.clear();
-    this.eighteenSwipes.clear();
+    this.gridKeys.clear();
     this.eighteenSwipeKey = '';
     this.eighteenSwipeLetter = '';
     this.nineKeyFlicks.clear();
@@ -2677,7 +2720,7 @@ struct KeyboardView {
     }
   }
 
-  /** 长按弹出的字母：九键格子的 `NineKeyLayout.holdOptions`，或 14/18 键的组码键表。选中后都是先结束组字再上屏（`selectNineKeyHoldOption`）。 */
+  /** 长按弹出的字母：九键格子的 `NineKeyLayout.holdOptions`。选中后先结束组字再上屏（`selectNineKeyHoldOption`）。14/18 键长按输入角标，不弹字母。 */
   private openKeyHold(options: string[]): void {
     if (options.length === 0 || this.symbols) {
       return;
@@ -3082,6 +3125,7 @@ struct KeyboardView {
     // 放在 surface 已经换掉之后：清筛选会同步回调 onChanged，那时面板必须已经算作关闭，否则会再进来一次。
     if (leavingExpanded) {
       this.leaveNineKeyPanel();
+      KeyboardSession.shared.refreshCandidateView();
     }
   }
 
@@ -3664,6 +3708,8 @@ struct KeyboardView {
 
   /** A symbol wears the face of what it will insert, which in Chinese is not the ASCII on the cap. */
   private symbolFace(symbol: string): string {
+    // 日语方案的符号键面画引擎会写出的日文标点，不受中文引号样式与顿号开关影响。
+    if (this.japanesePunctuationFaces()) return JapaneseSymbolFaces.face(symbol);
     const chinese: string | undefined = ChineseSymbolFaces.face(
       symbol, this.cornerQuotes, this.hollowBrackets,
       this.enumerationCommaBackslash, this.enumerationCommaSlash);
@@ -6070,7 +6116,7 @@ struct KeyboardView {
   @Builder
   nineKeyPeriodKey(share: number) {
     this.fixedKey({
-      face: this.chinesePunctuationFaces() ? '。' : '.',
+      face: this.punctuationFace('.', '。'),
       label: KeyAccessibilityPolicy.period(),
       size: TOUCH_LETTER_FONT_SIZE,
       emphasized: false,
@@ -6086,7 +6132,7 @@ struct KeyboardView {
     if (NineKeyLayout.commaOpensQuickPunctuation(this.symbols, this.english, this.nineKeyFrameStyle())) {
       Column() {
         this.fixedKey({
-          face: this.chinesePunctuationFaces() ? '，' : ',',
+          face: this.punctuationFace(',', '，'),
           label: '逗号；长按打开常用标点',
           size: TOUCH_LETTER_FONT_SIZE,
           emphasized: false,
@@ -6103,7 +6149,7 @@ struct KeyboardView {
       }))
     } else {
       this.fixedKey({
-        face: this.chinesePunctuationFaces() ? '，' : ',',
+        face: this.punctuationFace(',', '，'),
         label: '逗号',
         size: TOUCH_LETTER_FONT_SIZE,
         emphasized: false,
@@ -6479,6 +6525,7 @@ struct KeyboardView {
     this.actionRow()
   }
 
+  /** 14 键每个字母键都可长按输入角标，包括单字母键。 */
   private fourteenKeyLetterPlan(): FourteenKeyLetterWidthCell[][] {
     return fourteenKeyLetterWidthPlan(FourteenKeyLayout.rows(),
       fourteenKeyLetterWidthMode(this.fourteenKeyLetterWidths), LETTER_EDGE_SHARE)
@@ -6571,37 +6618,55 @@ struct KeyboardView {
     }
   }
 
-  /** 14 键的一个字母键：两个字母的键可以横滑或长按，L、M 只有点按。 */
   @Builder
   fourteenKeyButton(key: FourteenKey, share: number = 1) {
-    if (FourteenKeyLayout.holdOptions(key).length > 0) {
-      this.fourteenKeyHoldKey(key, share)
-    } else {
-      this.flexibleKey(this.fourteenKeyOptions(key, share))
-    }
+    this.gridKeyHoldKey(key, false, share)
   }
 
   @Builder
   eighteenKeyButton(key: FourteenKey, share: number = 1) {
-    if (EighteenKeyLayout.holdOptions(key).length > 0) {
-      this.eighteenKeyHoldKey(key, share)
-    } else {
-      this.flexibleKey(this.eighteenKeyOptions(key, share))
-    }
+    this.gridKeyHoldKey(key, true, share)
   }
 
-  private eighteenKeyOptions(key: FourteenKey, share: number = 1): KeyOptions {
+  private gridKeyFace(key: FourteenKey, eighteen: boolean): KeyOptions {
+    const hint: string | null = GridLetterHintTable.face(key.letters, eighteen, !this.english,
+      this.cornerQuotes, this.hollowBrackets);
     return {
       face: this.compactKeyFace(key),
       label: this.compactKeyDescription(key),
       swipeLetters: key.letters,
       letterSpacing: fourteenKeyLetterSpacing(this.compactKeyFace(key)) * TOUCH_LETTER_FONT_SIZE,
+      cornerHint: hint ?? undefined,
+      showCornerHint: this.feedback.letterCornerHints,
       size: TOUCH_LETTER_FONT_SIZE,
       emphasized: false,
       width: 0,
-      share: share,
-      action: () => this.tapEighteenKey(key)
+      action: () => this.tapGridKey(key, eighteen)
     };
+  }
+
+  @Builder
+  private gridKeyHoldKey(key: FourteenKey, eighteen: boolean, share: number = 1) {
+    Column() {
+      this.keyFace(this.gridKeyFace(key, eighteen))
+    }
+    .accessibilityText(this.compactKeyDescription(key))
+    .layoutWeight(share)
+    .height('100%')
+    .backgroundColor(this.skin.keySurfaceBackground(false))
+    .linearGradient({ angle: 180,
+      colors: [[this.skin.materialTop(), 0], [this.skin.materialBottom(), 1]] })
+    .borderRadius(this.skin.keyCornerRadius())
+    .borderWidth(this.skin.borderWidth)
+    .borderColor(this.skin.borderColor)
+    .shadow({ radius: this.skin.shadowRadius, color: this.skin.shadowColor(),
+      offsetX: 0, offsetY: this.skin.shadowOffset })
+    .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
+    .animation({ duration: KEY_PRESS_MS })
+    .responseRegion(this.keyHitRegion())
+    .onTouch((event: TouchEvent): void => this.gridKeyTouch(key, eighteen, event))
+    .onClick((event: ClickEvent): void => this.gridKeys.click(key, eighteen, event.windowX, event.windowY))
+    .gesture(LongPressGesture({ duration: 500 }).onAction((): void => this.gridKeys.hold(key, eighteen)))
   }
 
   private tapEighteenKey(key: FourteenKey): void {
@@ -6636,111 +6701,10 @@ struct KeyboardView {
       .onClick(() => this.tapEighteenKey(owner))
   }
 
-  @Builder
-  eighteenKeyHoldKey(key: FourteenKey, share: number = 1) {
-    Column() {
-      this.keyFace(this.eighteenKeyOptions(key))
-    }
-    .accessibilityText(this.compactKeyDescription(key))
-    .layoutWeight(share)
-    .height('100%')
-    .backgroundColor(this.skin.keySurfaceBackground(false))
-    .linearGradient({ angle: 180,
-      colors: [[this.skin.materialTop(), 0], [this.skin.materialBottom(), 1]] })
-    .borderRadius(this.skin.keyCornerRadius())
-    .borderWidth(this.skin.borderWidth)
-    .borderColor(this.skin.borderColor)
-    .shadow({ radius: this.skin.shadowRadius, color: this.skin.shadowColor(),
-      offsetX: 0, offsetY: this.skin.shadowOffset })
-    .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
-    .animation({ duration: KEY_PRESS_MS })
-    .responseRegion(this.keyHitRegion())
-    .onTouch((event: TouchEvent): void => this.eighteenKeySwipeTouch(key, event))
-    .onClick((event: ClickEvent): void => this.clickEighteenKey(key, event))
-    .gesture(LongPressGesture().onAction(() => {
-      if (this.swipesEighteenKey() && !this.eighteenSwipes.hold(key.letters)) {
-        // 横滑已经接管这次按压，长按不再弹出字母。
-        return;
-      }
-      this.endEighteenSwipeFace(key.letters);
-      KeyboardSession.shared.softKeyPress(KeyIdPolicy.eighteenKey(key.letters));
-      this.openKeyHold(EighteenKeyLayout.holdOptions(key));
-    }))
-  }
-
   /** 两个字母的 14/18 键是否接横滑：全拼和双拼都接，五笔 14 键仍只点按。 */
   private swipesEighteenKey(): boolean {
     return (this.drawsFourteenKey() || this.drawsEighteenKey())
       && (this.scheme.engineScheme === 'quanpin' || this.scheme.engineScheme === 'shuangpin');
-  }
-
-  /**
-   * 14/18 键全拼或双拼两个字母的键上的一次触摸（`EighteenKeySwipePolicy`）：拖动时键面画选中的字母，抬手把它以大写精确标记交给引擎；回到起点、同一键上的第二根手指和系统取消都不输入。没越过阈值的触摸交给这个键的点击。
-   */
-  private eighteenKeySwipeTouch(key: FourteenKey, event: TouchEvent): void {
-    if (!this.swipesEighteenKey()) {
-      return;
-    }
-    if (event.type === TouchType.Down) {
-      if (event.changedTouches.length > 0) {
-        const touch: TouchObject = event.changedTouches[0];
-        this.eighteenSwipes.down(key.letters, touch.id, touch.windowX, touch.windowY);
-        this.showEighteenSwipeFace(key.letters, '');
-      }
-    } else if (event.type === TouchType.Move) {
-      const moved: TouchObject[] = event.changedTouches.length > 0 ? event.changedTouches : event.touches;
-      for (const touch of moved) {
-        const selected: string | null = this.eighteenSwipes.move(key.letters, touch.id, touch.windowX, touch.windowY);
-        if (selected !== null) {
-          this.showEighteenSwipeFace(key.letters, selected);
-        }
-      }
-    } else if (event.type === TouchType.Up) {
-      if (event.changedTouches.length > 0) {
-        const touch: TouchObject = event.changedTouches[0];
-        const letter: string = this.eighteenSwipes.up(key.letters, touch.id, touch.windowX, touch.windowY);
-        this.endEighteenSwipeFace(key.letters);
-        KeyboardSession.shared.keyUp(touch.id);
-        if (this.drawsEighteenKey()) {
-          this.typeEighteenKeyLetter(key, letter);
-        } else {
-          this.typeFourteenKeyLetter(key, letter);
-        }
-      }
-    } else if (event.type === TouchType.Cancel) {
-      this.eighteenSwipes.cancel(key.letters);
-      this.endEighteenSwipeFace(key.letters);
-    }
-  }
-
-  /** 18 键的点击：全拼送整组；双拼由横滑判定这次按压是整组、精确字母还是已被横滑接管。 */
-  private clickEighteenKey(key: FourteenKey, event: ClickEvent): void {
-    if (!this.swipesEighteenKey()) {
-      this.tapEighteenKey(key);
-      return;
-    }
-    const tap: EighteenKeyTap = this.eighteenSwipes.click(key.letters, event.windowX, event.windowY);
-    if (tap.group) {
-      this.tapEighteenKey(key);
-    } else {
-      this.endEighteenSwipeFace(key.letters);
-      this.typeEighteenKeyLetter(key, tap.letter);
-    }
-  }
-
-  /** 14 键的点击：横滑手势没有接管时送整组，否则送选中的精确字母。 */
-  private clickFourteenKey(key: FourteenKey, event: ClickEvent): void {
-    if (!this.swipesEighteenKey()) {
-      this.tapFourteenKey(key);
-      return;
-    }
-    const tap: EighteenKeyTap = this.eighteenSwipes.click(key.letters, event.windowX, event.windowY);
-    if (tap.group) {
-      this.tapFourteenKey(key);
-    } else {
-      this.endEighteenSwipeFace(key.letters);
-      this.typeFourteenKeyLetter(key, tap.letter);
-    }
   }
 
   /** 横滑选中的字母以大写精确标记送入当前网格；键位与点按、长按同记在这一键上。 */
@@ -6786,20 +6750,6 @@ struct KeyboardView {
       ? this.eighteenSwipeLetter : face;
   }
 
-  private fourteenKeyOptions(key: FourteenKey, share: number = 1): KeyOptions {
-    return {
-      face: this.compactKeyFace(key),
-      label: this.compactKeyDescription(key),
-      letterSpacing: fourteenKeyLetterSpacing(this.compactKeyFace(key)) * TOUCH_LETTER_FONT_SIZE,
-      swipeLetters: key.letters,
-      size: TOUCH_LETTER_FONT_SIZE,
-      emphasized: false,
-      width: 0,
-      share: share,
-      action: () => this.tapFourteenKey(key)
-    };
-  }
-
   /** 双拼 14/18 键把微软双拼所需的分号并入 L 键；其他方案沿用共享键表的键面和读屏。 */
   private compactKeyFace(key: FourteenKey): string {
     return this.scheme.engineScheme === 'shuangpin' && key.letters === 'l' ? 'L;' : key.label;
@@ -6814,6 +6764,33 @@ struct KeyboardView {
   private tapFourteenKey(key: FourteenKey): void {
     KeyboardSession.shared.softKeyPress(KeyIdPolicy.fourteenKey(key.letters));
     KeyboardSession.shared.pressGridKey(key.input.charCodeAt(0));
+  }
+
+  private tapGridKey(key: FourteenKey, eighteen: boolean): void {
+    KeyboardSession.shared.softKeyPress(eighteen
+      ? KeyIdPolicy.eighteenKey(key.letters) : KeyIdPolicy.fourteenKey(key.letters));
+    KeyboardSession.shared.pressGridKey(key.input.charCodeAt(0));
+  }
+
+  /** 把 ArkUI 的触摸换成手指坐标交给 `gridKeys`。 */
+  private gridKeyTouch(key: FourteenKey, eighteen: boolean, event: TouchEvent): void {
+    const rect: HintKeyRect = {
+      left: Number(event.target.area.globalPosition.x ?? 0),
+      top: Number(event.target.area.globalPosition.y ?? 0),
+      width: Number(event.target.area.width), height: Number(event.target.area.height)
+    };
+    const changed: TouchObject[] = event.changedTouches;
+    if (event.type === TouchType.Down && changed.length > 0) {
+      this.gridKeys.down(key, eighteen, { id: changed[0].id, x: changed[0].windowX, y: changed[0].windowY }, rect);
+    } else if (event.type === TouchType.Move) {
+      const moved: TouchObject[] = changed.length > 0 ? changed : event.touches;
+      this.gridKeys.move(key, eighteen,
+        moved.map((touch: TouchObject): GridKeyPoint => ({ id: touch.id, x: touch.windowX, y: touch.windowY })), rect);
+    } else if (event.type === TouchType.Up && changed.length > 0) {
+      this.gridKeys.up(key, eighteen, { id: changed[0].id, x: changed[0].windowX, y: changed[0].windowY });
+    } else if (event.type === TouchType.Cancel) {
+      this.gridKeys.cancel(key, changed.map((touch: TouchObject): number => touch.id));
+    }
   }
 
   private usesQuanpinSeparator(): boolean {
@@ -6850,38 +6827,6 @@ struct KeyboardView {
     this.openSymbolSurface();
   }
 
-  /** 两个字母的 14 键：点按同 `fourteenKeyOptions`，横滑可限定一个字母，长按弹出这两个字母。 */
-  @Builder
-  fourteenKeyHoldKey(key: FourteenKey, share: number = 1) {
-    Column() {
-      this.keyFace(this.fourteenKeyOptions(key))
-    }
-    .accessibilityText(this.compactKeyDescription(key))
-    .layoutWeight(share)
-    .height('100%')
-    .backgroundColor(this.skin.keySurfaceBackground(false))
-    .linearGradient({ angle: 180,
-      colors: [[this.skin.materialTop(), 0], [this.skin.materialBottom(), 1]] })
-    .borderRadius(this.skin.keyCornerRadius())
-    .borderWidth(this.skin.borderWidth)
-    .borderColor(this.skin.borderColor)
-    .shadow({ radius: this.skin.shadowRadius, color: this.skin.shadowColor(),
-      offsetX: 0, offsetY: this.skin.shadowOffset })
-    .stateStyles({ normal: this.keyIdleStyle, pressed: this.keyPressedStyle })
-    .animation({ duration: KEY_PRESS_MS })
-    .responseRegion(this.keyHitRegion())
-    .onTouch((event: TouchEvent): void => this.eighteenKeySwipeTouch(key, event))
-    .onClick((event: ClickEvent): void => this.clickFourteenKey(key, event))
-    .gesture(LongPressGesture().onAction(() => {
-      if (this.swipesEighteenKey() && !this.eighteenSwipes.hold(key.letters)) {
-        // 横滑已经接管这次按压，长按不再弹出字母。
-        return;
-      }
-      KeyboardSession.shared.softKeyPress(KeyIdPolicy.fourteenKey(key.letters));
-      this.openKeyHold(FourteenKeyLayout.holdOptions(key));
-    }))
-  }
-
   /**
    * The row every key face ends with: the layout toggle, a comma, space, the language key and Return.
    *
@@ -6914,6 +6859,17 @@ struct KeyboardView {
   private chinesePunctuationFaces(): boolean {
     return !this.english && this.chinesePunctuation && !this.koreanFace() && !this.vietnameseFace()
       && !this.tibetanFace();
+  }
+
+  /** 日语方案的标点键面走日文表，与引擎 `policy.json` 的 `japanese` 段一致；本地工具和英文模式仍是 ASCII。 */
+  private japanesePunctuationFaces(): boolean {
+    return JapaneseSymbolFaces.active(this.english, this.localMode, this.scheme.engineScheme, this.chinesePunctuation);
+  }
+
+  /** 逗号、句号、问号、叹号等键面：日语取日文表，其余按中文标点开关取中文或 ASCII。 */
+  private punctuationFace(ascii: string, chinese: string): string {
+    return this.japanesePunctuationFaces() ? JapaneseSymbolFaces.face(ascii)
+      : this.chinesePunctuationFaces() ? chinese : ascii;
   }
 
   /** 只换行时回车键显示回车箭头；编辑框要求了动作时保留其动作词（搜索、发送、前往、下一项），这对用户有实际意义；有组合时显示「确认」。 */
@@ -7246,7 +7202,7 @@ struct KeyboardView {
   designCommaKey(share: number) {
     Column() {
       this.fixedKey({
-        face: this.chinesePunctuationFaces() ? '，' : ',',
+        face: this.punctuationFace(',', '，'),
         label: this.designCommaLabel(this.designRowStyledFace()),
         size: TOUCH_LETTER_FONT_SIZE,
         emphasized: false,
@@ -7285,7 +7241,7 @@ struct KeyboardView {
   @Builder
   designPeriodKey(share: number) {
     this.fixedKey({
-      face: this.chinesePunctuationFaces() ? '。' : '.',
+      face: this.punctuationFace('.', '。'),
       label: KeyAccessibilityPolicy.period(),
       size: TOUCH_LETTER_FONT_SIZE,
       emphasized: false,
@@ -7344,12 +7300,12 @@ struct KeyboardView {
       }
       Column() {
         this.fixedKey({
-          face: this.chinesePunctuationFaces() ? '，' : ',',
+          face: this.punctuationFace(',', '，'),
           label: '逗号；长按输入问号',
           size: TOUCH_LETTER_FONT_SIZE,
           emphasized: false,
           width: '100%',
-          cornerHint: this.chinesePunctuationFaces() ? '？' : '?',
+          cornerHint: this.punctuationFace('?', '？'),
           action: () => this.typeComma()
         });
       }
@@ -7363,12 +7319,12 @@ struct KeyboardView {
       this.spaceKey(true, HANDWRITING_SPACE_SHARE, 0);
       Column() {
         this.fixedKey({
-          face: this.chinesePunctuationFaces() ? '。' : '.',
+          face: this.punctuationFace('.', '。'),
           label: '句号；长按输入叹号',
           size: TOUCH_LETTER_FONT_SIZE,
           emphasized: false,
           width: '100%',
-          cornerHint: this.chinesePunctuationFaces() ? '！' : '!',
+          cornerHint: this.punctuationFace('!', '！'),
           action: () => this.typePeriod()
         });
       }
@@ -12396,14 +12352,14 @@ struct KeyboardView {
   @Builder
   keyboardStack() {
     Stack({ alignContent: Alignment.Top }) {
-      // On a desktop candidate window with a mascot the backdrop starts at the card's top edge: the band above it is transparent, so the mascot stands on the card rather than on a slab of keyboard colour.
+      // 电脑候选卡片自己画背景；触屏键盘的整幅底色和照片不能露在圆角之外。
       Column() {
         this.skinBackdrop()
       }
       .width('100%')
       .height('100%')
-      .opacity(KeyboardFormFactor.isDesktop() && this.desktop === DesktopSurface.NONE
-        && this.settings.candidateCanvas !== null ? 0 : 1)
+      .opacity(CandidateDecorationLayout.keyboardBackdropVisible(KeyboardFormFactor.isDesktop(),
+        this.desktop === DesktopSurface.NONE) ? 1 : 0)
       .padding({ top: CandidateDecorationLayout.backdropInsetVp(KeyboardFormFactor.isDesktop(),
         this.settings.candidateDecorationImage !== null, this.settings.candidateDecorationTopVp,
         KeyboardMetrics.ROOT_VERTICAL_PADDING_VP) })
@@ -13224,7 +13180,7 @@ struct KeyboardView {
       // 中文 26 键的长空格样式：左下的 😀/符号 换成逗号，上滑或下滑输入句号，与 Android 长空格布局的数字层相同；表情和符号面板仍从工具栏进入。
       Column() {
         this.fixedKey({
-          face: this.chinesePunctuationFaces() ? '，' : ',',
+          face: this.punctuationFace(',', '，'),
           label: '逗号；上滑或下滑输入句号',
           size: TOUCH_LETTER_FONT_SIZE,
           emphasized: false,

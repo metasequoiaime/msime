@@ -23,7 +23,7 @@ Status: implemented
 
 **纠错候选画 *，不另起一行。** 纠错行（View JSON `corrected`）的候选字后面画 `*`，与 Windows、macOS、Linux 候选窗相同；引擎放进注释的原串不再画在候选字下面（`CandidateCorrectionMarkPolicy.visibleAnnotation`）。辅助码（以「(」开头）和五笔方案里跟在原串后面的五笔码照旧画。读屏描述照旧念「，提示：原串」，坐上首选的触点纠错照旧补「，已纠正」。
 
-**提示出现时候选行才加高。** `CandidateHintRows.rows(service)` 数当前这一页候选（引擎 `View.candidates`，含屏幕外的）里提示最多占几行，`CandidateTranslationPolicy.reservedRows(glossRows, hintRows)` 与按设置预留的释义行取大者，交给 `CandidateStripSizing` 量高度。没有提示时保持 32 dp；横向滑动候选不改变高度，因为看的是整页。
+**提示出现时候选行才加高。** `CandidateHintRows.rows(service, readings, flags)` 数当前这一页候选（引擎 `View.candidates`，含屏幕外的）里提示最多占几行，`CandidateTranslationPolicy.reservedRows(glossRows, hintRows)` 与按设置预留的释义行取大者，交给 `CandidateStripSizing` 量高度。没有提示时保持 32 dp；横向滑动候选不改变高度，因为看的是整页。同一页、同样的开关下只数一次（[面板高度集中](../architecture/2026-11-24-android-panel-geometry.md)）。
 
 **按键提示排版按输入缓存，不用 TextView 自动字号。** `KeyHintButton.updateHintInsets` 按输入（尺寸、键面、提示、字号、字体、字距）记下算好的内边距和主标签字号，每个键记最近几份；只设真的变了的值。字号由 `fittedSize` 按 TextView 自动字号的同一判定（最小 1 px、步长 1 px，单行排得下，行高不超过内容区）一次算出，再直接设字号；26 个字母和角标的宽度上界（`KeyHintWidthPolicy.letterBounds`）按画笔全键盘共用一份。排版规则不变：#11432 的紧凑键上角标参与主字排版，#11549 的角标不占主字位置。
 
@@ -49,6 +49,7 @@ Status: implemented
 - **收益**：九键与 26 键、14 键与 18 键之间切换窗口高度不变，空闲和打字也不变；九键少了一行白占的空间。纠错不再让窗口变高，辅助码、五笔编码提示不再被裁。18 键小鹤双拼组字开始和上屏的布局从一百五十毫秒以上降到一二十毫秒（模拟器）。18 键字母与 14 键同字号，单双字母都居中。
 - **代价与已知上限**：九键不再显示读音行里的页码（26 键本来也没有），翻页靠展开候选。14/18 键切到英文时窗口仍矮一行（API 35 上 56 px），与 0.8.2 相同。无释义时出现辅助码、五笔编码提示的那一刻窗口会长高一个提示行（API 35 上 39 px），提示消失后落回。纠错候选只看得出「这是纠错」，看不出纠成了什么，iOS、鸿蒙仍画原串，平台间暂不一致。窄屏或大字体下各键仍按自身宽度单独缩字号，不保证整副一致。中文和其他语言键盘之间的高度仍不一致（见上）；若之后要统一，或让候选字在有无提示时对齐，需要重访这里。
 - 与[拼写编辑开关](../feature/2026-11-10-android-spelling-editor-switch.md)部分取代关系：那篇里「网格布局从空闲时预留读音行」现在只对 14/18 键成立。
+- 与[键面由模板与键组排版](../architecture/2026-11-18-android-key-face-groups.md)部分取代关系：14/18 键和 26 键的字母键改由键组排版，本篇「按键提示排版按输入缓存」「14/18 键同一基准字号、居中」两条只对仍走 `KeyHintButton` 旧规则的键成立（分词键等）。
 
 ## Verification
 

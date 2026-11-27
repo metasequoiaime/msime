@@ -37,6 +37,10 @@ public final class UpdateApiSmoke {
         check(UpdateApi.compareVersions("0.1.0-dev", "0.1.0") < 0, "dev build is older than its release");
         check(UpdateApi.compareVersions("1.9000000000000000000", "1.10000000000000000000") < 0,
             "large numeric segments keep numeric ordering");
+        // 测试版 tag 是 -beta.N（release-ref.py），旧 tag 是不带编号的 -beta：编号按数值排，都比同号的正式版旧。
+        check(UpdateApi.compareVersions("0.9.0-beta.10", "0.9.0-beta.9") > 0, "numbered betas order by number");
+        check(UpdateApi.compareVersions("0.9.0-beta.1", "0.9.0-beta") > 0, "a numbered beta follows the bare -beta");
+        check(UpdateApi.compareVersions("0.9.0", "0.9.0-beta.3") > 0, "the release beats its betas");
 
         List<UpdateApi.Release> releases = List.of(
             new UpdateApi.Release("android-v1.1.0", "1.1.0", false),
@@ -45,6 +49,12 @@ public final class UpdateApiSmoke {
         check("1.1.0".equals(UpdateApi.pick(releases, UpdateApi.Channel.STABLE, "1.0.0").version()), "stable skips prereleases");
         check("1.2.0-rc.1".equals(UpdateApi.pick(releases, UpdateApi.Channel.PREVIEW, "1.0.0").version()), "preview sees prereleases");
         check(UpdateApi.pick(releases, UpdateApi.Channel.STABLE, "1.1.0") == null, "up to date");
+        List<UpdateApi.Release> betas = List.of(
+            new UpdateApi.Release("android-v1.3.0-beta.1", "1.3.0-beta.1", true),
+            new UpdateApi.Release("android-v1.3.0-beta.2", "1.3.0-beta.2", true),
+            new UpdateApi.Release("android-v1.2.0", "1.2.0", false));
+        check("android-v1.3.0-beta.2".equals(UpdateApi.pick(betas, UpdateApi.Channel.PREVIEW, "1.2.0").tag()), "preview takes the latest numbered beta");
+        check("android-v1.2.0".equals(UpdateApi.pick(betas, UpdateApi.Channel.STABLE, "1.1.0").tag()), "stable skips numbered betas");
         check(UpdateApi.Channel.fromId("nonsense") == UpdateApi.Channel.STABLE, "unknown channel is stable");
 
         List<UpdateApi.Release> malformedTags = List.of(

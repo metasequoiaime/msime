@@ -5,7 +5,7 @@
 
 namespace metasequoia::punctuation_contract
 {
-inline constexpr int version = 5;
+inline constexpr int version = 6;
 struct Mapping
 {
     char input;
@@ -35,6 +35,23 @@ inline constexpr std::array<Mapping, 17> simple = {{
     {'_', "——"},
     {'{', "「"},
     {'}', "」"},
+}};
+inline constexpr std::array<Mapping, 15> japanese = {{
+    {',', "、"},
+    {'\\', "、"},
+    {'.', "。"},
+    {'[', "「"},
+    {']', "」"},
+    {'{', "『"},
+    {'}', "』"},
+    {'/', "・"},
+    {'~', "〜"},
+    {'?', "？"},
+    {'!', "！"},
+    {'(', "（"},
+    {')', "）"},
+    {':', "："},
+    {';', "；"},
 }};
 inline constexpr std::array<AlternatingMapping, 2> alternating = {{
     {'"', "“", "”"},
@@ -69,6 +86,12 @@ constexpr bool is_supported(char input)
 constexpr const char *simple_output(char input)
 {
     for (const auto &mapping : simple)
+        if (mapping.input == input) return mapping.output;
+    return nullptr;
+}
+constexpr const char *japanese_output(char input)
+{
+    for (const auto &mapping : japanese)
         if (mapping.input == input) return mapping.output;
     return nullptr;
 }

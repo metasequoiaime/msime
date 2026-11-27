@@ -9,7 +9,7 @@ struct FuzzyPinyinSettingsView: View {
     ("平翘舌", [("z-zh", "z ↔ zh"), ("c-ch", "c ↔ ch"), ("s-sh", "s ↔ sh")]),
     ("声母", [("n-l", "n ↔ l"), ("f-h", "f ↔ h"), ("r-l", "r ↔ l")]),
     ("前后鼻音", [("an-ang", "an ↔ ang"), ("en-eng", "en ↔ eng"), ("in-ing", "in ↔ ing")]),
-    ("其他韵母", [("ian-iang", "ian ↔ iang"), ("uan-uang", "uan ↔ uang")]),
+    ("其他韵母", [("ian-iang", "ian ↔ iang"), ("uan-uang", "uan ↔ uang"), ("un-ong", "un ↔ ong")]),
   ]
 
   /// 把总开关设为 `enabled` 后的 `settings`。从未初始化的文档第一次启用时选中全部规则，与共享设置页的做法一致；之后再切换则保留用户选的规则。输入页的模糊音开关也用这个。

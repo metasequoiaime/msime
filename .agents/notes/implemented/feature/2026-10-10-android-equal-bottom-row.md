@@ -8,7 +8,7 @@ Android 键盘的底行（123、中/英、空格、换行那一行，以及 123 
 
 56 dp 来自 #3782 的改版：按设计的 46 dp 排，九宫格的键像横条，于是所有布局的键行一起加到 56 dp，底栏留在设计键高 46 dp。仓库里没有任何地方写明底行应该比键行矮，iOS 和 HarmonyOS 都是四行同高：iOS 的 `KeyboardViewController` 让数字行、字母行、符号行都等于 `actionRow` 的高度，九键块是它的三倍加 14；HarmonyOS 的 `KeyboardMetrics.totalHeightVp` 是 `ROW_HEIGHT_VP × KEY_ROWS`（4 行）加调整量。
 
-底行也不跟着键盘高度走。`ImeStyler.applyKeyboardHeight` 给底行角色固定高度，整份调整量都给了上面的键行，于是调得越高差距越大：160% 时底行键帽 39 dp，字母键帽 92–93 dp。这条「底栏不分摊调整，调矮时换行键不被压扁」的约定出自 [2026-10-08-android-keyboard-height-range](2026-10-08-android-keyboard-height-range.md)，可当时的压扁其实是 123 层底栏挂了 `rowCount` 为 1 的高度角色、在三行之外又拿了一遍整份调整：75% 的 −46 dp 把 46 dp 的底栏压成 0。四行均分时它在 75% 分到 −12 dp，和字母行一样还剩 40 dp。
+底行也不跟着键盘高度走。`ImeStyler.applyKeyboardHeight`（现为 `ImePanelLayout.applyKeyRows`，算式在 `PanelGeometry.keyRowPx`）给底行角色固定高度，整份调整量都给了上面的键行，于是调得越高差距越大：160% 时底行键帽 39 dp，字母键帽 92–93 dp。这条「底栏不分摊调整，调矮时换行键不被压扁」的约定出自 [2026-10-08-android-keyboard-height-range](2026-10-08-android-keyboard-height-range.md)，可当时的压扁其实是 123 层底栏挂了 `rowCount` 为 1 的高度角色、在三行之外又拿了一遍整份调整：75% 的 −46 dp 把 46 dp 的底栏压成 0。四行均分时它在 75% 分到 −12 dp，和字母行一样还剩 40 dp。
 
 [2026-10-09-android-tall-bottom-row](2026-10-09-android-tall-bottom-row.md)（#6488）加了一个默认关的本地开关「加高底行」：打开后底行 56 dp 加一份行距，键盘整体高出约 17 dp，仍不分摊调整，所以只有 100% 时底行和键行同高。维护者看过之后决定改成默认同高、总高不变、取消开关，本篇取代那一篇。
 

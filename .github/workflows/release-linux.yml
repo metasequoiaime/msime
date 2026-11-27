@@ -1,16 +1,18 @@
 name: Release Linux
+# 发版就是在 main 上推 linux-vX.Y.Z（正式版）或 linux-vX.Y.Z-beta.N（测试版，prerelease）tag（AGENTS.md「发版」）。推 tag 的运行没有输入，各输入取默认值（带 legacy 包）。在别的 ref 上手动触发只构建；ref 是已有的 tag 时与推送它相同。
 on:
+  push:
+    tags: ['linux-v*']
   workflow_dispatch:
     inputs:
-      version: {description: Semantic version (defaults to platforms/linux/version.txt), required: false, type: string}
-      prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
-      publish: {description: Publish the build as a linux-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
+      version: {description: Semantic version (defaults to platforms/linux/version.txt; on a tag it must equal the tag's version), required: false, type: string}
+      publish: {description: Publish when the ref is a linux-v tag (a run on any other ref only uploads workflow artifacts), required: false, default: true, type: boolean}
       legacy: {description: "Also build the IBus-only legacy .deb for glibc 2.28 systems (Debian 10, UOS 20) and attach it as msime-linux-legacy_VERSION_ARCH.deb", required: false, default: true, type: boolean}
   workflow_call:
     inputs:
       version: {description: Semantic version, required: false, default: '', type: string}
-      prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
-      publish: {description: Publish the build, required: false, default: false, type: boolean}
+      prerelease: {description: Unused; a release is a prerelease exactly when its tag is -beta.N. Kept so existing callers stay valid, required: false, default: false, type: boolean}
+      publish: {description: Publish when the caller runs on a linux-v tag, required: false, default: false, type: boolean}
       legacy: {description: Build the glibc 2.28 legacy package, required: false, default: false, type: boolean}
 permissions: {contents: write}
 # 编进 msime-client-services 的本构建运行 ID（update_check::BUILD_RUN）：应用内检查更新拿它和发布正文的 msime-build 标记比较同一版本号的构建。nightly.yml 复用这个 workflow 时 github.run_id 就是 nightly 那次运行，与 scripts/publish-nightly.py 记下的 run 相同。
@@ -18,7 +20,7 @@ env:
   MSIME_BUILD_RUN: ${{ github.run_id }}
 concurrency: {group: release-linux, cancel-in-progress: false}
 jobs:
-  # Resolves the dispatched commit up front, so the deb and rpm builds and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
+  # Resolves the commit and the release up front, so the deb and rpm builds and the publish job (release target, release notes) use the same source and version even if a branch moves during the run.
   # 从旧的分支或标签触发时，源码里可能还没有 platforms/linux/packaging/ 的脚本；packaging 输出记下源码里有没有它们，没有时跳过 distro-sources 与 package-definitions，发布只带 deb、rpm 和 tar.gz。
   source:
     runs-on: depot-ubuntu-24.04
@@ -30,9 +32,16 @@ jobs:
         run: |
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           if [[ -f platforms/linux/packaging/make-source-tarballs.sh && -f platforms/linux/packaging/render-definitions.sh ]]; then echo "packaging=true" >> "$GITHUB_OUTPUT"; else echo "packaging=false" >> "$GITHUB_OUTPUT"; echo "::notice::$(git rev-parse --short HEAD) has no platforms/linux/packaging scripts; skipping distro source tarballs and package definitions"; fi
+      - id: version
+        env: {REQUESTED: "${{ inputs.version }}", PUBLISH_INPUT: "${{ inputs.publish }}"}
+        run: python3 scripts/release-ref.py --prefix linux-v --version-file platforms/linux/version.txt --requested "$REQUESTED"
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
       packaging: ${{ steps.commit.outputs.packaging }}
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      publish: ${{ steps.version.outputs.publish }}
   # 随桌面安装包分发的官方插件包（plugins/official-packs.json），只在这里构建一次，deb 和 rpm 两个作业的四台 runner 下载同一份：scripts/build-official-plugins.sh 编出 wasm，并和锁定的内容哈希比对（授权绑定在它上面），所以装进包里的就是评审过的那一份。wasm 与架构无关，x86_64 和 aarch64 的包带的是同一组字节。
   official-plugins:
     needs: source
@@ -66,12 +75,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
-      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease. The in-app update check (crates/client-services/src/update_check.rs) skips it on the stable channel, but on the beta channel it offers -beta releases (never -alpha) and the background check notifies about them, so a -beta release, and a re-run that replaces one in place with a new run ID, reaches every user who chose the beta channel.
+      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release name and title carry the tag's -beta.N, if any, and a beta is always published as a prerelease. The in-app update check (crates/client-services/src/update_check.rs) skips it on the stable channel, but on the beta channel it offers -beta.N releases and the background check notifies about them, so a beta release, and a re-run that replaces one in place with a new run ID, reaches every user who chose the beta channel. scripts/release-ref.py checks a linux-v tag against the version file and origin/main before anything is built; a run on any other ref only builds.
       - id: version
-        env: {REQUESTED: "${{ inputs.version }}"}
+        env: {REQUESTED: "${{ needs.source.outputs.version }}", RELEASE: "${{ needs.source.outputs.release }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
-          case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
+          echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
       # The arm64 runner image carries fewer preinstalled tools than the x64 one, so Node is set up explicitly on both.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: {node-version: 24}
@@ -160,7 +169,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: 长期保存发布构建的 Linux 符号
-        if: inputs.publish
+        if: needs.source.outputs.publish == 'true'
         env: {GH_TOKEN: "${{ github.token }}"}
         run: bash scripts/publish-crash-symbols.sh linux target/linux-package/symbols/*.zip
     outputs:
@@ -181,7 +190,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
       - id: version
-        env: {REQUESTED: "${{ inputs.version }}"}
+        env: {REQUESTED: "${{ needs.source.outputs.version }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -238,22 +247,22 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: 发布 RPM 长期调试符号
-        if: ${{ inputs.publish }}
+        if: ${{ needs.source.outputs.publish == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/publish-crash-symbols.sh linux target/linux-package-rpm/symbols/*.zip
-  # glibc 2.28 基线（Debian 10、UOS 20 一类）用的 legacy .deb（#6311），在 buster 容器里构建，两个架构各在原生 runner 上；逻辑在 build-linux-legacy.yml。它的产物名也是 msime-linux-*-VERSION，publish 一并取到并作为附件发布。取消勾选 legacy 时跳过，发布照常进行。
+  # glibc 2.28 基线（Debian 10、UOS 20 一类）用的 legacy .deb（#6311），在 buster 容器里构建，两个架构各在原生 runner 上；逻辑在 build-linux-legacy.yml。它的产物名也是 msime-linux-*-VERSION，publish 一并取到并作为附件发布。取消勾选 legacy 时跳过，发布照常进行；推 tag 的运行按默认值构建它。
   legacy:
     needs: source
-    if: ${{ inputs.legacy }}
+    if: ${{ github.event_name == 'push' || inputs.legacy }}
     # 写权限只给被调工作流里发布符号的作业，构建作业仍按它自己的顶层设置只读。
     permissions: {contents: write}
     uses: ./.github/workflows/build-linux-legacy.yml
     with:
       ref: ${{ needs.source.outputs.sha }}
-      version: ${{ inputs.version }}
-      publish: ${{ inputs.publish }}
-  # 发行版源码构建要的 tarball（COPR、OBS 与 PPA 用源码与 vendor 包，Gentoo 只用前端包；AUR 的 msime 从 GitHub 的标签归档构建，不用这些）：当前提交的源码、离线构建用的 vendor 包（crate、构建好的前端、按锁文件取回的数据）和单独的前端包，以及只列这三个文件的 msime-VERSION-SHA256SUMS，见 platforms/linux/packaging/make-source-tarballs.sh。用户不会下载它们，所以不进版本发布页：main 上的发布把它们传到滚动的 linux-sources release，各包定义按那里的地址引用它们；其他分支的只留在 workflow artifact 里。只打 full。
+      version: ${{ needs.source.outputs.version }}
+      publish: ${{ needs.source.outputs.publish == 'true' }}
+  # 发行版源码构建要的 tarball（COPR、OBS 与 PPA 用源码与 vendor 包，Gentoo 只用前端包；AUR 的 msime 从 GitHub 的标签归档构建，不用这些）：当前提交的源码、离线构建用的 vendor 包（crate、构建好的前端、按锁文件取回的数据）和单独的前端包，以及只列这三个文件的 msime-VERSION-SHA256SUMS，见 platforms/linux/packaging/make-source-tarballs.sh。用户不会下载它们，所以不进版本发布页：正式版 tag 的发布把它们传到滚动的 linux-sources release，各包定义按那里的地址引用它们；测试版和不发布的构建只留在 workflow artifact 里。只打 full。
   distro-sources:
     needs: source
     if: ${{ needs.source.outputs.packaging == 'true' }}
@@ -263,7 +272,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
       - id: version
-        env: {REQUESTED: "${{ inputs.version }}"}
+        env: {REQUESTED: "${{ needs.source.outputs.version }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
       # 文件名都用 .tar.xz，与版本发布页上的 .tar.gz 安装包分得开：应用内更新检查在发布里按包名挑 .deb，没有时找 .tar.gz。
@@ -281,14 +290,14 @@ jobs:
   arch-bin:
     needs: [source, rpm]
     if: ${{ needs.source.outputs.packaging == 'true' }}
-    continue-on-error: ${{ !inputs.publish }}
+    continue-on-error: ${{ needs.source.outputs.publish != 'true' }}
     runs-on: depot-ubuntu-24.04-8
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
       - id: version
-        env: {REQUESTED: "${{ inputs.version }}"}
+        env: {REQUESTED: "${{ needs.source.outputs.version }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
@@ -313,7 +322,7 @@ jobs:
   publish:
     needs: [source, deb, rpm, distro-sources, legacy, arch-bin]
     # distro-sources 被跳过时照样发布（见 source 的说明），它失败时不发布；legacy 同理，没勾选时跳过，勾选了却失败时不发布；Arch 包在有 packaging 脚本时构建，nightly 同样取它的 artifact。
-    if: ${{ !cancelled() && inputs.publish && needs.deb.result == 'success' && needs.rpm.result == 'success' && (needs.distro-sources.result == 'success' || needs.distro-sources.result == 'skipped') && (needs.legacy.result == 'success' || needs.legacy.result == 'skipped') && (needs.arch-bin.result == 'success' || needs.arch-bin.result == 'skipped') }}
+    if: ${{ !cancelled() && needs.source.outputs.publish == 'true' && needs.deb.result == 'success' && needs.rpm.result == 'success' && (needs.distro-sources.result == 'success' || needs.distro-sources.result == 'skipped') && (needs.legacy.result == 'success' || needs.legacy.result == 'skipped') && (needs.arch-bin.result == 'success' || needs.arch-bin.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -327,32 +336,32 @@ jobs:
       # 先在本地备齐版本发布页的全部内容，任何一处不对（缺一个安装包、指引链接到不存在的文件）都在上传任何东西之前失败。版本发布页放 .deb、.rpm、.tar.gz 与 x86_64 Arch 包，以及只列这些安装包的 SHA256SUMS。每次构建各写了一份 SHA256SUMS，合并 artifact 时只留下一份，这里按要发布的安装包重新算。源码包（.tar.xz 与 msime-VERSION-SHA256SUMS）进 linux-sources，见下一步。
       - name: Prepare the release page
         id: page
-        env: {VERSION: "${{ needs.deb.outputs.version }}", RELEASE: "${{ needs.deb.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
+        env: {VERSION: "${{ needs.deb.outputs.version }}", RELEASE: "${{ needs.deb.outputs.release }}", PRERELEASE: "${{ needs.source.outputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           dist=dist
           (cd "$dist" && shopt -s nullglob && files=( *.deb *.rpm *.tar.gz *.pkg.tar.zst ) && (( ${#files[@]} > 0 )) && rm -f SHA256SUMS && sha256sum -- "${files[@]}" > SHA256SUMS)
           tag="linux-v${RELEASE}"
           [[ "$RELEASE" == "$VERSION" ]] || PRERELEASE=true
-          # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
+          # The pushed tag already exists, and a re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta.N one at the latest release of either kind.
           stable='^linux-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
           start=$(git tag --list 'linux-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
           python3 scripts/generate-release-notes.py --platform linux --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output changes.md
-          # 发布说明开头是从版本表生成的下载指引：先按发行版选 deb、rpm、legacy deb 还是 tar.gz，再按 uname -m 选架构，最后每个版本一行，链接的是 dist 里实际要发布的文件，少一个就失败。软件源只在 main 的正式版之后更新，其他发布不指过去。
-          repositories=(); [[ "$PRERELEASE" != true && "$GITHUB_REF_NAME" == main ]] && repositories=(--repositories)
+          # 发布说明开头是从版本表生成的下载指引：先按发行版选 deb、rpm、legacy deb 还是 tar.gz，再按 uname -m 选架构，最后每个版本一行，链接的是 dist 里实际要发布的文件，少一个就失败。软件源只在正式版之后更新，测试版不指过去。
+          repositories=(); [[ "$PRERELEASE" != true ]] && repositories=(--repositories)
           python3 platforms/linux/scripts/edition_linux.py download-guide --version "$VERSION" --dist "$dist" \
             --download-base "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/" ${repositories[@]+"${repositories[@]}"} > release-notes.md
           { echo; cat changes.md; } >> release-notes.md
           # 发布正文末尾的隐藏构建标记（scripts/release-build-marker.py）：应用内检查更新按它的运行 ID 比较同一版本号的构建，测试版通道也靠它分辨 beta 之后发的正式版。
           python3 scripts/release-build-marker.py "$RELEASE" "$(git rev-parse HEAD)" "$GITHUB_RUN_ID" >> release-notes.md
           { echo "tag=$tag"; echo "prerelease=$PRERELEASE"; } >> "$GITHUB_OUTPUT"
-      # 发行版源码包传到滚动的 linux-sources release（预发布、不设为 latest），每个版本一组、文件名带版本号、长期保留，不进版本发布页。只对从 main 发出的版本：下面的 package-definitions、COPR、OBS 与 PPA 也只用它们；beta 与 alpha 的文件名同样不带后缀，传上去会覆盖同一版本号的正式版，所以只留在 workflow artifact 里。放在版本发布页之前，发布页上线时包定义要的源码包已经在了；上传后按 GitHub 记录的摘要逐个核对。
+      # 发行版源码包传到滚动的 linux-sources release（预发布、不设为 latest），每个版本一组、文件名带版本号、长期保留，不进版本发布页。只对正式版 tag：下面的 package-definitions、COPR、OBS 与 PPA 也只用它们；测试版的文件名同样不带后缀，传上去会覆盖同一版本号的正式版，所以只留在 workflow artifact 里。放在版本发布页之前，发布页上线时包定义要的源码包已经在了；上传后按 GitHub 记录的摘要逐个核对。
       - name: Upload the distro source tarballs to linux-sources
-        if: ${{ needs.source.outputs.packaging == 'true' && github.ref_name == 'main' }}
+        if: ${{ needs.source.outputs.packaging == 'true' && needs.source.outputs.prerelease != 'true' }}
         env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.deb.outputs.version }}"}
         run: bash platforms/linux/packaging/publish-sources.sh dist "$VERSION"
       # The build takes the dispatched commit, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
       - name: Publish independent Linux release
-        # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
+        # The release goes on the pushed tag; the workflow never creates one. RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) publishes it, falling back to GITHUB_TOKEN without the secret, as on a fork. scripts/publish-release.sh never writes the tag ref, not even on a re-run: a ref update made with this token raises a tag push event and would start a second release run.
         env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", TAG: "${{ steps.page.outputs.tag }}", RELEASE: "${{ needs.deb.outputs.release }}", PRERELEASE: "${{ steps.page.outputs.prerelease }}"}
         # 重跑旧版本时 publish-release.sh 会删掉发布页上不在这份清单里的资产，包括以前和安装包放在一起的源码包。
         run: |
@@ -363,8 +372,8 @@ jobs:
   # 按刚发布的 linux-vVERSION 渲染各发行版的包定义（RPM 规格与 SRPM、Debian 源码包、AUR 的两个 PKGBUILD 与 .SRCINFO、Gentoo overlay），作为构建产物上传，由维护者按 platforms/linux/README.md「包管理器」一节发布到各自的仓库；这里不向任何外部仓库推送。放在发布之后，因为这些定义按发布页（.rpm 与 SHA256SUMS）和 linux-sources（源码包与 msime-VERSION-SHA256SUMS）上的地址取文件，校验值也以那里的为准。
   package-definitions:
     needs: [source, deb, publish]
-    # Only for a final release from main: the definitions fetch the assets from linux-vVERSION, which a -beta or -alpha release is not tagged as, and a distribution repository takes final releases only.
-    if: ${{ inputs.publish && needs.source.outputs.packaging == 'true' && github.ref_name == 'main' }}
+    # Only for a final release (a linux-vX.Y.Z tag): the definitions fetch the assets from linux-vVERSION, which a -beta.N release is not tagged as, and a distribution repository takes final releases only.
+    if: ${{ needs.source.outputs.publish == 'true' && needs.source.outputs.packaging == 'true' && needs.source.outputs.prerelease != 'true' }}
     runs-on: depot-ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -379,7 +388,7 @@ jobs:
           path: target/package-definitions/
           include-hidden-files: true
           if-no-files-found: error
-  # 把同一个版本提交到 openSUSE OBS，由它构建并托管 apt、dnf 与 zypper 软件源。和上面的包定义一样只对从 main 发出的正式版本；逻辑在 publish-linux-obs.yml，提交失败时单独手动触发它即可，不用重新发版。
+  # 把同一个版本提交到 openSUSE OBS，由它构建并托管 apt、dnf 与 zypper 软件源。和上面的包定义一样只对正式版 tag；逻辑在 publish-linux-obs.yml，提交失败时单独手动触发它即可，不用重新发版。
   obs:
     needs: [deb, package-definitions]
     if: ${{ needs.package-definitions.result == 'success' }}
@@ -388,7 +397,7 @@ jobs:
     with:
       version: ${{ needs.deb.outputs.version }}
     secrets: inherit
-  # 同一个版本交给 Fedora COPR 构建，用户用 dnf copr enable msime/msime 安装；同样只对从 main 发出的正式版本，逻辑在 publish-linux-copr.yml，失败时单独手动触发它。
+  # 同一个版本交给 Fedora COPR 构建，用户用 dnf copr enable msime/msime 安装；同样只对正式版 tag，逻辑在 publish-linux-copr.yml，失败时单独手动触发它。
   copr:
     needs: [deb, package-definitions]
     if: ${{ needs.package-definitions.result == 'success' }}
@@ -397,7 +406,7 @@ jobs:
     with:
       version: ${{ needs.deb.outputs.version }}
     secrets: inherit
-  # 同一个版本作为签名源码包上传到 Launchpad PPA，用户用 add-apt-repository ppa:msime/ppa 安装；同样只对从 main 发出的正式版本，逻辑在 publish-linux-ppa.yml，失败时单独手动触发它。
+  # 同一个版本作为签名源码包上传到 Launchpad PPA，用户用 add-apt-repository ppa:msime/ppa 安装；同样只对正式版 tag，逻辑在 publish-linux-ppa.yml，失败时单独手动触发它。
   ppa:
     needs: [deb, package-definitions]
     if: ${{ needs.package-definitions.result == 'success' }}

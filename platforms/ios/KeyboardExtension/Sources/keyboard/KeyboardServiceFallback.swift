@@ -11,7 +11,7 @@ struct ServiceFailure: LocalizedError {
   var errorDescription: String? { message }
 }
 
-private final class NoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
+final class NoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
   func urlSession(_ session: URLSession, task: URLSessionTask,
                   willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
                   completionHandler: @escaping (URLRequest?) -> Void) {

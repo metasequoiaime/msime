@@ -7,7 +7,7 @@
 第一次贡献，只需要做下面四步。架构、许可证和完整验证流程放在后面的章节，需要时再读。
 
 1. **找一个任务**：在 issue 列表里筛选 [`good first issue`](https://github.com/metasequoiaime/msime/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) 标签，选一个你感兴趣的。不确定的可以先在 issue 里留言问维护者。
-2. **开分支**：`git checkout -b fix/<简短描述> origin/develop`。不要直接在 `develop` 上改。
+2. **开分支**：`git checkout -b fix/<简短描述> origin/main`。不要直接在 `main` 上改。
 3. **做小改动**：只改和 issue 直接相关的文件。改动越小，审阅越快。
 4. **提交前检查**：运行 `bash scripts/verify-local.sh --quick`，确认通过后用 Conventional Commits 格式提交，例如 `fix(data): 修正粤语双拼「為/爲」词条`。
 
@@ -17,7 +17,7 @@
 
 ## 开发流程
 
-1. 从远端实际默认分支（当前为 `origin/develop`）创建独立分支或 worktree，放在仓库外的 `~/worktrees/<feature>/` 下；不要在共享主工作区切换分支。
+1. 从远端实际默认分支（当前为 `origin/main`，也是唯一的长期分支）创建独立分支或 worktree，放在仓库外的 `~/worktrees/<feature>/` 下；不要在共享主工作区切换分支。
 2. 保持改动聚焦；目录或命名整理应同步更新构建文件、测试和文档引用。
 3. Rust 改动运行相关测试、`cargo fmt` 和 `cargo clippy`；前端改动运行类型检查和构建；原生宿主改动在可用平台上运行对应验证。目录整理必须同时更新构建文件、测试路径和平台 README。
 4. 提交前运行 `scripts/verify-local.sh --quick`，并检查 `git diff --check`。

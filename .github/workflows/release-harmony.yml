@@ -1,14 +1,16 @@
 name: Release HarmonyOS
+# 发版就是在 main 上推 harmony-vX.Y.Z（正式版）或 harmony-vX.Y.Z-beta.N（测试版，prerelease，不进华为）tag（AGENTS.md「发版」）。推 tag 的运行没有输入，各输入取默认值（appgallery 为 auto）。在别的 ref 上手动触发只构建；ref 是已有的 tag 时与推送它相同。
 on:
+  push:
+    tags: ['harmony-v*']
   workflow_dispatch:
     inputs:
-      version: {description: Semantic version (defaults to platforms/harmony/version.txt), required: false, type: string}
-      prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
-      publish: {description: Publish the build as a harmony-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
+      version: {description: Semantic version (defaults to platforms/harmony/version.txt; on a tag it must equal the tag's version), required: false, type: string}
+      publish: {description: Publish when the ref is a harmony-v tag (a run on any other ref only uploads workflow artifacts), required: false, default: true, type: boolean}
       sign: {description: Generate signed artifacts without publishing a GitHub release, required: false, default: false, type: boolean}
       source_release: {description: Repackage a released signed HAP for AppGallery without rebuilding (requires signing and publish=false), required: false, default: '', type: string}
       appgallery:
-        description: 华为测试专区（auto 在 main 正式发版时自动上传并提交公开测试，其他情况不上传）
+        description: 华为测试专区（auto 在正式版 tag 发布时自动上传并提交公开测试，其他情况不上传）
         required: false
         default: auto
         type: choice
@@ -18,8 +20,8 @@ on:
   workflow_call:
     inputs:
       version: {description: Semantic version, required: false, default: '', type: string}
-      prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
-      publish: {description: Publish the build, required: false, default: false, type: boolean}
+      prerelease: {description: Unused; a release is a prerelease exactly when its tag is -beta.N. Kept so existing callers stay valid, required: false, default: false, type: boolean}
+      publish: {description: Publish when the caller runs on a harmony-v tag, required: false, default: false, type: boolean}
       sign: {description: Generate signed artifacts, required: false, default: false, type: boolean}
       source_release: {description: Repackage a released signed HAP for AppGallery without rebuilding (requires signing and publish=false), required: false, default: '', type: string}
       appgallery: {description: 华为测试专区模式（none/upload/public-test）, required: false, default: none, type: string}
@@ -40,15 +42,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ github.sha }}", fetch-depth: 0, persist-credentials: false}
-      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
+      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release name and title carry the tag's -beta.N, if any, and a beta is always published as a prerelease, which the stable update channel skips. scripts/release-ref.py checks a harmony-v tag against the version file and origin/main before anything is built; a run on any other ref only builds.
+      - id: ref
+        env: {REQUESTED: "${{ inputs.version }}", PUBLISH_INPUT: "${{ inputs.publish }}"}
+        run: python3 scripts/release-ref.py --prefix harmony-v --version-file platforms/harmony/version.txt --requested "$REQUESTED"
+      # 推 tag 的运行没有输入，appgallery 取仓库变量 HARMONY_TAG_APPGALLERY（none、upload、public-test 或 auto），没设时按默认值 auto 算：只有发布的正式版（不带 -beta.N）才上传华为并提交公开测试，测试版的 versionCode 与随后的正式版相同。签名和上传在推 tag 之后马上开始，来不及取消再手动触发，所以要换模式就在推 tag 前设这个变量，用完删掉。手动触发时 appgallery 输入总有值，不读这个变量。
       - id: version
-        env: {REQUESTED: "${{ inputs.version }}", SOURCE_RELEASE: "${{ inputs.source_release }}", SIGN: "${{ inputs.sign }}", PUBLISH: "${{ inputs.publish }}", APPGALLERY: "${{ inputs.appgallery }}", TEST_VERSION_ID: "${{ inputs.test_version_id }}", TEST_PACKAGE_ID: "${{ inputs.test_package_id }}"}
+        env: {REQUESTED: "${{ steps.ref.outputs.version }}", RELEASE: "${{ steps.ref.outputs.release }}", PRERELEASE: "${{ steps.ref.outputs.prerelease }}", SOURCE_RELEASE: "${{ inputs.source_release }}", SIGN: "${{ inputs.sign }}", PUBLISH: "${{ steps.ref.outputs.publish }}", APPGALLERY: "${{ inputs.appgallery || vars.HARMONY_TAG_APPGALLERY || 'auto' }}", TEST_VERSION_ID: "${{ inputs.test_version_id }}", TEST_PACKAGE_ID: "${{ inputs.test_package_id }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/harmony/version.txt)}"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo '版本号须为 X.Y.Z' >&2; exit 1; }
           echo "value=$version" >> "$GITHUB_OUTPUT"
           if [[ "$APPGALLERY" == auto ]]; then
-            if [[ "$GITHUB_REF_NAME" == main && "$PUBLISH" == true ]]; then APPGALLERY=public-test; else APPGALLERY=none; fi
+            if [[ "$PUBLISH" == true && "$PRERELEASE" != true ]]; then APPGALLERY=public-test; else APPGALLERY=none; fi
           fi
           case "$APPGALLERY" in none|upload|public-test) ;; *) echo '华为上传模式无效' >&2; exit 1 ;; esac
           echo "appgallery=$APPGALLERY" >> "$GITHUB_OUTPUT"
@@ -61,14 +67,14 @@ jobs:
             }
           fi
           if [[ -n "$SOURCE_RELEASE" ]]; then
-            [[ "$SOURCE_RELEASE" == "harmony-v$version" || "$SOURCE_RELEASE" == "harmony-v$version-beta" || "$SOURCE_RELEASE" == "harmony-v$version-alpha" ]] || {
+            [[ "$SOURCE_RELEASE" == "harmony-v$version" || "$SOURCE_RELEASE" == "harmony-v$version-beta" || "$SOURCE_RELEASE" =~ ^harmony-v${version//./\\.}-beta\.[1-9][0-9]*$ ]] || {
               echo 'source_release 必须匹配当前版本' >&2; exit 1;
             }
             [[ ( "$SIGN" == true || "$APPGALLERY" != none ) && "$PUBLISH" == false ]] || {
               echo '重新封装需要签名并设置 publish=false' >&2; exit 1;
             }
           fi
-          case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
+          { echo "release=$RELEASE"; echo "prerelease=$PRERELEASE"; echo "publish=$PUBLISH"; } >> "$GITHUB_OUTPUT"
       - name: Check AppGallery credentials and test configuration
         if: ${{ steps.version.outputs.appgallery != 'none' }}
         env:
@@ -86,12 +92,12 @@ jobs:
           python3 platforms/harmony/appgallery-release.py --check-only --mode "$MODE" --version "$VERSION" \
             --test-version-id "$TEST_VERSION_ID" --package-id "$TEST_PACKAGE_ID" \
             --materials platforms/harmony/appgallery-materials.json
-      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
-        if: ${{ (inputs.publish || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        if: ${{ (steps.version.outputs.publish == 'true' || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}
         with: {distribution: temurin, java-version: '21'}
       # 发布必须在耗时构建前确认正式证书与共享沙箱授权，缺凭据时不降级为未签名包。
       - name: Check HarmonyOS release signing credentials
-        if: ${{ (inputs.publish || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}
+        if: ${{ (steps.version.outputs.publish == 'true' || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}
         env:
           HARMONY_RELEASE_KEYSTORE_BASE64: ${{ secrets.HARMONY_RELEASE_KEYSTORE_BASE64 }}
           HARMONY_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.HARMONY_RELEASE_KEYSTORE_PASSWORD }}
@@ -151,7 +157,7 @@ jobs:
           bash scripts/rustup-install.sh aarch64-unknown-linux-ohos
           df -h "$RUNNER_TEMP" | tail -1
       - name: Verify HarmonyOS signing tools with synthetic credentials
-        if: ${{ (inputs.publish || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}
+        if: ${{ (steps.version.outputs.publish == 'true' || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}
         run: python3 scripts/test-harmony-release-signing.py
       - name: Build HarmonyOS native host
         if: ${{ !inputs.source_release && !inputs.test_package_id }}
@@ -191,7 +197,7 @@ jobs:
           echo "path=$RUNNER_TEMP/released-hap/msime-harmony-${VERSION}.hap" >> "$GITHUB_OUTPUT"
       - id: signing
         name: Sign and verify HarmonyOS release packages
-        if: ${{ (inputs.publish || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}
+        if: ${{ (steps.version.outputs.publish == 'true' || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}
         env:
           HARMONY_RELEASE_KEYSTORE_BASE64: ${{ secrets.HARMONY_RELEASE_KEYSTORE_BASE64 }}
           HARMONY_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.HARMONY_RELEASE_KEYSTORE_PASSWORD }}
@@ -233,20 +239,20 @@ jobs:
           if-no-files-found: error
       # APP 是应用市场上传材料，放 workflow artifact，不混在用户下载的 HAP 附件里。
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: ${{ (inputs.publish || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}
+        if: ${{ (steps.version.outputs.publish == 'true' || inputs.sign || steps.version.outputs.appgallery != 'none') && !inputs.test_package_id }}
         with:
           name: appgallery-msime-harmony-${{ steps.version.outputs.value }}
           path: ${{ steps.signing.outputs.app }}
           if-no-files-found: error
-      # The build takes the dispatched commit, and the release is tagged at that checked-out commit (git rev-parse HEAD), so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
+      # Only a run on a release tag that scripts/release-ref.py accepted publishes, and the release goes on that tag's commit (git rev-parse HEAD); a build of any other ref stays a workflow artifact.
       - name: Publish independent HarmonyOS release
-        if: ${{ inputs.publish }}
-        # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
-        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", HAP: "${{ steps.signing.outputs.hap }}", SUMS: "${{ steps.signing.outputs.sums }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
+        if: ${{ steps.version.outputs.publish == 'true' }}
+        # The release goes on the pushed tag; the workflow never creates one. RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) publishes it, falling back to GITHUB_TOKEN without the secret, as on a fork. scripts/publish-release.sh never writes the tag ref, not even on a re-run: a ref update made with this token raises a tag push event and would start a second release run.
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}", PRERELEASE: "${{ steps.version.outputs.prerelease }}", HAP: "${{ steps.signing.outputs.hap }}", SUMS: "${{ steps.signing.outputs.sums }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           tag="harmony-v${RELEASE}"
           [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true
-          # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
+          # The pushed tag already exists, and a re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta.N one at the latest release of either kind.
           stable='^harmony-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
           start=$(git tag --list 'harmony-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
           python3 scripts/generate-release-notes.py --platform harmony --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md

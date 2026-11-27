@@ -1,4 +1,5 @@
 #import "DictionaryCollectionsWindow.h"
+#import "DictionaryCollectionWordsSheet.h"
 #import "../core/BoundedFileReader.h"
 #import "../core/WindowPresentation.h"
 #import "../core/EditionIdentity.h"
@@ -23,13 +24,19 @@ const std::array<const char *, 5> formats{{"standard", "windows", "rime", "hans"
     NSArray<NSButton *> *_buttons;
     NSMutableArray<NSString *> *_rows, *_targets, *_titles;
     NSTimer *_timer;
+    MSIMEDictionaryCollectionWordsSheet *_wordsSheet;
+    std::string _wordsGroup;
+    NSUInteger _wordsPage;
 }
 + (void)showWithOptions:(NSDictionary *)options {
     NSData *data = [NSJSONSerialization dataWithJSONObject:options options:0 error:nil];
     if (!data) return;
     static MSIMEDictionaryCollectionsWindow *controller;
     if (!controller) controller = [[self alloc] initWithWindow:nil];
-    if (controller->_model && controller->_model->busy()) { [controller showWindow:nil]; return; }
+    if (controller->_wordsSheet || (controller->_model && controller->_model->busy())) {
+        [controller showWindow:nil];
+        return;
+    }
     try { controller->_model = std::make_unique<msime::dictionary_collections::Model>(Json::parse(std::string(static_cast<const char *>(data.bytes), data.length))); }
     catch (...) { return; }
     if (!controller.window) [controller loadWindow];
@@ -43,7 +50,10 @@ const std::array<const char *, 5> formats{{"standard", "windows", "rime", "hans"
             try {
                 if (strong->_model->busy())
                     [NSNotificationCenter.defaultCenter postNotificationName:MSIMEEditionNotificationName(@"MSIMEDictionaryMaintenanceWillBeginNotification") object:nil];
-                if (strong->_model->poll()) [strong update:YES];
+                if (strong->_model->poll()) {
+                    [strong update:YES];
+                    [strong updateWordsSheet];
+                }
             } catch (...) { strong->_status.stringValue = @"操作失败，请重试"; }
         }];
     }
@@ -60,6 +70,7 @@ const std::array<const char *, 5> formats{{"standard", "windows", "rime", "hans"
     _table.columnAutoresizingStyle = NSTableViewLastColumnOnlyAutoresizingStyle;
     [_table addTableColumn:column]; _table.headerView = nil; _table.rowHeight = 38;
     _table.allowsMultipleSelection = YES; _table.dataSource = self; _table.delegate = self;
+    _table.target = self; _table.doubleAction = @selector(openWords:);
     [_table setAccessibilityLabel:@"词库分组"];
     NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     scroll.documentView = _table; scroll.hasVerticalScroller = YES;
@@ -79,7 +90,7 @@ const std::array<const char *, 5> formats{{"standard", "windows", "rime", "hans"
         @[[NSTextField labelWithString:@"导入到"], _target]]];
     fields.rowSpacing = 8; fields.columnSpacing = 12;
     NSMutableArray<NSButton *> *buttons = [NSMutableArray new];
-    for (NSArray<NSString *> *entry in @[@[@"新建", @"createGroup:"], @[@"改名", @"renameGroup:"], @[@"导入…", @"importFile:"],
+    for (NSArray<NSString *> *entry in @[@[@"新建", @"createGroup:"], @[@"改名", @"renameGroup:"], @[@"导入…", @"importFile:"], @[@"词条…", @"openWords:"],
         @[@"启用", @"enableGroups:"], @[@"停用", @"disableGroups:"], @[@"删除…", @"deleteGroups:"], @[@"刷新", @"refresh:"]])
         [buttons addObject:[NSButton buttonWithTitle:entry[0] target:self action:NSSelectorFromString(entry[1])]];
     _buttons = buttons;
@@ -146,6 +157,46 @@ const std::array<const char *, 5> formats{{"standard", "windows", "rime", "hans"
 - (void)perform:(Json)action { _model->perform(std::move(action)); [self update:NO]; }
 - (void)kindChanged:(id)sender { (void)sender; [self update:YES]; }
 - (void)refresh:(id)sender { (void)sender; [self perform:{{"operation", "load"}}]; }
+- (void)openWords:(id)sender {
+    (void)sender;
+    if (_wordsSheet || _model->busy()) return;
+    const auto selected = [self selected];
+    if (selected.size() != 1) { _status.stringValue = @"请选择一个词库"; return; }
+    _wordsGroup = selected.front();
+    __weak MSIMEDictionaryCollectionsWindow *weakSelf = self;
+    _wordsSheet = [[MSIMEDictionaryCollectionWordsSheet alloc]
+        initWithPageRequest:^(NSUInteger page) { [weakSelf loadWordPage:page]; }
+        removal:^(const Json &words) { [weakSelf removeWords:words]; }];
+    [self.window beginSheet:_wordsSheet.window completionHandler:^(NSModalResponse response) {
+        (void)response;
+        MSIMEDictionaryCollectionsWindow *strong = weakSelf;
+        if (strong) strong->_wordsSheet = nil;
+    }];
+    [self loadWordPage:0];
+}
+- (void)loadWordPage:(NSUInteger)page {
+    if (_model->busy()) return;
+    _wordsPage = page;
+    [_wordsSheet setBusy:YES message:@"正在读取…"];
+    [self perform:{{"operation", "list_words"}, {"id", _wordsGroup}, {"page", page}}];
+}
+- (void)removeWords:(const Json &)words {
+    if (_model->busy()) return;
+    [_wordsSheet setBusy:YES message:@"正在删除…"];
+    [self perform:{{"operation", "remove_words"}, {"id", _wordsGroup}, {"entries", words}}];
+}
+- (void)updateWordsSheet {
+    if (!_wordsSheet || _model->busy()) return;
+    if (!_model->error.empty()) {
+        [_wordsSheet setBusy:NO message:text(msime::dictionary_collections::Model::message(_model->error))];
+        return;
+    }
+    const auto page = _model->view.find("word_page");
+    if (page == _model->view.end()) { [self loadWordPage:_wordsPage]; return; }
+    if (page->at("id") != _wordsGroup) return;
+    [_wordsSheet showPage:*page];
+    _wordsPage = page->at("page").get<NSUInteger>();
+}
 - (void)createGroup:(id)sender { (void)sender; [self perform:{{"operation", "create"}, {"name", bytes(_name.stringValue)}, {"kind", kinds.at(static_cast<size_t>(_kind.indexOfSelectedItem))}}]; }
 - (void)renameGroup:(id)sender {
     (void)sender; const auto ids = [self selected];

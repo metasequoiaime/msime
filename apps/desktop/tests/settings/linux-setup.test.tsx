@@ -398,7 +398,7 @@ test("配置成功时脚本报告的提示列在结果卡片上，不必展开�
 test("结果卡片上带网址的提示在卡片宽度内换行，不向两侧溢出", async () => {
   // 脚本的 GNOME Wayland 提示带着 README 的完整网址。卡片是 items-center 的纵向 flex，提示列表按内容最小宽度排版，网址不能断开时整段比卡片宽、向两侧溢出，左边被滚动区裁掉（2026-10-25 Ubuntu 24.04 + Fcitx5 验收）。jsdom 不做排版，这里检查让网址可断开、列表撑满卡片的两项样式；实际宽度用 WebKit 与 Chromium 按 448×640 和 1280×800 核对过。
   const note =
-    "提示：当前是 GNOME 的 Wayland 会话，且设置了 GTK_IM_MODULE=fcitx。做法见 platforms/linux/README.md 的「GNOME Wayland 下候选窗闪烁」一节（https://github.com/metasequoiaime/msime/blob/develop/platforms/linux/README.md），改完重新登录。";
+    "提示：当前是 GNOME 的 Wayland 会话，且设置了 GTK_IM_MODULE=fcitx。做法见 platforms/linux/README.md 的「GNOME Wayland 下候选窗闪烁」一节（https://github.com/metasequoiaime/msime/blob/main/platforms/linux/README.md），改完重新登录。";
   const run = vi.fn().mockResolvedValue({
     ...missing,
     prepared: true,

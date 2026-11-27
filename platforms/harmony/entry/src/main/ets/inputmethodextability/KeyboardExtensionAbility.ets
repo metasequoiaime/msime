@@ -10,7 +10,7 @@ import { CandidateAnchor, CandidateAnchorPolicy } from './CandidateAnchorPolicy'
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import fs from '@ohos.file.fs';
 import display from '@ohos.display';
-import window from '@ohos.window';
+import { ToolbarFocus } from './ToolbarFocus';
 import ConfigurationConstant from '@ohos.app.ability.ConfigurationConstant';
 import { KeyboardMetrics } from '../keyboard/KeyboardMetrics';
 import { TouchPanelShape } from '../keyboard/TouchLayoutStylePolicy';
@@ -50,6 +50,7 @@ import { SharedStateSync } from '../keyboard/SharedStateSync';
 import { HarmonyPrivacyConsent } from '../privacy/HarmonyPrivacyConsent';
 import { ScreenCaptureProtection } from '../keyboard/settings/ScreenCaptureProtection';
 import { HarmonyReadAloud } from '../speech/HarmonyReadAloud';
+import { ToolbarMoveQueue } from './ToolbarMoveQueue';
 
 // Where the badge goes and how long it stays, from platforms/macos/src/input/InputModeHUDPanel.mm: shown long enough to read and gone before the next word. Its size is the floating toolbar's, from InputModeHudPolicy.sizeVp.
 const HUD_SCREEN_MARGIN_VP: number = 8;
@@ -103,9 +104,11 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   // panel belonging to a newer request.
   private statusPanelGeneration: number = 0;
   private toolbarPosition: [number, number] = [0, 0];
-  // Set while the toolbar is hidden because the focused editor's window fills the screen.
-  private toolbarHiddenForFullscreen: boolean = false;
+  private readonly toolbarFocus: ToolbarFocus = new ToolbarFocus(
+    (error: Object): void => KeyboardLog.error(`toolbar visibility failed: ${describeError(error)}`));
   private toolbarDragOrigin: [number, number] = [0, 0];
+  private readonly toolbarMoves: ToolbarMoveQueue = new ToolbarMoveQueue(
+    (error: Object): void => KeyboardLog.error(`toolbar would not move: ${describeError(error)}`));
   private screenWidth: number = 0;
   private screenHeight: number = 0;
   private candidateCount: number = 0;
@@ -230,20 +233,20 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         return;
       }
       this.toolbar = toolbar;
+      this.toolbarFocus.beginSetup(toolbar);
       ScreenCaptureProtection.protectPanel(toolbar, this.screenCaptureProtected(), 'toolbar');
       KeyboardSession.shared.onToolbarResize = async (): Promise<void> => {
         await this.resizeToolbar(this.density, toolbar);
       };
-      KeyboardSession.shared.onToolbarDragStart = (): void => {
-        this.beginToolbarDrag();
+      KeyboardSession.shared.onToolbarDragStart = (position: [number, number] | undefined): void => {
+        this.beginToolbarDrag(position);
       };
       KeyboardSession.shared.onToolbarDrag = (offsetX: number, offsetY: number): void => {
         this.dragToolbar(offsetX, offsetY);
       };
       await this.resizeToolbar(this.density, toolbar);
-      if (this.tornDown || generation !== this.statusPanelGeneration) {
-        // A newer reconciliation may have adopted this panel. Leave it to that call (or
-        // teardown) rather than destroying the panel it now owns.
+      // 更新的一轮 reconcile 可能已接手这块面板（`this.toolbar` 仍是它），但那一轮只调整尺寸、不定位也不显示，准备期间被 `ToolbarFocus` 挡下的焦点也不会重放；所以面板仍归宿主时由这里继续移到右下角并显示，只有面板已被关闭或换掉时才放手。
+      if (this.tornDown || this.toolbar !== toolbar) {
         if (this.toolbar !== toolbar) {
           await engine.destroyPanel(toolbar);
         }
@@ -258,24 +261,31 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       this.toolbarPosition = [Math.round(this.screenWidth - width - margin),
         Math.round(this.screenHeight - height - margin * 4)];
       await toolbar.moveTo(this.toolbarPosition[0], this.toolbarPosition[1]);
-      if (this.tornDown || generation !== this.statusPanelGeneration) {
+      if (this.tornDown || this.toolbar !== toolbar) {
         if (this.toolbar !== toolbar) {
           await engine.destroyPanel(toolbar);
         }
         return;
       }
+      this.toolbarMoves.attach(toolbar, this.toolbarPosition);
       await toolbar.show();
     } catch (error) {
       KeyboardLog.error(`toolbar unavailable: ${describeError(error)}`);
-      if (toolbar !== undefined
-        && (generation === this.statusPanelGeneration || this.toolbar !== toolbar)) {
+      // Same ownership rule as the early exits above: a panel a newer reconcile adopted is still this call's to finish, so a failure gives it up too instead of leaving it unplaced and undraggable.
+      if (toolbar !== undefined) {
         if (this.toolbar === toolbar) {
           this.toolbar = undefined;
+          this.toolbarFocus.invalidate();
+          this.toolbarMoves.detach();
           KeyboardSession.shared.onToolbarResize = undefined;
           KeyboardSession.shared.onToolbarDragStart = undefined;
           KeyboardSession.shared.onToolbarDrag = undefined;
         }
         engine.destroyPanel(toolbar);
+      }
+    } finally {
+      if (toolbar !== undefined) {
+        this.toolbarFocus.endSetup(toolbar);
       }
     }
   }
@@ -287,9 +297,10 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     KeyboardSession.shared.onToolbarResize = undefined;
     KeyboardSession.shared.onToolbarDragStart = undefined;
     KeyboardSession.shared.onToolbarDrag = undefined;
+    this.toolbarFocus.invalidate();
+    this.toolbarMoves.detach();
     engine.destroyPanel(this.toolbar);
     this.toolbar = undefined;
-    this.toolbarHiddenForFullscreen = false;
   }
 
   private async openModeBadge(generation: number): Promise<void> {
@@ -359,8 +370,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     });
   }
 
-  private beginToolbarDrag(): void {
-    this.toolbarDragOrigin = [this.toolbarPosition[0], this.toolbarPosition[1]];
+  private beginToolbarDrag(position: [number, number] | undefined): void {
+    this.toolbarDragOrigin = position ?? this.toolbarMoves.anchor();
+    if (position !== undefined) this.toolbarMoves.rebase(position);
   }
 
   private dragToolbar(offsetX: number, offsetY: number): void {
@@ -376,9 +388,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       this.toolbarDragOrigin, [offsetX, offsetY], this.density, this.screenWidth,
       this.screenHeight, width, height);
     this.toolbarPosition = position;
-    this.toolbar.moveTo(position[0], position[1]).catch((error: Object): void => {
-      KeyboardLog.error(`toolbar would not move: ${describeError(error)}`);
-    });
+    this.toolbarMoves.move(position);
   }
 
   /** 存着的浮动键盘开关此刻是否生效（`FloatingKeyboardPolicy.active`）。 */
@@ -748,30 +758,19 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       if (!KeyboardFormFactor.isDesktop()) {
         this.panel.show();
       } else {
-        this.followCallingWindow(inputClient);
+        this.followCallingWindow();
       }
     };
 
   /**
-   * Keep the floating toolbar off an application that fills the screen, and bring it back when the focus is in a window that does not.
+   * 每次绑定编辑器都请求显示悬浮工具栏，调用窗口全屏时也一样。
    *
-   * The Windows host hides its toolbar while the foreground window is fullscreen (`OnWinEvent` in `window_hook.cpp`), so a game or a video is not covered by a bar nobody is using. HarmonyOS tells the keyboard the calling window's status, and only when asked, so it is asked each time an editor takes focus; a window that goes fullscreen while its editor keeps the focus is noticed at the next focus.
+   * Windows 与 Linux 宿主在前台窗口全屏时隐藏工具栏（Windows 是 `window_hook.cpp` 的 `OnWinEvent`），是为了不让没人在用的工具栏挡住视频或游戏。这里只在有编辑器绑定、也就是用户正在打字时才会走到，那条理由不成立，所以 HarmonyOS 有意不做全屏隐藏，这是维护者确认的平台差异，也是反馈者要的行为。切换窗口时系统可能自行收起状态面板，因此不信任缓存的可见状态，每次绑定都重新请求。
    */
-  private followCallingWindow(inputClient: inputMethodEngine.InputClient): void {
+  private followCallingWindow(): void {
     const toolbar: inputMethodEngine.Panel | undefined = this.toolbar;
-    if (toolbar === undefined) {
-      return;
-    }
-    inputClient.getCallingWindowInfo().then((info: inputMethodEngine.WindowInfo): Promise<void> | undefined => {
-      const fullscreen: boolean = info.status === window.WindowStatusType.FULL_SCREEN;
-      if (this.toolbar !== toolbar || fullscreen === this.toolbarHiddenForFullscreen) {
-        return undefined;
-      }
-      this.toolbarHiddenForFullscreen = fullscreen;
-      return fullscreen ? toolbar.hide() : toolbar.show();
-    }).catch((error: Object): void => {
-      KeyboardLog.error(`calling window unavailable: ${describeError(error)}`);
-    });
+    if (toolbar === undefined) return;
+    void this.toolbarFocus.focus(toolbar, (): boolean => this.toolbar === toolbar && !this.tornDown);
   }
 
   private readonly keyboardShown: () => void = (): void => {
@@ -787,6 +786,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   private readonly stopped: () => void = (): void => {
     // An editor that stops while the panel is still being built must not be attached once it is.
     this.pending = undefined;
+    this.toolbarFocus.invalidate();
     this.backspaceHold.reset();
     this.heldKeys.reset();
     KeyboardSession.shared.detach();
@@ -1345,6 +1345,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           this.applyScreenCaptureProtection();
           if (!desktop) {
             this.panel.show();
+          } else {
+            this.followCallingWindow();
           }
         }
       } catch (error) {

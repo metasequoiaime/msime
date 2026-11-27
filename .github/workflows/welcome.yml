@@ -41,10 +41,10 @@ jobs:
           PR_MESSAGE: |
             感谢你的第一个 PR！合并前请留意：
 
-            - 日常改动请以 `develop` 为目标分支，`main` 只接受发布提升。
+            - 所有改动都以 `main` 为目标分支。
             - PR 标题使用 Conventional Commits（例如 `fix(linux): ...`），squash 合并时它会成为提交信息。
             - 合并前本地跑一次 `bash scripts/verify-local.sh --quick`，并在 PR 描述里写明实际执行过的验证和未覆盖的平台。
-            - 架构边界与验证分级见 [ARCHITECTURE.md](https://github.com/metasequoiaime/msime/blob/develop/docs/ARCHITECTURE.md)，贡献流程见 [CONTRIBUTING.md](https://github.com/metasequoiaime/msime/blob/develop/.github/CONTRIBUTING.md)。
+            - 架构边界与验证分级见 [ARCHITECTURE.md](https://github.com/metasequoiaime/msime/blob/main/docs/ARCHITECTURE.md)，贡献流程见 [CONTRIBUTING.md](https://github.com/metasequoiaime/msime/blob/main/.github/CONTRIBUTING.md)。
         run: |
           set -euo pipefail
           # The issues endpoint returns both issues and pull requests; pull requests carry a pull_request key.

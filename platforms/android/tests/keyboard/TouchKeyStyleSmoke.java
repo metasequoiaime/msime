@@ -75,7 +75,7 @@ public final class TouchKeyStyleSmoke {
             "a style a face cannot draw falls back to standard");
     }
 
-    /** 哪些键面读哪一类样式：中文 26 键读 26 键样式，英文、韩文和其他语言的 26 键保留标准底行。 */
+    /** 哪些键面读哪一类样式：中文方案的 26 键连同其英文模式读 26 键样式，韩文和其他语言的 26 键保留标准底行。 */
     private static void faces() {
         TouchKeyStyle.Styles styles = new TouchKeyStyle.Styles(TouchKeyStyle.Row.EMOJI, TouchKeyStyle.Row.LONG_SPACE,
             TouchKeyStyle.Row.COMMA_PERIOD);
@@ -83,8 +83,8 @@ public final class TouchKeyStyleSmoke {
         for (int scheme : new int[] {InputSchemeTraits.QUANPIN, InputSchemeTraits.SHUANGPIN, InputSchemeTraits.WUBI,
                 InputSchemeTraits.CANTONESE, -1})
             check(styles.forLayout(standard, scheme, false) == TouchKeyStyle.Row.EMOJI, "Chinese 26 key reads its style " + scheme);
-        check(styles.forLayout(standard, InputSchemeTraits.QUANPIN, true) == TouchKeyStyle.Row.STANDARD,
-            "English 26 key keeps the standard row");
+        check(styles.forLayout(standard, InputSchemeTraits.QUANPIN, true) == TouchKeyStyle.Row.EMOJI,
+            "English mode on a Chinese 26 key reads its style");
         for (int scheme : new int[] {InputSchemeTraits.JAPANESE, InputSchemeTraits.VIETNAMESE, InputSchemeTraits.TIBETAN})
             check(styles.forLayout(standard, scheme, false) == TouchKeyStyle.Row.STANDARD, "other languages keep the standard row");
         check(styles.forLayout(KeyboardLayout.KOREAN_LAYOUT, InputSchemeTraits.KOREAN, false) == TouchKeyStyle.Row.STANDARD,
@@ -109,8 +109,8 @@ public final class TouchKeyStyleSmoke {
         for (int scheme : new int[] {InputSchemeTraits.QUANPIN, InputSchemeTraits.SHUANGPIN, InputSchemeTraits.WUBI,
                 InputSchemeTraits.CANTONESE, -1})
             check(longSpace.keepsToolbarRow(standard, scheme), "a Chinese 26 key keyboard keeps the toolbar row " + scheme);
-        // 英文 26 键自己画标准底行，但同一块键盘的工具栏行不随中/英出没。
-        check(longSpace.forLayout(standard, InputSchemeTraits.QUANPIN, true) == TouchKeyStyle.Row.STANDARD
+        // 英文模式沿用同一中文方案的样式，工具栏行也不随中/英出没。
+        check(longSpace.forLayout(standard, InputSchemeTraits.QUANPIN, true) == TouchKeyStyle.Row.LONG_SPACE
             && longSpace.keepsToolbarRow(standard, InputSchemeTraits.QUANPIN), "English on the same keyboard keeps the row");
         for (int scheme : new int[] {InputSchemeTraits.JAPANESE, InputSchemeTraits.VIETNAMESE, InputSchemeTraits.TIBETAN})
             check(!longSpace.keepsToolbarRow(standard, scheme), "other languages draw no long space and keep no row " + scheme);
@@ -127,11 +127,11 @@ public final class TouchKeyStyleSmoke {
     private static void twentySixKeyRows() {
         int layout = KeyboardLayout.STANDARD_TOUCH_LAYOUT;
         expect(layout, TouchKeyStyle.Row.STANDARD,
-            entries(LAYER, 1.25f, SYMBOL, 1.05f, PERIOD, 1f, SPACE, 3f, COMMA, 1f, LANGUAGE, 1.05f, RETURN, 1.9f));
+            entries(LAYER, 1.5f, SYMBOL, 1f, PERIOD, 1f, SPACE, 3f, COMMA, 1f, LANGUAGE, 1f, RETURN, 1.5f));
         expect(layout, TouchKeyStyle.Row.COMMA_PERIOD,
-            entries(LAYER, 1.25f, SYMBOL, 1.05f, COMMA, 1f, SPACE, 3f, PERIOD, 1f, LANGUAGE, 1.05f, RETURN, 1.9f));
-        expect(layout, TouchKeyStyle.Row.LONG_SPACE, entries(LAYER, 1.25f, COMMA, 1f, SPACE, 5.05f, LANGUAGE, 1.05f, RETURN, 1.9f));
-        expect(layout, TouchKeyStyle.Row.EMOJI, entries(LAYER, 1.25f, EMOJI, 1.05f, SPACE, 4f, COMMA, 1f, LANGUAGE, 1.05f, RETURN, 1.9f));
+            entries(LAYER, 1.5f, SYMBOL, 1f, COMMA, 1f, SPACE, 3f, PERIOD, 1f, LANGUAGE, 1f, RETURN, 1.5f));
+        expect(layout, TouchKeyStyle.Row.LONG_SPACE, entries(LAYER, 1.5f, COMMA, 1f, SPACE, 5f, LANGUAGE, 1f, RETURN, 1.5f));
+        expect(layout, TouchKeyStyle.Row.EMOJI, entries(LAYER, 1.5f, EMOJI, 1f, SPACE, 4f, COMMA, 1f, LANGUAGE, 1f, RETURN, 1.5f));
         check(row(layout, false, TouchKeyStyle.Row.STANDARD).equals(KeyboardActionRow.designEntries(layout, false)),
             "the standard style is today's row");
         check(row(layout, true, TouchKeyStyle.Row.STANDARD).equals(KeyboardActionRow.designEntries(layout, true)),
@@ -139,19 +139,21 @@ public final class TouchKeyStyleSmoke {
         check(row(layout, false, TouchKeyStyle.Row.LONG_SPACE)
                 .equals(KeyboardActionRow.designEntries(layout, false, false, false, false, true)),
             "long_space is exactly the earlier Android long-space row");
-        // 英文模式不受样式影响（长空格沿用旧长空格行的写法），宿主对英文一律传标准样式。
-        for (TouchKeyStyle.Row style : List.of(TouchKeyStyle.Row.COMMA_PERIOD, TouchKeyStyle.Row.EMOJI))
-            check(KeyboardActionRow.designEntries(layout, false, false, false, true, style)
-                    .equals(KeyboardActionRow.designEntries(layout, false, false, false, true)),
-                "English 26 key draws the English row whatever the style");
+        // 英文模式沿用中文方案的样式，但键面文字由英文分支绘制。
+        check(KeyboardActionRow.designEntries(layout, false, false, false, true, TouchKeyStyle.Row.COMMA_PERIOD)
+                .equals(entries(LAYER, 1.5f, SYMBOL, 1f, COMMA, 1f, SPACE, 3f, PERIOD, 1f, LANGUAGE, 1f, RETURN, 1.5f)),
+            "English 26 key keeps comma-period style");
+        check(KeyboardActionRow.designEntries(layout, false, false, false, true, TouchKeyStyle.Row.EMOJI)
+                .equals(entries(LAYER, 1.5f, EMOJI, 1f, SPACE, 4f, COMMA, 1f, LANGUAGE, 1f, RETURN, 1.5f)),
+            "English 26 key keeps emoji style");
     }
 
     private static void fourteenKeyRows() {
         for (int layout : new int[] {KeyboardLayout.FOURTEEN_KEY_LAYOUT, KeyboardLayout.EIGHTEEN_KEY_LAYOUT}) {
-            expect(layout, TouchKeyStyle.Row.STANDARD, entries(LAYER, 1.25f, COMMA, 1f, SPACE, 4f, PERIOD, 1f, LANGUAGE, 1.05f, RETURN, 1.9f));
-            expect(layout, TouchKeyStyle.Row.LONG_SPACE, entries(LAYER, 1.25f, COMMA, 1f, SPACE, 5f, LANGUAGE, 1.05f, RETURN, 1.9f));
+            expect(layout, TouchKeyStyle.Row.STANDARD, entries(LAYER, 1.5f, COMMA, 1f, SPACE, 4f, PERIOD, 1f, LANGUAGE, 1f, RETURN, 1.5f));
+            expect(layout, TouchKeyStyle.Row.LONG_SPACE, entries(LAYER, 1.5f, COMMA, 1f, SPACE, 5f, LANGUAGE, 1f, RETURN, 1.5f));
             // 😀 在原逗号的位置、取原逗号的宽度；逗号挪到原句号的位置、取原句号的宽度。
-            expect(layout, TouchKeyStyle.Row.EMOJI, entries(LAYER, 1.25f, EMOJI, 1f, SPACE, 4f, COMMA, 1f, LANGUAGE, 1.05f, RETURN, 1.9f));
+            expect(layout, TouchKeyStyle.Row.EMOJI, entries(LAYER, 1.5f, EMOJI, 1f, SPACE, 4f, COMMA, 1f, LANGUAGE, 1f, RETURN, 1.5f));
             expect(layout, TouchKeyStyle.Row.COMMA_PERIOD, row(layout, false, TouchKeyStyle.Row.STANDARD));
             check(row(layout, false, TouchKeyStyle.Row.STANDARD).equals(KeyboardActionRow.designEntries(layout, false)),
                 "the standard 14/18 style is today's row");
@@ -163,11 +165,11 @@ public final class TouchKeyStyleSmoke {
 
     private static void nineKeyRows() {
         for (int layout : new int[] {KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.STROKE_LAYOUT}) {
-            expect(layout, TouchKeyStyle.Row.STANDARD, entries(SYMBOL, 1.05f, LAYER, 1.25f, SPACE, 4f, LANGUAGE, 1.05f, RETURN, 1.9f));
+            expect(layout, TouchKeyStyle.Row.STANDARD, entries(SYMBOL, S, LAYER, H, SPACE, fill(S, H, H, S), LANGUAGE, H, RETURN, S));
             expect(layout, TouchKeyStyle.Row.COMMA_PERIOD,
-                entries(SYMBOL, 1.05f, LAYER, 1.25f, COMMA, 1f, SPACE, 2f, PERIOD, 1f, LANGUAGE, 1.05f, RETURN, 1.9f));
+                entries(SYMBOL, S, LAYER, H, COMMA, H, SPACE, fill(S, H, H, H, H, S), PERIOD, H, LANGUAGE, H, RETURN, S));
             expect(layout, TouchKeyStyle.Row.EMOJI,
-                entries(SYMBOL, 1.05f, LAYER, 1.25f, EMOJI, 1.05f, SPACE, 2.95f, LANGUAGE, 1.05f, RETURN, 1.9f));
+                entries(SYMBOL, S, LAYER, H, EMOJI, H, SPACE, fill(S, H, H, H, S), LANGUAGE, H, RETURN, S));
             expect(layout, TouchKeyStyle.Row.LONG_SPACE, row(layout, false, TouchKeyStyle.Row.STANDARD));
             check(row(layout, false, TouchKeyStyle.Row.STANDARD).equals(KeyboardActionRow.designEntries(layout, false)),
                 "the standard nine-key style is today's row");
@@ -205,22 +207,22 @@ public final class TouchKeyStyleSmoke {
         for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT, KeyboardLayout.FOURTEEN_KEY_LAYOUT,
                 KeyboardLayout.EIGHTEEN_KEY_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT, KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT})
             check(!KeyboardActionRow.drawsTallReturn(layout, tall), "no tall frame on " + layout);
-        // 拼音九键：九宫格占外框 14/20；标准九键底行总份额 9.25（带地球键 10.25）。
+        // 拼音九键：九宫格占外框 14/20；九键底行合计 10 份，九宫格下方一行是其中的 7 份，123、中/英和数字层的空格各占九宫格半列。
         float nineShare = NineKeyLayout.GRID_WEIGHT / (2 * NineKeyLayout.SIDE_COLUMN_WEIGHT + NineKeyLayout.GRID_WEIGHT);
-        expectTall(nineShare, false, false, false, entries(LAYER, 1.25f, SPACE, 9.25f * 0.7f - 2.3f, LANGUAGE, 1.05f));
-        expectTall(nineShare, true, false, false, entries(LAYER, 1.25f, GLOBE, 1f, SPACE, 10.25f * 0.7f - 3.3f, LANGUAGE, 1.05f));
-        expectTall(nineShare, false, true, false, entries(LANGUAGE, 1.05f, SPACE, 9.25f * 0.7f - 2.3f, LAYER, 1.25f));
+        float ten = total(KeyboardActionRow.designEntries(nine, false));
+        float tenGlobe = total(KeyboardActionRow.designEntries(nine, true));
+        expectTall(nineShare, false, false, false, entries(LAYER, H, SPACE, ten * nineShare - H * 2, LANGUAGE, H));
+        expectTall(nineShare, true, false, false, entries(LAYER, H, GLOBE, H, SPACE, tenGlobe * nineShare - H * 3, LANGUAGE, H));
+        expectTall(nineShare, false, true, false, entries(LANGUAGE, H, SPACE, ten * nineShare - H * 2, LAYER, H));
         expectTall(nineShare, false, false, true,
-            entries(LAYER, 1.25f, KeyboardActionRow.DesignSlot.ZERO, 9.25f * 0.7f - 3.35f, SPACE, 1.05f, LANGUAGE, 1.05f));
-        expectTall(nineShare, true, false, true, entries(LAYER, 1.25f, GLOBE, 1f, KeyboardActionRow.DesignSlot.ZERO,
-            10.25f * 0.7f - 4.35f, SPACE, 1.05f, LANGUAGE, 1.05f));
-        expectTall(nineShare, true, true, true, entries(LANGUAGE, 1.05f, GLOBE, 1f, KeyboardActionRow.DesignSlot.ZERO,
-            10.25f * 0.7f - 4.35f, SPACE, 1.05f, LAYER, 1.25f));
-        check(KeyboardActionRow.TALL_RETURN_DIGIT_SPACE_WEIGHT == 1.05f, "the number layer's space is 1.05, as wide as 中/英");
-        // 笔画外框 0.9 / 3 / 0.9：同一行按笔画网格的比例变窄，变的只有空格（数字层是 0）。
-        expectTall(3f / 4.8f, false, false, false, entries(LAYER, 1.25f, SPACE, 9.25f * 0.625f - 2.3f, LANGUAGE, 1.05f));
-        expectTall(3f / 4.8f, false, false, true, entries(LAYER, 1.25f, KeyboardActionRow.DesignSlot.ZERO,
-            9.25f * 0.625f - 3.35f, SPACE, 1.05f, LANGUAGE, 1.05f));
+            entries(LAYER, H, KeyboardActionRow.DesignSlot.ZERO, ten * nineShare - H * 3, SPACE, H, LANGUAGE, H));
+        expectTall(nineShare, true, false, true, entries(LAYER, H, GLOBE, H, KeyboardActionRow.DesignSlot.ZERO,
+            tenGlobe * nineShare - H * 4, SPACE, H, LANGUAGE, H));
+        expectTall(nineShare, true, true, true, entries(LANGUAGE, H, GLOBE, H, KeyboardActionRow.DesignSlot.ZERO,
+            tenGlobe * nineShare - H * 4, SPACE, H, LAYER, H));
+        check(KeyboardActionRow.TALL_RETURN_DIGIT_SPACE_WEIGHT == H, "the number layer's space is half a grid column, as wide as 中/英");
+        // 笔画与拼音九键同一外框 3 | 14 | 3，九宫格下方一行同宽。
+        check(KeyboardActionRow.tallReturnGridShare(KeyboardLayout.STROKE_LAYOUT) == nineShare, "stroke shares the nine-key frame");
         frameColumns();
         for (float share : new float[] {nineShare, 3f / 4.8f}) {
             for (boolean globe : new boolean[] {false, true}) {
@@ -245,7 +247,7 @@ public final class TouchKeyStyleSmoke {
     }
 
     /**
-     * 外框三列的宽度按画着的键面取：拼音九键 3 / 14 / 3，笔画 0.9 / 3 / 0.9。笔画的数字层借的是九键数字九宫格（`rebuildNineKeyRows`），键面仍是笔画，两层取同一组份额：符（左列）、123 / 返回、中/英和回车（右列）在整行里的位置与宽度不随切层变。原来数字层按九键份额画，符 和回车从 18.75% 缩到 15%，123 往左挪了 3.75%。
+     * 外框三列的宽度按画着的键面取；拼音九键和笔画都是 3 / 14 / 3。笔画的数字层借的是九键数字九宫格（`rebuildNineKeyRows`），键面仍是笔画，两层取同一组份额：符（左列）、123 / 返回、中/英和回车（右列）在整行里的位置与宽度不随切层变。原来数字层按九键份额画，符 和回车从 18.75% 缩到 15%，123 往左挪了 3.75%。
      */
     private static void frameColumns() {
         int nine = KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT;
@@ -253,10 +255,11 @@ public final class TouchKeyStyleSmoke {
         check(KeyboardActionRow.tallReturnSideWeight(nine) == NineKeyLayout.SIDE_COLUMN_WEIGHT
             && KeyboardActionRow.tallReturnGridWeight(nine) == NineKeyLayout.GRID_WEIGHT, "pinyin nine-key keeps the 3 / 14 / 3 frame");
         check(KeyboardActionRow.tallReturnSideWeight(stroke) == StrokeKeyboardLayout.SIDE_COLUMN_WEIGHT
-            && KeyboardActionRow.tallReturnGridWeight(stroke) == StrokeKeyboardLayout.GRID_WEIGHT, "stroke keeps the 0.9 / 3 / 0.9 frame");
-        check(StrokeKeyboardLayout.SIDE_COLUMN_WEIGHT == 0.9f && StrokeKeyboardLayout.GRID_WEIGHT == 3f, "stroke column weights");
+            && KeyboardActionRow.tallReturnGridWeight(stroke) == StrokeKeyboardLayout.GRID_WEIGHT, "stroke draws its own frame constants");
+        check(StrokeKeyboardLayout.SIDE_COLUMN_WEIGHT == NineKeyLayout.SIDE_COLUMN_WEIGHT
+            && StrokeKeyboardLayout.GRID_WEIGHT == NineKeyLayout.GRID_WEIGHT, "stroke shares the 3 / 14 / 3 frame");
         check(Math.abs(KeyboardActionRow.tallReturnGridShare(nine) - 0.7f) < 1e-6f, "pinyin nine-key grid share 14/20");
-        check(Math.abs(KeyboardActionRow.tallReturnGridShare(stroke) - 0.625f) < 1e-6f, "stroke grid share 3/4.8");
+        check(Math.abs(KeyboardActionRow.tallReturnGridShare(stroke) - 0.7f) < 1e-6f, "stroke grid share 14/20");
         for (int layout : new int[] {nine, stroke}) {
             float side = KeyboardActionRow.tallReturnSideWeight(layout);
             float row = 2 * side + KeyboardActionRow.tallReturnGridWeight(layout);
@@ -275,7 +278,7 @@ public final class TouchKeyStyleSmoke {
                     check(Math.abs(total(letters) - total(digits)) < 1e-4f, "both layers' strips span the same grid on " + layout);
                 }
             }
-            check(Math.abs(side / row - (layout == stroke ? 0.1875f : 0.15f)) < 1e-6f, "符 and the return column share on " + layout);
+            check(Math.abs(side / row - 0.15f) < 1e-6f, "符 and the return column take 15% (3 of 20 columns) on " + layout);
         }
     }
 
@@ -552,8 +555,8 @@ public final class TouchKeyStyleSmoke {
                 && Math.abs(pad.get(0).weight() - letters.get(0).weight()) < 1e-5f
                 && Math.abs(pad.get(1).weight() - letters.get(1).weight()) < 1e-5f,
                 "符 and 返回 sit where 符 and 123 were, globe " + globe);
-            check(pad.equals(KeyboardActionRow.numberPadEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, globe, false,
-                TouchKeyStyle.Row.STANDARD)), "the pad uses the nine-key order, globe " + globe);
+            check(slots(pad).equals(slots(KeyboardActionRow.numberPadEntries(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, globe, false,
+                TouchKeyStyle.Row.STANDARD))), "the pad uses the nine-key order, globe " + globe);
         }
         check(slots(KeyboardActionRow.numberPadEntries(standard, false, false, TouchKeyStyle.Row.EMOJI, true, platform)).get(0) == LAYER,
             "an emoji-style source keeps 返回 first");
@@ -616,16 +619,16 @@ public final class TouchKeyStyleSmoke {
         List<KeyboardActionRow.DesignEntry> today = KeyboardActionRow.designEntries(nine, false, false, true);
         for (TouchKeyStyle.NumberPadSpace space : List.of(TouchKeyStyle.NumberPadSpace.PLATFORM_DEFAULT, TouchKeyStyle.NumberPadSpace.RIGHT_COLUMN))
             check(KeyboardActionRow.designEntries(nine, false, false, true, false, TouchKeyStyle.Row.STANDARD, false, space).equals(today)
-                && today.equals(entries(SYMBOL, 1.05f, LAYER, 1.25f, zero, 4f, LANGUAGE, 1.05f, RETURN, 1.9f)),
+                && today.equals(entries(SYMBOL, S, LAYER, H, zero, fill(S, H, H, S), LANGUAGE, H, RETURN, S)),
                 space + " is today's number layer");
         List<KeyboardActionRow.DesignEntry> after = KeyboardActionRow.designEntries(nine, false, false, true, false,
             TouchKeyStyle.Row.STANDARD, false, TouchKeyStyle.NumberPadSpace.AFTER_ZERO);
-        check(after.equals(entries(SYMBOL, 1.05f, LAYER, 1.25f, zero, 2.95f, SPACE, 1.05f, LANGUAGE, 1.05f, RETURN, 1.9f)),
-            "after_zero: 0 then a 1.05 space " + after);
+        check(after.equals(entries(SYMBOL, S, LAYER, H, zero, fill(S, H, H, S) - H, SPACE, H, LANGUAGE, H, RETURN, S)),
+            "after_zero: 0 then a half-column space " + after);
         List<KeyboardActionRow.DesignEntry> before = KeyboardActionRow.designEntries(nine, true, false, true, false,
             TouchKeyStyle.Row.STANDARD, false, TouchKeyStyle.NumberPadSpace.BEFORE_ZERO);
-        check(before.equals(entries(SYMBOL, 1.05f, LAYER, 1.25f, GLOBE, 1f, SPACE, 2.95f, zero, 1.05f, LANGUAGE, 1.05f, RETURN, 1.9f)),
-            "before_zero: a wide space then a 1.05 zero " + before);
+        check(before.equals(entries(SYMBOL, S, LAYER, H, GLOBE, H, SPACE, fill(S, H, H, H, S) - H, zero, H, LANGUAGE, H, RETURN, S)),
+            "before_zero: a wide space then a half-column zero " + before);
         for (TouchKeyStyle.NumberPadSpace space : TouchKeyStyle.NumberPadSpace.values()) {
             List<KeyboardActionRow.DesignEntry> pad = KeyboardActionRow.designEntries(nine, false, false, true, false,
                 TouchKeyStyle.Row.STANDARD, false, space);
@@ -635,7 +638,9 @@ public final class TouchKeyStyleSmoke {
             // 借来的数字九宫格（26 键）同样按它排，返回键仍在第一格。
             List<KeyboardActionRow.DesignEntry> borrowed = KeyboardActionRow.numberPadEntries(KeyboardLayout.STANDARD_TOUCH_LAYOUT,
                 false, false, TouchKeyStyle.Row.STANDARD, false, space);
-            check(borrowed.get(0).slot() == LAYER && borrowed.containsAll(pad), space + " lays the borrowed pad the same way");
+            check(borrowed.get(0).slot() == LAYER && slots(borrowed).containsAll(slots(pad))
+                    && Math.abs(total(borrowed) - KeyboardActionRow.ROW_SHARES) < 1e-4f,
+                space + " lays the borrowed pad the same way, in the letter row's shares");
             // 交换中/英与 123 照样作用。
             List<KeyboardActionRow.DesignEntry> swapped = KeyboardActionRow.numberPadEntries(nine, false, true,
                 TouchKeyStyle.Row.STANDARD, false, space);
@@ -673,21 +678,21 @@ public final class TouchKeyStyleSmoke {
 
         // 中文 26 键。
         expectLeft(standard, false, TouchKeyStyle.Row.STANDARD, false,
-            entries(LAYER, 1.25f, SYMBOL, 1.05f, LANGUAGE, 1.05f, PERIOD, 1f, SPACE, 3f, COMMA, 1f, RETURN, 1.9f));
+            entries(LAYER, 1.5f, SYMBOL, 1f, LANGUAGE, 1f, PERIOD, 1f, SPACE, 3f, COMMA, 1f, RETURN, 1.5f));
         expectLeft(standard, false, TouchKeyStyle.Row.COMMA_PERIOD, false,
-            entries(LAYER, 1.25f, SYMBOL, 1.05f, LANGUAGE, 1.05f, COMMA, 1f, SPACE, 3f, PERIOD, 1f, RETURN, 1.9f));
+            entries(LAYER, 1.5f, SYMBOL, 1f, LANGUAGE, 1f, COMMA, 1f, SPACE, 3f, PERIOD, 1f, RETURN, 1.5f));
         expectLeft(standard, false, TouchKeyStyle.Row.LONG_SPACE, false,
-            entries(LAYER, 1.25f, LANGUAGE, 1.05f, COMMA, 1f, SPACE, 5.05f, RETURN, 1.9f));
+            entries(LAYER, 1.5f, LANGUAGE, 1f, COMMA, 1f, SPACE, 5f, RETURN, 1.5f));
         expectLeft(standard, false, TouchKeyStyle.Row.EMOJI, false,
-            entries(LAYER, 1.25f, EMOJI, 1.05f, LANGUAGE, 1.05f, SPACE, 4f, COMMA, 1f, RETURN, 1.9f));
+            entries(LAYER, 1.5f, EMOJI, 1f, LANGUAGE, 1f, SPACE, 4f, COMMA, 1f, RETURN, 1.5f));
         expectLeft(standard, false, TouchKeyStyle.Row.STANDARD, true,
-            entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, PERIOD, 1f, SPACE, 3f, COMMA, 1f, RETURN, 1.9f));
+            entries(SYMBOL, 1f, LAYER, 1.5f, LANGUAGE, 1f, PERIOD, 1f, SPACE, 3f, COMMA, 1f, RETURN, 1.5f));
         expectLeft(standard, false, TouchKeyStyle.Row.COMMA_PERIOD, true,
-            entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, COMMA, 1f, SPACE, 3f, PERIOD, 1f, RETURN, 1.9f));
+            entries(SYMBOL, 1f, LAYER, 1.5f, LANGUAGE, 1f, COMMA, 1f, SPACE, 3f, PERIOD, 1f, RETURN, 1.5f));
         // 英文 26 键：中/英与中文 26 键停在同一格（第三格），切中/英时不跳。
         List<KeyboardActionRow.DesignEntry> english = KeyboardActionRow.designEntries(standard, false, false, false, true,
             TouchKeyStyle.Row.STANDARD, false, platform, true);
-        check(english.equals(entries(LAYER, 1.25f, SYMBOL, 1.05f, LANGUAGE, 1.05f, PERIOD, 1f, SPACE, 3f, COMMA, 1f, RETURN, 1.9f)),
+        check(english.equals(entries(LAYER, 1.5f, SYMBOL, 1f, LANGUAGE, 1f, PERIOD, 1f, SPACE, 3f, COMMA, 1f, RETURN, 1.5f)),
             "English 26 key keeps . against the space " + english);
         check(slots(english).indexOf(LANGUAGE) == slots(row(standard, false, TouchKeyStyle.Row.STANDARD, false, true)).indexOf(LANGUAGE),
             "中/英 sits in the same slot on the Chinese and English 26 key");
@@ -696,19 +701,19 @@ public final class TouchKeyStyleSmoke {
         // 14 / 18 键和大千注音。
         for (int layout : new int[] {fourteen, KeyboardLayout.EIGHTEEN_KEY_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT})
             check(row(layout, false, TouchKeyStyle.Row.STANDARD, false, true)
-                .equals(entries(LAYER, 1.25f, LANGUAGE, 1.05f, COMMA, 1f, SPACE, 4f, PERIOD, 1f, RETURN, 1.9f)), layout + " standard");
+                .equals(entries(LAYER, 1.5f, LANGUAGE, 1f, COMMA, 1f, SPACE, 4f, PERIOD, 1f, RETURN, 1.5f)), layout + " standard");
         expectLeft(fourteen, false, TouchKeyStyle.Row.LONG_SPACE, false,
-            entries(LAYER, 1.25f, LANGUAGE, 1.05f, COMMA, 1f, SPACE, 5f, RETURN, 1.9f));
+            entries(LAYER, 1.5f, LANGUAGE, 1f, COMMA, 1f, SPACE, 5f, RETURN, 1.5f));
         expectLeft(fourteen, false, TouchKeyStyle.Row.EMOJI, false,
-            entries(LAYER, 1.25f, EMOJI, 1f, LANGUAGE, 1.05f, SPACE, 4f, COMMA, 1f, RETURN, 1.9f));
+            entries(LAYER, 1.5f, EMOJI, 1f, LANGUAGE, 1f, SPACE, 4f, COMMA, 1f, RETURN, 1.5f));
         // 九键外框（拼音九键、九键双拼、笔画）。
         for (int layout : new int[] {nine, KeyboardLayout.STROKE_LAYOUT}) {
             expectLeft(layout, false, TouchKeyStyle.Row.STANDARD, false,
-                entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, SPACE, 4f, RETURN, 1.9f));
+                entries(SYMBOL, S, LAYER, H, LANGUAGE, H, SPACE, fill(S, H, H, S), RETURN, S));
             expectLeft(layout, false, TouchKeyStyle.Row.COMMA_PERIOD, false,
-                entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, COMMA, 1f, SPACE, 2f, PERIOD, 1f, RETURN, 1.9f));
+                entries(SYMBOL, S, LAYER, H, LANGUAGE, H, COMMA, H, SPACE, fill(S, H, H, H, H, S), PERIOD, H, RETURN, S));
             expectLeft(layout, false, TouchKeyStyle.Row.EMOJI, false,
-                entries(SYMBOL, 1.05f, LAYER, 1.25f, EMOJI, 1.05f, LANGUAGE, 1.05f, SPACE, 2.95f, RETURN, 1.9f));
+                entries(SYMBOL, S, LAYER, H, EMOJI, H, LANGUAGE, H, SPACE, fill(S, H, H, H, S), RETURN, S));
         }
         // 地球键照旧紧跟 123（互换后紧跟 123）。
         check(slots(row(standard, true, TouchKeyStyle.Row.STANDARD, false, true))
@@ -719,15 +724,15 @@ public final class TouchKeyStyleSmoke {
             .equals(List.of(SYMBOL, LAYER, GLOBE, LANGUAGE, SPACE, RETURN)), "nine-key globe");
 
         // 九键数字层三种空格位置。
-        expectNumbers(nine, platform, entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, zero, 4f, RETURN, 1.9f));
+        expectNumbers(nine, platform, entries(SYMBOL, S, LAYER, H, LANGUAGE, H, zero, fill(S, H, H, S), RETURN, S));
         expectNumbers(nine, TouchKeyStyle.NumberPadSpace.AFTER_ZERO,
-            entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, zero, 2.95f, SPACE, 1.05f, RETURN, 1.9f));
+            entries(SYMBOL, S, LAYER, H, LANGUAGE, H, zero, fill(S, H, H, S) - H, SPACE, H, RETURN, S));
         expectNumbers(nine, TouchKeyStyle.NumberPadSpace.BEFORE_ZERO,
-            entries(SYMBOL, 1.05f, LAYER, 1.25f, LANGUAGE, 1.05f, SPACE, 2.95f, zero, 1.05f, RETURN, 1.9f));
+            entries(SYMBOL, S, LAYER, H, LANGUAGE, H, SPACE, fill(S, H, H, S) - H, zero, H, RETURN, S));
         // 借来的数字九宫格：返回 | 符 之后是中/英，与 26 键字母层的中/英同一格；14/18 键差一格（数字九宫格多一个 符）。
         for (int layout : new int[] {standard, KeyboardLayout.HANDWRITING_LAYOUT, fourteen})
             expectNumbers(layout, TouchKeyStyle.NumberPadSpace.AFTER_ZERO,
-                entries(LAYER, 1.25f, SYMBOL, 1.05f, LANGUAGE, 1.05f, zero, 2.95f, SPACE, 1.05f, RETURN, 1.9f));
+                entries(LAYER, 1.5f, SYMBOL, 1f, LANGUAGE, 1f, zero, 4f, SPACE, 1f, RETURN, 1.5f));
         check(slots(KeyboardActionRow.numberPadEntries(standard, false, false, TouchKeyStyle.Row.STANDARD, false, platform, true))
             .indexOf(LANGUAGE) == slots(row(standard, false, TouchKeyStyle.Row.STANDARD, false, true)).indexOf(LANGUAGE),
             "the borrowed pad keeps 中/英 in the letter row's slot");
@@ -761,15 +766,15 @@ public final class TouchKeyStyleSmoke {
                 check(left.containsAll(right) && Math.abs(total(left) - total(right)) < 1e-5f, "tall strip keeps every width");
                 // 交换中/英与 123 按键对调：中/英挪到左边后不在最后一格，不能再对调首尾。
                 List<KeyboardActionRow.DesignEntry> swapped = KeyboardActionRow.tallReturnEntries(nineShare, globe, true, digits, true);
-                check(swapped.get(0).equals(new KeyboardActionRow.DesignEntry(LANGUAGE, 1.05f))
-                    && swapped.get(slots(left).indexOf(LANGUAGE)).equals(new KeyboardActionRow.DesignEntry(LAYER, 1.25f))
+                check(swapped.get(0).equals(new KeyboardActionRow.DesignEntry(LANGUAGE, H))
+                    && swapped.get(slots(left).indexOf(LANGUAGE)).equals(new KeyboardActionRow.DesignEntry(LAYER, H))
                     && swapped.get(swapped.size() - 1).slot() == SPACE, "tall strip swaps 中/英 and 123 by key: " + swapped);
             }
         }
 
         // 本机「交换语言键与数字键」最后一步，按键对调：叠出百度「经典」的前三键 中英 | 符 | 123，26 键标准底行的句号仍紧挨空格左边。
         check(KeyboardActionRow.designEntries(standard, false, true, false, false, TouchKeyStyle.Row.STANDARD, false, platform, true)
-            .equals(entries(LANGUAGE, 1.05f, SYMBOL, 1.05f, LAYER, 1.25f, PERIOD, 1f, SPACE, 3f, COMMA, 1f, RETURN, 1.9f)), "26 key left + swap");
+            .equals(entries(LANGUAGE, 1f, SYMBOL, 1f, LAYER, 1.5f, PERIOD, 1f, SPACE, 3f, COMMA, 1f, RETURN, 1.5f)), "26 key left + swap");
         check(slots(KeyboardActionRow.designEntries(nine, false, true, false, false, TouchKeyStyle.Row.STANDARD, false, platform, true))
             .equals(List.of(SYMBOL, LANGUAGE, LAYER, SPACE, RETURN)), "nine key left + swap");
         check(slots(KeyboardActionRow.numberPadEntries(standard, false, true, TouchKeyStyle.Row.STANDARD, false, platform, true))
@@ -806,9 +811,9 @@ public final class TouchKeyStyleSmoke {
             }
         }
         // 行里没有中/英、或中/英左边紧挨的不是空格一类时原样返回。
-        List<KeyboardActionRow.DesignEntry> noLanguage = entries(LAYER, 1.25f, SPACE, 4f, RETURN, 1.9f);
+        List<KeyboardActionRow.DesignEntry> noLanguage = entries(LAYER, 1.5f, SPACE, 4f, RETURN, 1.5f);
         check(KeyboardActionRow.languageBeforeSpace(noLanguage) == noLanguage, "a row without 中/英 is unchanged");
-        List<KeyboardActionRow.DesignEntry> leading = entries(LANGUAGE, 1.05f, SPACE, 4f, RETURN, 1.9f);
+        List<KeyboardActionRow.DesignEntry> leading = entries(LANGUAGE, 1f, SPACE, 4f, RETURN, 1.5f);
         check(KeyboardActionRow.languageBeforeSpace(leading) == leading, "中/英 already left of the space is unchanged");
         check(KeyboardActionRow.designEntries(KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT, true, false, false, false,
                 TouchKeyStyle.Row.STANDARD, false, platform, true).isEmpty()
@@ -869,6 +874,17 @@ public final class TouchKeyStyleSmoke {
         int language = slots(actual).indexOf(LANGUAGE);
         check(swapped.get(slots(actual).indexOf(LAYER)).slot() == LANGUAGE && swapped.get(language).slot() == LAYER,
             layout + " " + style + " swaps 中/英 and 123");
+    }
+
+    /** 九键外框底行的侧列（符、回车）和九宫格半列（123、中/英与多出的键）。 */
+    private static final float S = KeyboardActionRow.DESIGN_NINE_SIDE_WEIGHT;
+    private static final float H = KeyboardActionRow.DESIGN_NINE_HALF_COLUMN_WEIGHT;
+
+    /** 空格占一行 10 份里剩下的，按 {@code others} 的先后相加，与宿主算法相同。 */
+    private static float fill(float... others) {
+        float sum = 0f;
+        for (float other : others) sum += other;
+        return KeyboardActionRow.ROW_SHARES - sum;
     }
 
     private static List<KeyboardActionRow.DesignEntry> entries(Object... pairs) {

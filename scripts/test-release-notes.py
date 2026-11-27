@@ -93,7 +93,7 @@ def check_model_reply_heading() -> None:
 
 
 def check_pull_request_assignment() -> None:
-    # develop 上两种合并方式并存：GitHub 的 merge commit（标题是 Merge pull request #N），和标题末尾带 (#N) 的 squash 提交。
+    # 改成只有 main 之前的历史（main 里至今保留着）：develop 上两种合并方式并存：GitHub 的 merge commit（标题是 Merge pull request #N），和标题末尾带 (#N) 的 squash 提交。
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
 
@@ -132,7 +132,7 @@ def check_pull_request_assignment() -> None:
 
 
 def check_squashed_release_baseline() -> None:
-    # 正式版在 main 上 squash，而 beta 从 develop 发出时，已发布的源码不能重复进入说明。
+    # 以前正式版在 main 上 squash，而 beta 从 develop 发出时，已发布的源码不能重复进入说明；跨过这段历史的说明仍然如此。
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
 

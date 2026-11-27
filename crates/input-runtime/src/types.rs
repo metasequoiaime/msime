@@ -282,6 +282,10 @@ pub struct SelectionFact {
     pub seat: u32,
     /// 这个座位上候选的来源，同 `Candidate::source`。
     pub source: u8,
+    /// 用户看到的编号，1 基：`seat` 之前有几个宿主画出来的行就是几，再跳过不画的占位席位（来源 12 的 AI 占位、来源 15 的云占位）。席位本身就是占位时不记。
+    ///
+    /// `seat` 是引擎的座位，云候选开启时它前面可能坐着宿主不画的 `CloudPending`（固定云候选占位席位那次改动起就是这样），用户看到的第 2 条会被按引擎座位记成第 3 条。打字统计页的「候选命中位置」要的是这个编号，不是座位。
+    pub visible_position: Option<u32>,
     pub how: SelectionHow,
     pub outcome: SelectionOutcome,
 }

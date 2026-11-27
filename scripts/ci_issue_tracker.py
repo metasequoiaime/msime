@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""develop 上的红灯跟踪 issue：CI 失败（ci-red-tracker.yml）和 Android APK 体积预警（nightly.yml 的 android-size）。
+"""main 上的红灯跟踪 issue：CI 失败（ci-red-tracker.yml）和 Android APK 体积预警（nightly.yml 的 android-size）。
 
 两类 issue 都是「一件事一张单」：同一个 workflow 的连续失败只开一张、之后追加评论，转绿时自动关闭；APK 体积同理，任一版本越过预警线时开单或追加，全部回到线下时关闭。哪张单属于谁靠正文里的 HTML 注释标记认，不靠标题，标题可以被人改。
 
@@ -16,13 +16,13 @@ import subprocess
 import sys
 
 ASSIGNEE = "houko"
-BRANCH = "develop"
-# 只跟踪合进 develop 之后的运行；pull_request 的红是 PR 自己的事，不进跟踪单。
+BRANCH = "main"
+# 只跟踪合进 main 之后的运行；pull_request 的红是 PR 自己的事，不进跟踪单。
 TRACKED_EVENTS = ("push", "schedule", "workflow_dispatch")
 # startup_failure 是运行根本没能启动（workflow 文件写错、复用的 workflow 引用失效、权限不匹配），nightly「悄悄不跑」就是这种，算红。action_required 是运行在等人批准、一个 job 都没跑，只出现在外部贡献者的 PR 上，这里不跟踪 PR，也说明不了代码红绿，和取消、跳过一样不算。
 RED = ("failure", "timed_out", "startup_failure")
 DECISIVE = RED + ("success",)
-RED_LABEL = ("ci-red", "B60205", "develop 或 nightly 的 CI 失败，先修红再合功能 PR")
+RED_LABEL = ("ci-red", "B60205", "main 或 nightly 的 CI 失败，先修红再合功能 PR")
 SIZE_LABEL = ("apk-size", "FBCA04", "Android 瘦包体积越过预警线")
 SIZE_MARKER = "<!-- apk-size-tracker -->"
 SIZE_DATA = re.compile(r"<!-- apk-size-data (\{.*?\}) -->")
@@ -292,7 +292,7 @@ def track_red_build(api, run_id, server="https://github.com", run_attempt=None):
         "失败的 job：",
         *jobs,
         "",
-        "按 `AGENTS.md` 的约定，develop 的推送 CI 或 nightly 红着时先修红，修好之前不合并功能 PR；暂时修不了的，在这里写明原因和计划。",
+        "按 `AGENTS.md` 的约定，main 的推送 CI 或 nightly 红着时先修红，修好之前不合并功能 PR；暂时修不了的，在这里写明原因和计划。",
     ])
     number = api.create_issue(f"{name} 失败：{run['created_at'][:10]}", body, RED_LABEL[0])
     print(f"opened #{number} for {name} #{run['run_number']}")

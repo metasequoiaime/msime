@@ -70,7 +70,7 @@ the dictionary already has this word: learning adjusted its frequency instead of
 ok
 ```
 
-Rust 程序不需要这个库，直接 `cargo add msime-engine`，见 [msime-engine 的快速上手](https://github.com/metasequoiaime/msime/blob/develop/crates/engine/README.md#快速上手)。
+Rust 程序不需要这个库，直接 `cargo add msime-engine`，见 [msime-engine 的快速上手](https://github.com/metasequoiaime/msime/blob/main/crates/engine/README.md#快速上手)。
 
 ## 构建
 
@@ -197,7 +197,7 @@ msime_engine_string_free(dictionaries);
 | `punctuation` | `chinese`、`paired`、`lock`（`follow`、`chinese`、`ascii`） |
 | `learning`、`personal_context` | 学习词频与用户词、学习词序与搭配 |
 | `next_word_prediction` | 上屏后联想，缺省关；`MSIME_ENGINE_OPTION_PREDICTION_ALLOWED` 是它的即时门禁 |
-| `fuzzy_pinyin` | 模糊音规则：`z_zh`、`c_ch`、`s_sh`、`n_l`、`f_h`、`r_l`、`an_ang`、`en_eng`、`in_ing`、`ian_iang`、`uan_uang` |
+| `fuzzy_pinyin` | 模糊音规则：`z_zh`、`c_ch`、`s_sh`、`n_l`、`f_h`、`r_l`、`an_ang`、`en_eng`、`in_ing`、`ian_iang`、`uan_uang`、`un_ong` |
 | `autocorrect` | 全拼纠错：`transposition`、`neighbor`、`deletion`、`insertion` |
 | `english` | `mixed_candidates`（中文里混入英文单词）、`minimum_prefix`（1–8）、`first_page_count`（1–3）、1.1 起还有 `learn_on_enter`（回车学英文词的总开关，缺省 true：只学专用英文里打的词）、`learn_typed_spellings_on_enter`（缺省 false；打开后回车也把临时英文的字母和拼不成完整音节的拼音学成英文词，九宫格组字、整句改字、计算等生成文本的模式和网址不学，这是 msime 自己的策略） |
 | `first_page_rows` | 每页候选数，1–255 |
@@ -214,7 +214,7 @@ msime_engine_string_free(dictionaries);
 
 ## 要带的数据文件
 
-库本身不带词库。运行时文件放在 `resources` 里，可以从 [msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 的 `dict-v*` 发布取，也可以自己按同样的格式生成（[docs/data-formats.md](https://github.com/metasequoiaime/msime/blob/develop/docs/data-formats.md)）。全拼、双拼要的那几个文件连同它们要求随附的许可证，在本库的发布里打成了一个数据包（见[快速上手](#快速上手)）。数据许可证跟着数据走，不随引擎：采用方按自己的发布方式挑选数据。
+库本身不带词库。运行时文件放在 `resources` 里，可以从 [msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 的 `dict-v*` 发布取，也可以自己按同样的格式生成（[docs/data-formats.md](https://github.com/metasequoiaime/msime/blob/main/docs/data-formats.md)）。全拼、双拼要的那几个文件连同它们要求随附的许可证，在本库的发布里打成了一个数据包（见[快速上手](#快速上手)）。数据许可证跟着数据走，不随引擎：采用方按自己的发布方式挑选数据。
 
 `msime_engine_prepare_runtime` 和 `msime_engine_reset_learning` 按全部方案准备，所以要 `msime-pinyin.db` 和 `msime-english.db`。只用其中几个方案时用 `msime_engine_prepare_runtime_for` 和 `msime_engine_reset_learning_for`，`resources` 只要有下表里这些方案的文件：没有全拼、双拼、五笔时两个库都不要求。
 
@@ -228,10 +228,10 @@ msime_engine_string_free(dictionaries);
 | 粤语、注音、笔画 | `msime-cantonese.db`、`msime-zhuyin.db`、`msime-stroke.db`（经 `language_dictionaries`） | 粤语 CC BY 4.0；注音 LGPL-2.1-or-later 加 MIT；笔画 LGPL-3.0-only 加 GPL-3.0-only（笔顺码来自 rime-stroke，排序权重来自 rime-ice 的字频，其中与万象共有的读音改编自 rime-wanxiang，CC BY 4.0），带 `resources/licenses/` 下对应的许可证文件 |
 | 专用英文（上一行那些方案里可选） | `msime-english.db` 与 `msime-scowl_Copyright.txt` | 同第一行的 `msime-english.db`。不带时专用英文只出键入的字母、回车不学词，个人词典也存不下英文词（`msime_engine_user_dict_edit` 返回 `MSIME_ENGINE_FAILED`） |
 | 辅助码 | `resources/helpcodes/` 下的表 | 只有 `wubi86` 有来源与许可说明；仓库里其余几张没有再分发授权，不要随产品分发 |
-| emoji 与颜文字（混排的 `expressive.emoji_candidates`、`kaomoji_candidates`，本地模式 E、M） | `msime-others.db`（只读，放在 `resources`，不进代次；格式见 [docs/data-formats.md §12](https://github.com/metasequoiaime/msime/blob/develop/docs/data-formats.md#12-msime-othersdb)）。没有时混排不出这些行，模式里只有「不可用」的诊断 | msime-dictionary 发布的这份里，emoji 数据与颜文字的来源没有记录，符号来源没有声明许可，**再分发前要另行确认**；也可以按上面的格式用自己有权分发的数据生成 |
+| emoji 与颜文字（混排的 `expressive.emoji_candidates`、`kaomoji_candidates`，本地模式 E、M） | `msime-others.db`（只读，放在 `resources`，不进代次；格式见 [docs/data-formats.md §12](https://github.com/metasequoiaime/msime/blob/main/docs/data-formats.md#12-msime-othersdb)）。没有时混排不出这些行，模式里只有「不可用」的诊断 | msime-dictionary 发布的这份里，emoji 数据与颜文字的来源没有记录，符号来源没有声明许可，**再分发前要另行确认**；也可以按上面的格式用自己有权分发的数据生成 |
 | 快捷短语（K）、超级简拼（J）、临时英文（Y） | 分别读代次里的 `msime-pinyin.db`（快捷短语读它的 `quick_parases` 表，个人词典的 `quick_phrase` 词条也写在那里）、`msime-pinyin.db`、`msime-english.db`，也就是全拼那一行的文件 | 同第一行 |
 | 临时日文（R） | 会话的 `enabled_schemes` 里要有日文；`msime-japanese.dat` 同日文那一行，没有时只出假名 | 同日文那一行 |
-| Unicode（U）、日期时间（T 与混排）、计算（V）、拆字（C）、符号（S 与 `expressive.symbol_candidates`） | 什么也不用带：表与换算规则编进了引擎 | 拆字表、符号分组表等编进引擎的数据各有许可证，逐个文件见 [`crates/engine/README.md`](https://github.com/metasequoiaime/msime/blob/develop/crates/engine/README.md) 的「许可证」一节，二进制归档已经带着（见[二进制归档与第三方声明](#二进制归档与第三方声明)） |
+| Unicode（U）、日期时间（T 与混排）、计算（V）、拆字（C）、符号（S 与 `expressive.symbol_candidates`） | 什么也不用带：表与换算规则编进了引擎 | 拆字表、符号分组表等编进引擎的数据各有许可证，逐个文件见 [`crates/engine/README.md`](https://github.com/metasequoiaime/msime/blob/main/crates/engine/README.md) 的「许可证」一节，二进制归档已经带着（见[二进制归档与第三方声明](#二进制归档与第三方声明)） |
 
 数据格式的规格文档还没有写完（引擎库方案的 P5），在那之前以 `crates/engine` 的读端为准。
 
@@ -248,7 +248,7 @@ python3 -X utf8 platforms/linux/collect-notices.py cargo dist/THIRD_PARTY_NOTICE
 - 引擎的许可证：`crates/engine/LICENSE`（MPL-2.0 全文与 Exhibit A 声明，引擎、`msime-path-trust` 和 rink-core 用），以及这个目录的 `LICENSE`（同一份 MPL-2.0 全文，这个 crate 用）。
 - rink-core 的源码位置（MPL-2.0 §3.2）：crates.io 上的 `rink-core` 0.9，上游是 codeberg.org/tiffany/rink。
 - `ewts` 的许可证：`resources/licenses/ewts-MIT.txt`。crate 自己不带许可证文件，这份 MIT 全文末尾还附着它转换表来源 ewts-js 的 Apache-2.0 署名。
-- 编进引擎的数据表和改编代码的许可证与署名：逐个文件见 [`crates/engine/README.md`](https://github.com/metasequoiaime/msime/blob/develop/crates/engine/README.md) 的「许可证」一节，表里「全文」一列的文件都在 `resources/licenses/` 下，原样放进归档。
+- 编进引擎的数据表和改编代码的许可证与署名：逐个文件见 [`crates/engine/README.md`](https://github.com/metasequoiaime/msime/blob/main/crates/engine/README.md) 的「许可证」一节，表里「全文」一列的文件都在 `resources/licenses/` 下，原样放进归档。
 
 CI 的 `engine-capi` 作业每次都跑一遍上面的命令，核对它能为这张依赖图生成声明，并且不带许可证文件的 crate 仍只有上面列出的三个：依赖图里多出一个时作业失败，先在这里补上它的许可证文本。
 

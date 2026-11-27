@@ -28,9 +28,14 @@ export class FlickThresholdSettings {
     const parsed: PreferenceReply = JSON.parse(reply) as PreferenceReply;
     const value: PreferenceSnapshot | undefined = parsed.value;
     if (
-      parsed.ok !== true || value === undefined || value === null ||
-      value.format_version !== 1 || !Number.isSafeInteger(value.revision) || value.revision < 0 ||
-      typeof value.preferences !== "object" || value.preferences === null ||
+      parsed.ok !== true ||
+      value === undefined ||
+      value === null ||
+      value.format_version !== 1 ||
+      !Number.isSafeInteger(value.revision) ||
+      value.revision < 0 ||
+      typeof value.preferences !== "object" ||
+      value.preferences === null ||
       Array.isArray(value.preferences)
     ) {
       throw new Error("preferences_unavailable");
@@ -40,7 +45,9 @@ export class FlickThresholdSettings {
 
   private state(snapshot: PreferenceSnapshot): FlickThresholdSettingsState {
     return {
-      threshold: NineKeyFlickPolicy.threshold(snapshot.preferences["touch_nine_key_flick_threshold"]),
+      threshold: NineKeyFlickPolicy.threshold(
+        snapshot.preferences["touch_nine_key_flick_threshold"],
+      ),
       ready: true,
       error: "",
     };
@@ -50,8 +57,11 @@ export class FlickThresholdSettings {
     try {
       return this.state(this.snapshot(this.load()));
     } catch {
-      return { threshold: NineKeyFlickPolicy.DEFAULT_THRESHOLD_VP,
-        ready: false, error: "读取设置失败，请重试" };
+      return {
+        threshold: NineKeyFlickPolicy.DEFAULT_THRESHOLD_VP,
+        ready: false,
+        error: "读取设置失败，请重试",
+      };
     }
   }
 

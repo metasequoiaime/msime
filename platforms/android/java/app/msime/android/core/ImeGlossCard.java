@@ -193,7 +193,7 @@ final class ImeGlossCard {
     }
 
     /**
-     * 用户服务的缓存直接读。账号的缓存属于某个账号：在工作线程上取当前绑定，回到主线程再取一次，两次一致、而且 store 正绑在这个账号上（整页的账号路径每一代都会核对并绑定）才读缓存、才单独请求；不一致或还没绑上时卡片不用账号译文，也不替整页改绑定。
+     * 用户服务的缓存直接读。账号的缓存属于某个账号：在工作线程上取当前绑定，回到主线程再取一次，两次一致、而且 store 正绑在这个账号上（整页的账号路径在后台核对并绑定，见 CandidateTranslationBinding）才读缓存、才单独请求；不一致或还没绑上时卡片不用账号译文，也不替整页改绑定。
      */
     private void readCachedOnline(long opened) {
         if (onlineSource == null) return;
@@ -237,7 +237,7 @@ final class ImeGlossCard {
         }
     }
 
-    /** 离线释义：开着「候选英文释义」、方案显示释义时，查随包的英文释义，再查装了词典的其他目标语言，与整页的 scheduleCandidateGlosses 同一条通路。 */
+    /** 离线释义：开着「离线释义」、方案显示释义时，查随包的英文释义，再查装了词典的其他目标语言，与整页的 scheduleCandidateGlosses 同一条通路。 */
     private void lookupOffline(long opened) {
         String resources = s.candidateGlossResources;
         if (!s.candidateEnglishGloss || resources.isEmpty() || target == null
@@ -479,16 +479,11 @@ final class ImeGlossCard {
         s.editCandidate(id, action);
     }
 
-    /** 候选在当前这一代里的身份：长按那一刻的身份还是当前的就用它；换了一代就在当前候选里按原文找同一个词；找不到为 null。 */
+    /** 候选在当前这一代里的身份：按长按那一刻的候选身份找回；换了代就按同一个词和来源找同一个候选；找不到为 null。 */
     private JSONObject currentId(Target current) {
-        if (s.candidateVersionIsCurrent(current.id())) return current.id();
-        JSONArray candidates = s.view == null ? null : s.view.optJSONArray("candidates");
-        for (int index = 0; candidates != null && index < candidates.length(); index++) {
-            JSONObject candidate = candidates.optJSONObject(index);
-            JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
-            if (id != null && current.raw().equals(InputViewValuePolicy.textOr(candidate, "text", ""))
-                    && s.candidateVersionIsCurrent(id)) return id;
-        }
-        return null;
+        JSONObject drawn = s.resolveDrawnCandidate(current.candidate());
+        JSONObject id = drawn == null ? null : drawn.optJSONObject("id");
+        if (id != null && s.candidateVersionIsCurrent(id)) return id;
+        return s.candidateVersionIsCurrent(current.id()) ? current.id() : null;
     }
 }
