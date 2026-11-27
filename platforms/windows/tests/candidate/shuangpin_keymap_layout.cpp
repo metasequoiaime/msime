@@ -142,6 +142,16 @@ void accent_text() {
   require(shuangpin_keymap_on_accent(candidate_rgb(0x127D73)).r == 1.0f);
 }
 
+void scale_follows_the_candidate_window() {
+  // 整体缩放（candidate_scale_percent 的倍数）乘在 DPI 之上：100% 是原尺寸，150% 整张图放大一半，非法值回到 100%（#11616）。
+  require(shuangpin_keymap_scale(1.0) == 1.0);
+  require(std::abs(shuangpin_keymap_scale(1.5) - 1.5) < 1e-9);
+  require(std::abs(shuangpin_keymap_scale(0.75) - 0.75) < 1e-9);
+  require(shuangpin_keymap_scale(0.0) == 1.0);
+  require(shuangpin_keymap_scale(-2.0) == 1.0);
+  require(shuangpin_keymap_scale(std::nan("")) == 1.0);
+}
+
 void placement() {
   ShuangpinKeymapPlacementInput input;
   input.work = {0, 0, 1920, 1040};
@@ -194,6 +204,7 @@ int main() {
     geometry();
     fills();
     accent_text();
+    scale_follows_the_candidate_window();
     placement();
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

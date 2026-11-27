@@ -175,6 +175,11 @@ struct ShuangpinKeymapMetrics {
   }
 };
 
+// 键位图的整体缩放倍数：候选窗的「整体大小」（`candidate_scale_percent`）也作用在这张图上（#11616），100% 是 1.0。非有限值或非正数按 100%。
+inline double shuangpin_keymap_scale(double scale) {
+  return std::isfinite(scale) && scale > 0.0 ? scale : 1.0;
+}
+
 inline double shuangpin_keymap_row_inset(size_t count) {
   if (count >= 10)
     return 14.0;
