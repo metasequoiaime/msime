@@ -73,6 +73,11 @@ export class CandidateDecorationLayout {
     };
   }
 
+  /** 电脑只显示候选卡片时，不在它下方铺触屏键盘底色和照片。 */
+  static keyboardBackdropVisible(desktop: boolean, candidatesOnly: boolean): boolean {
+    return !desktop || !candidatesOnly;
+  }
+
   /** How far down the panel the keyboard backdrop starts: below the band and the root padding above the card, so the band stays transparent and the card's top edge is the window's visible top. Zero, and the backdrop fills the panel, wherever no decoration is drawn, which includes every phone. */
   static backdropInsetVp(
     desktop: boolean,
