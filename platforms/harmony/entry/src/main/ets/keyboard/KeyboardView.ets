@@ -3124,6 +3124,7 @@ struct KeyboardView {
     // 放在 surface 已经换掉之后：清筛选会同步回调 onChanged，那时面板必须已经算作关闭，否则会再进来一次。
     if (leavingExpanded) {
       this.leaveNineKeyPanel();
+      KeyboardSession.shared.refreshCandidateView();
     }
   }
 
