@@ -13,7 +13,19 @@ public final class ChineseSymbolFaces {
         Map.entry(">", "》"), Map.entry("'", "‘"), Map.entry("\"", "“"),
         Map.entry("_", "——"));
 
+    // 日文方案的键面：与引擎契约 policy.json 的 japanese 表逐字相同，键面画什么就上屏什么。`,` 和 `\` 都出读点。
+    private static final Map<String, String> JAPANESE_FACES = Map.ofEntries(
+        Map.entry(",", "、"), Map.entry("\\", "、"), Map.entry(".", "。"),
+        Map.entry("[", "「"), Map.entry("]", "」"), Map.entry("{", "『"), Map.entry("}", "』"),
+        Map.entry("/", "・"), Map.entry("~", "〜"), Map.entry("?", "？"), Map.entry("!", "！"),
+        Map.entry("(", "（"), Map.entry(")", "）"), Map.entry(":", "："), Map.entry(";", "；"));
+
     private ChineseSymbolFaces() {}
+
+    /** 日语标点键面：ASCII 键按日文表出字，表外的键保持原样（引擎同样原样上屏）。 */
+    public static String japaneseFace(String ascii) {
+        return ascii == null ? "" : JAPANESE_FACES.getOrDefault(ascii, ascii);
+    }
 
     /**
      * 引号与方头括号样式，取自 View 的 `punctuation_marks`（host-api 已按繁体输出开关解析好 `corner_when_traditional`）。直角引号下 `'` 出「」、`"` 出『』，空心括号下 `[` `]` 出〖〗。`enumerationComma*` 是同一 View 的顿号键开关：`\` 缺省开、`/` 缺省关，顿号键面按它们画。
@@ -47,6 +59,15 @@ public final class ChineseSymbolFaces {
         return chinesePunctuation && !dedicatedEnglish && scheme != 3
             && scheme != KoreanInputPolicy.KOREAN_SCHEME
             && scheme != InputSchemeTraits.VIETNAMESE && scheme != InputSchemeTraits.TIBETAN
+            && "none".equals(localMode);
+    }
+
+    /**
+     * 日语方案的符号键面是否画日文标点。引擎只在中文标点开关开着时才替换标点（`chinese_punctuation_enabled`），开关关着时写出 ASCII，所以键面也只在开关开着时画日文，否则画出来的字和上屏的字对不上。
+     */
+    public static boolean shouldUseJapaneseFaces(boolean dedicatedEnglish, int scheme,
+                                                 String localMode, boolean chinesePunctuation) {
+        return chinesePunctuation && !dedicatedEnglish && scheme == InputSchemeTraits.JAPANESE
             && "none".equals(localMode);
     }
 

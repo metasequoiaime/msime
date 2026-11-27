@@ -274,6 +274,13 @@ final class KeyboardKeyButton: UIButton {
   var cornerHintSwipesEitherWay = false
   /// 14/18 键同时保留双字母横滑，因此纵向角标滑动必须明显强于横向移动；26 键保持原有判定。
   var cornerHintRequiresVerticalDominance = false
+  /// 26 键字母键的上滑、下滑各自做什么（`LetterSwipePreference`）：每次判定时现问控制器，返回 nil 表示这个方向不接。
+  /// 设了它就走双向路径，不再看 `cornerHintSwipeDirection`；「长空格」逗号和 14/18 键仍走原来的角标路径。
+  var swipeActions: ((KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeAction?)?
+  /// 双向滑动判出并松手时回调，参数是动作与方向；按键自己的点按不再执行。
+  var onSwipeAction: ((LetterSwipeAction, KeyboardLayoutPreference.SwipeDirection) -> Void)?
+  /// 本次触摸已经判出的方向动作，判出后锁住，滑回原处或换方向都不改。
+  private var directionalSwipe: (action: LetterSwipeAction, direction: KeyboardLayoutPreference.SwipeDirection)?
   /// 按住是否输入角标。为假时角标只靠滑动输入，按住留给按键自己的长按菜单（`menu`），例如 14 键「长空格」的逗号：上滑或下滑输入句号，长按仍打开常用标点。
   var holdsCornerHint = true
 
@@ -381,7 +388,7 @@ final class KeyboardKeyButton: UIButton {
     if began, nineKeyFlickLetters != nil, nineKeyFlickEnabled?() == true {
       nineKeyFlick.begin(at: touch.location(in: nil))
     }
-    guard began, cornerHint != nil else { return began }
+    guard began, cornerHint != nil || swipeActions != nil else { return began }
     cornerHintDown = touch.location(in: nil)
     cornerHintDownTime = touch.timestamp
     guard holdsCornerHint else { return began }
@@ -407,10 +414,29 @@ final class KeyboardKeyButton: UIButton {
       beginNineKeySwipe(decided, digit: digit)
       return true
     }
-    if !cornerHintTriggered, swipesCornerHint, let hint = cornerHint, cornerHintSwiped(touch) {
+    // 26 键：上滑、下滑各是一个动作，先过阈值的方向锁住这次触摸（`LetterSwipePolicy`）。
+    if let actions = swipeActions {
+      if directionalSwipe == nil, swipesCornerHint,
+         let direction = LetterSwipePolicy.direction(
+           down: cornerHintDown, current: touch.location(in: nil),
+           requiresVerticalDominance: cornerHintRequiresVerticalDominance),
+         let action = actions(direction) {
+        beginDirectionalSwipe(action, direction: direction)
+      }
+    } else if !cornerHintTriggered, swipesCornerHint, let hint = cornerHint, cornerHintSwiped(touch) {
       triggerCornerHint(hint)
     }
     return super.continueTracking(touch, with: event)
+  }
+
+  /// 判出某一方向的滑动：锁住动作，取消长按，预览气泡换成这个动作（角标显示符号，其他动作显示名字）。
+  private func beginDirectionalSwipe(_ action: LetterSwipeAction,
+                                     direction: KeyboardLayoutPreference.SwipeDirection) {
+    directionalSwipe = (action, direction)
+    touchDownLocation = nil
+    cornerHintHold?.invalidate()
+    cornerHintHold = nil
+    previewTitleOverride = action == .symbol ? (cornerHint ?? "") : action.title()
   }
 
   private func cornerHintSwiped(_ touch: UITouch) -> Bool {
@@ -456,6 +482,14 @@ final class KeyboardKeyButton: UIButton {
       resetCornerHint()
       touchDownLocation = nil
       if swiped == .digit { onNineKeySwipe?(.digit) }
+      return
+    }
+    if let directional = directionalSwipe {
+      // 与角标、九键滑动一样取消而不是结束这次触摸：按键自己的点按不会再触发，松手才执行滑动动作。
+      super.touchesCancelled(touches, with: event)
+      resetCornerHint()
+      touchDownLocation = nil
+      onSwipeAction?(directional.action, directional.direction)
       return
     }
     guard cornerHintTriggered, let hint = cornerHint else {
@@ -549,6 +583,7 @@ final class KeyboardKeyButton: UIButton {
     cornerHintHold?.invalidate()
     cornerHintHold = nil
     cornerHintTriggered = false
+    directionalSwipe = nil
     previewTitleOverride = nil
   }
 

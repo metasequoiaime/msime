@@ -80,6 +80,8 @@ struct MetasequoiaImeApp: App {
       // 词库同步只在 App 在前台时按 Rust 给的间隔定时，进了后台就停。
       if phase == .background { DictionarySyncCenter.shared.onBackground() }
       guard phase == .active else { return }
+      // 把语音服务发布给键盘自己录音用，升级前就配好的服务也在第一次打开时发布。
+      KeyboardVoicePublisher.refresh(settings: VoicePolishSettings(MetasequoiaInputSessionBridge.loadSharedPreferences()))
       // 打开 App 就是「打开设置应用」：以 `opened` 同步一次，没有配置网盘时什么也不做。
       DictionarySyncCenter.shared.onActive()
       OnboardingChoices.shared.sync()

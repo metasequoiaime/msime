@@ -88,7 +88,7 @@ React 资料信息、Harmony 资料页的登录标记与登录方式行、SwiftU
 ## Verification
 
 - Windows：`platforms/windows/settings/SettingsNavigation.h` 的 `pages` 全部是 `PageHost::Native`，`shell_links::all` 只有 5 个面板；`ShellSurfaces.h` 的 `shell_executable_names` 对空面板返回 `msime-client-settings.exe`，其余返回 `MSIME.exe`。`tests/ui/settings_navigation.cpp` 核对页面模型。
-- iOS：`git grep -l -e "import WebKit" -e WKWebView -- platforms/ios/App platforms/ios/SharedUI platforms/ios/KeyboardExtension` 没有输出。
+- iOS：`git grep -l -e "import WebKit" -e WKWebView -- platforms/ios/App platforms/ios/SharedUI platforms/ios/KeyboardExtension ':!platforms/ios/KeyboardExtension/Sources/keyboard/KeyboardMicrophone.swift'` 没有输出。排除的那个文件是键盘里只采集声音的隐藏 WebView，不显示界面，见[联网语音服务在键盘里直接录音](../feature/2026-11-26-ios-keyboard-direct-voice.md)。
 - iOS 昵称：旧 Swift 规则的基线探针复现组合表情被拒绝、首尾 U+FEFF 未清除。`SkinCommunityAccountTests` 在 Xcode 27 / iOS 26.5 的临时干净模拟器上 15 项通过，其中新增三项直接调用真实 Rust 昵称接口，覆盖共享空白与控制字符、64 个 Unicode 标量（含补充平面与组合字符）、规范化后的提交和 16 KiB 请求上限；账号请求继续使用合成替身，不访问真实账号。`MSIMEApp` 原生模拟器构建通过；测试必须按 iOS README 保留 ad-hoc 签名与 App Group entitlement。
 - Android 昵称：旧 JVM 规则的 C1 控制字符回归先失败；设备 `AccountNameChecks` 通过产品真实 JNI 覆盖共享空白、C0/C1、64 个码点与补充平面字符、严格响应类型、传输上限，以及原生输入控件保留原文和保存入口拒绝无效昵称。API 35 的 `SessionStoreDeviceSmoke` 整套通过；原生 `build-apk.sh` 构建、JNI 导出、arm64 ELF 和 16 KiB 段对齐检查通过。设备测试沿用既有 instrumentation，新增适配类同时登记在产品依赖源码清单中。
 - Android：`.github/workflows/release-android.yml` 只调用 `platforms/android/build-apk.sh`，`.github/` 下没有任何 workflow 调用 `build-client-apk.sh`。

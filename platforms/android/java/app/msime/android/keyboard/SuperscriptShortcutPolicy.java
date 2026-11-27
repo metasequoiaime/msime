@@ -38,11 +38,6 @@ public final class SuperscriptShortcutPolicy {
         return SwipeHintPolicy.DOWN.equals(zeroDirection(mode)) ? nineKeyDistanceDp : SwipeHintPolicy.THRESHOLD_DP;
     }
 
-    /** 是否已沿 {@code direction} 滑过 {@code thresholdDp}（严格大于）；坐标都是 dp，向下为正。 */
-    public static boolean swiped(String direction, float thresholdDp, float downYDp, float currentYDp) {
-        return SwipeHintPolicy.swiped(direction, thresholdDp, downYDp, currentYDp);
-    }
-
     /** 读屏描述：键面、滑出 0 的方向和长按选项。 */
     public static String description(String face, String direction) {
         return face + "；" + (SwipeHintPolicy.DOWN.equals(direction) ? "下滑" : "上滑") + "输入 0；长按选择上标 ⁰ 或下标 ₀";

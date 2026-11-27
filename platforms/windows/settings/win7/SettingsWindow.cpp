@@ -153,7 +153,7 @@ struct CandidateCheck {
   const wchar_t* description;
   bool fallback;
 };
-constexpr std::array<CandidateCheck, 13> candidate_checks{{
+constexpr std::array<CandidateCheck, 15> candidate_checks{{
     {cloud_candidates, "", "cloud_candidates", L"云候选", L"仅将当前正在组的拼写发送给所选云候选服务，不发送已上屏内容、词库或历史。", false},
     {mixed_enabled, "mixed_input", "enabled", L"候选混输", L"关闭后保留各项设置，再开启时恢复。", true},
     {mixed_english, "mixed_input", "english", L"中英混输", L"中文输入时在候选项中补充英文单词。", true},
@@ -161,6 +161,8 @@ constexpr std::array<CandidateCheck, 13> candidate_checks{{
     {mixed_symbols, "mixed_input", "symbols", L"符号混输", L"完整输入符号名称时，在对应词后加入符号，例如「正负」后面是 ±。", true},
     {mixed_kaomoji, "mixed_input", "kaomoji", L"颜文字混输", L"在对应中文词后补充匹配的颜文字，排在同一个词的 emoji 之后。", false},
     {mixed_japanese, "mixed_input", "japanese", L"日文混输（实验）", L"全拼、双拼里完整输入日文罗马字时补充日文候选；词典不在时不生效。", false},
+    {mixed_quick_phrase, "mixed_input", "quick_phrase", L"快捷短语混输", L"在普通候选中加入编码完全匹配的快捷短语。", true},
+    {mixed_quick_phrase_first, "mixed_input", "quick_phrase_first", L"快捷短语置顶", L"完全匹配的快捷短语排在候选最前面，关闭后恢复原来的排序。", false},
     {learn_candidates, "", "learning", L"学习选词习惯", L"根据选词调整候选顺序。", true},
     {next_word_prediction, "", "next_word_prediction", L"上屏后联想", L"选词上屏后推荐后续文字，点选、按数字键或空格上屏，继续输入其他内容时消失；使用现有词库，开启学习时也参考个人词序，隐私输入不显示。", false},
     {single_character_only, "", "single_character_only", L"只出单字", L"候选只列单个汉字，不出词组和整句；选一个字后接着拼下一个字。", false},
@@ -985,6 +987,9 @@ struct SettingsWindow::State {
     int height;
     Surface surface = Surface::shortcuts;
     InfoTip* help = nullptr;
+    // 只有当前方案用得到时才出现的行（例如五笔的自造词位置）：`shown` 返回假时整行不画，`block` 是它在页面里占的高度，隐藏时从页面高度和后续行的位置里一起扣掉。
+    std::function<bool()> shown;
+    int block = 0;
   };
   HWND window = nullptr;
   HWND body = nullptr;
@@ -1468,7 +1473,7 @@ struct SettingsWindow::State {
     const auto clsid = save ? CLSID_FileSaveDialog : CLSID_FileOpenDialog;
     if (FAILED(CoCreateInstance(clsid, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return std::nullopt;
     const auto finish = [&] { dialog->Release(); return std::optional<std::filesystem::path>{}; };
-    const COMDLG_FILTERSPEC filter{voice_model ? L"本地语音模型文件" : plugin ? L"插件文件" : vocabulary ? L"词表" : save ? L"词库文本" : L"词库文件", voice_model ? L"*.*" : plugin ? L"*.zip" : vocabulary ? L"*.csv;*.txt" : save ? L"*.txt;*.tsv" : L"*.txt;*.tsv;*.yaml;*.yml;*.scel"};
+    const COMDLG_FILTERSPEC filter{voice_model ? L"本地语音模型文件" : plugin ? L"插件压缩包或辅助码表" : vocabulary ? L"词表" : save ? L"词库文本" : L"词库文件", voice_model ? L"*.*" : plugin ? L"*.zip;*.txt" : vocabulary ? L"*.csv;*.txt" : save ? L"*.txt;*.tsv" : L"*.txt;*.tsv;*.yaml;*.yml;*.scel"};
     DWORD options = 0;
     if (FAILED(dialog->GetOptions(&options)) || FAILED(dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | (save ? FOS_OVERWRITEPROMPT : FOS_FILEMUSTEXIST))) ||
         FAILED(dialog->SetFileTypes(1, &filter)) || FAILED(dialog->SetTitle(voice_model ? L"添加本地语音模型文件" : plugin ? L"导入插件文件" : vocabulary ? L"导入词表" : save ? L"导出词库" : L"导入词库")) ||
@@ -1656,9 +1661,33 @@ struct SettingsWindow::State {
       if (field.id == enter_learns_english_word) {
         row_help(enter_learns_english_word_help, field.title, field.description);
         top += 44;
+      } else if (field.id == mixed_quick_phrase || field.id == mixed_quick_phrase_first) {
+        row_help(field.id == mixed_quick_phrase ? mixed_quick_phrase_help : mixed_quick_phrase_first_help,
+                 field.title, field.description);
+        top += 44;
       } else {
         item(L"STATIC", field.description, SS_LEFT, -1, top + 36, 48);
         top += 100;
+      }
+      // 五笔自造词位置（共享偏好 `wubi_phrase_placement`）：与学习开关同组，只在五笔方案且学习开启时出现。默认「同码词后」等于没有这个选项时的现状；整行隐藏时页面高度和后面的行一起上移。
+      if (field.id == learn_candidates) {
+        const size_t first = items.size();
+        item(L"STATIC", L"自造词位置", SS_LEFT, -1, top, 24);
+        row_help(wubi_phrase_placement_help, L"自造词位置",
+            L"新造的五笔词排在同码已有词之后（默认，等于现状）还是之前；只在学习选词习惯开启时生效，入库这一次之后照常参与调频。");
+        const auto placement = item(WC_COMBOBOXW, L"自造词位置", WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+            wubi_phrase_placement, top + 34, 160);
+        for (const auto& option : input::wubi_phrase_placements)
+          SendMessageW(placement, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(option.label.data()));
+        top += 90;
+        const auto offered = [this] {
+          if (!snapshot) return false;
+          const auto& preferences = snapshot->preferences();
+          return input::wubi_phrase_placement_offered(preferences.value("scheme", std::string{}) == "wubi",
+                                                      preferences.value("learning", true));
+        };
+        for (size_t index = first; index < items.size(); ++index) items[index].shown = offered;
+        items[first].block = 90;
       }
       if (field.id == mixed_english) {
         item(L"STATIC", L"首页英文候选数", SS_LEFT, -1, top, 24);
@@ -1727,6 +1756,10 @@ struct SettingsWindow::State {
             candidate_group(preferences, field).value(field.field, field.fallback) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(GetDlgItem(body, mixed_first_page_count), CB_SETCURSEL,
         preferences.at("mixed_input").value("first_page_count", 1) - 1, 0);
+    // 五笔自造词位置缺省和不认识的取值都选「同码词后」，与共享偏好库读到不认识的值时一样。
+    SendMessageW(GetDlgItem(body, wubi_phrase_placement), CB_SETCURSEL,
+        input::wubi_phrase_placement_index(control_text::wide(
+            preferences.value("wubi_phrase_placement", std::string("bottom")))), 0);
     // 缺键按默认的「增强」读。
     if (const auto level = GetDlgItem(body, sentence_association_level))
       SendMessageW(level, CB_SETCURSEL,
@@ -1763,8 +1796,15 @@ struct SettingsWindow::State {
     for (const auto& field : candidate_checks)
       if (const auto control = GetDlgItem(body, field.id))
         EnableWindow(control, enabled && (field.id == mixed_enabled || std::string_view(field.group) != "mixed_input" || mixed));
+    EnableWindow(GetDlgItem(body, mixed_quick_phrase_first), enabled && mixed &&
+        snapshot->preferences().at("mixed_input").value("quick_phrase", true));
     EnableWindow(GetDlgItem(body, mixed_first_page_count), enabled && mixed && snapshot &&
         snapshot->preferences().at("mixed_input").at("english").get<bool>());
+    // 自造词位置在不显示的时候也处于禁用，避免键盘焦点落到隐藏行上。
+    const bool placement = snapshot &&
+        input::wubi_phrase_placement_offered(snapshot->preferences().value("scheme", std::string{}) == "wubi",
+                                             snapshot->preferences().value("learning", true));
+    EnableWindow(GetDlgItem(body, wubi_phrase_placement), enabled && placement);
     // 逐键重排不看词网格开没开（host-api `keyboard_reranker_enabled`），「本地整句联想」关着时「标准 / 增强」照样可选，与共享设置页、现代设置窗口相同。
     if (const auto level = GetDlgItem(body, sentence_association_level))
       EnableWindow(level, enabled && snapshot);
@@ -1844,6 +1884,14 @@ struct SettingsWindow::State {
     InvalidateRect(window, nullptr, FALSE);
   }
 
+  // 当前页里被 `shown` 谓词隐藏的行占掉的高度，页面总高度要扣掉它，滚动范围才和内容一致。
+  int hidden_height(Surface target) const {
+    int result = 0;
+    for (const auto& item : items)
+      if (item.surface == target && item.shown && !item.shown()) result += item.block;
+    return result;
+  }
+
   void layout_body() {
     RECT client{};
     GetClientRect(body, &client);
@@ -1851,12 +1899,12 @@ struct SettingsWindow::State {
     info.cbSize = sizeof(info);
     info.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
     const bool reference = surface == Surface::reference;
-    const int total = surface == Surface::keyboard_skin ? KeyboardSkinPage::height : surface == Surface::mcp ? McpPage::height : surface == Surface::keyboard ? keyboard_height : surface == Surface::voice ? voice_height : surface == Surface::community_resources ? community_resources_height : surface == Surface::community_plugins ? community_plugins_height : surface == Surface::about ? about_height : surface == Surface::plugins ? plugins_height : surface == Surface::vocabulary ? vocabulary_height : surface == Surface::dictionary ? dictionary_height : surface == Surface::cloud_clipboard ? cloud_clipboard_height : surface == Surface::clipboard ? clipboard_height : surface == Surface::statistics ? statistics_height : surface == Surface::community ? community_height : surface == Surface::themes ? theme_height : surface == Surface::account ? account_height : surface == Surface::ai ? ai_height : surface == Surface::appearance ? appearance_height : surface == Surface::toolbar ? toolbar_height :
+    const int total = (surface == Surface::keyboard_skin ? KeyboardSkinPage::height : surface == Surface::mcp ? McpPage::height : surface == Surface::keyboard ? keyboard_height : surface == Surface::voice ? voice_height : surface == Surface::community_resources ? community_resources_height : surface == Surface::community_plugins ? community_plugins_height : surface == Surface::about ? about_height : surface == Surface::plugins ? plugins_height : surface == Surface::vocabulary ? vocabulary_height : surface == Surface::dictionary ? dictionary_height : surface == Surface::cloud_clipboard ? cloud_clipboard_height : surface == Surface::clipboard ? clipboard_height : surface == Surface::statistics ? statistics_height : surface == Surface::community ? community_height : surface == Surface::themes ? theme_height : surface == Surface::account ? account_height : surface == Surface::ai ? ai_height : surface == Surface::appearance ? appearance_height : surface == Surface::toolbar ? toolbar_height :
         surface == Surface::developer ? developer_height :
         surface == Surface::selection ? selection_height : surface == Surface::output ? output_height :
         surface == Surface::translation ? translation_form.height() : surface == Surface::gloss ? gloss_height : surface == Surface::punctuation ? punctuation_height : surface == Surface::candidates ? candidates_height :
         surface == Surface::mode ? mode_height : surface == Surface::scheme ? scheme_form.height() :
-        surface == Surface::advanced ? advanced_height : content_height;
+        surface == Surface::advanced ? advanced_height : content_height) - hidden_height(surface);
     info.nMax = reference ? 0 : dip(total) - 1;
     info.nPage = static_cast<UINT>(std::max(client.bottom, 0L));
     info.nPos = reference ? 0 : scroll;
@@ -1865,17 +1913,29 @@ struct SettingsWindow::State {
     GetScrollInfo(body, SB_VERT, &info);
     scroll = info.nPos;
     GetClientRect(body, &client);
+    int trim = 0;
+    Surface trim_surface = Surface::shortcuts;
     for (size_t index = 0; index < items.size(); ++index) {
       const auto& item = items[index];
+      // `items` 按页连续创建，换页时清掉上一页累计的隐藏行高度。
+      if (item.surface != trim_surface) {
+        trim = 0;
+        trim_surface = item.surface;
+      }
+      const bool row_shown = !item.shown || item.shown();
       const auto scheme_top = item.surface == Surface::scheme ? scheme_form.position(item.handle) :
           item.surface == Surface::translation ? translation_form.position(item.handle) : std::optional<int>(item.top);
-      const bool visible = surface == item.surface && scheme_top.has_value();
+      const bool visible = surface == item.surface && scheme_top.has_value() && row_shown;
       // 隐藏页面的控件很多；重复显隐和相同坐标移动仍会触发系统布局消息。
       const bool was_visible = (GetWindowLongPtrW(item.handle, GWL_STYLE) & WS_VISIBLE) != 0;
       if (visible != was_visible) ShowWindow(item.handle, visible ? SW_SHOW : SW_HIDE);
       if (item.help) item.help->visible(visible);
-      if (!visible) continue;
-      const int top = reference ? 0 : dip(*scheme_top) - scroll;
+      if (!visible) {
+        // 只把这一页里被 `shown` 收掉的行算进来；方案页的分段高度由 SchemeForm 自己处理。
+        if (!row_shown && item.shown) trim += item.block;
+        continue;
+      }
+      const int top = reference ? 0 : dip(*scheme_top) - dip(trim) - scroll;
       int width = std::max(client.right - dip(24), 1L);
       const int height = reference ? client.bottom : dip(item.height);
       int left = dip(4);
@@ -2027,12 +2087,22 @@ struct SettingsWindow::State {
     if (std::find(quote_values.begin(), quote_values.end(), quote) == quote_values.end()) return false;
     const auto bracket = preferences.value("bracket_style", std::string("solid"));
     if (std::find(bracket_values.begin(), bracket_values.end(), bracket) == bracket_values.end()) return false;
+    // 五笔自造词位置缺省为「同码词后」，有值时只能是模型里的两档之一。
+    if (preferences.contains("wubi_phrase_placement")) {
+      if (!preferences.at("wubi_phrase_placement").is_string()) return false;
+      const auto placement = preferences.at("wubi_phrase_placement").get<std::string>();
+      bool known = false;
+      for (const auto& option : input::wubi_phrase_placements)
+        if (control_text::utf8(option.id).value_or(std::string{}) == placement) known = true;
+      if (!known) return false;
+    }
     for (const auto* group : {"mixed_input", "sentence_association", "cloud_candidate_provider"})
       if (!preferences.contains(group) || !preferences.at(group).is_object()) return false;
     for (const auto& field : candidate_checks) {
       const auto& group = candidate_group(preferences, field);
       // `caret_edit_suffix`、`next_word_prediction` 关着以及 `enter_learns_english_word` 开着时共享序列化不写它们，缺键读作默认值。
       const bool optional = field.id == mixed_enabled || field.id == mixed_symbols || field.id == mixed_japanese ||
+          field.id == mixed_quick_phrase || field.id == mixed_quick_phrase_first ||
           field.id == caret_edit_suffix || field.id == next_word_prediction || field.id == enter_learns_english_word;
       if (!group.contains(field.field)) {
         if (optional) continue;
@@ -3066,6 +3136,12 @@ struct SettingsWindow::State {
       if (selected < 0 || static_cast<size_t>(selected) >= count) return;
       job.changes.push_back({{id == quote_style ? "quote_style" : "bracket_style"},
           id == quote_style ? quote_values[static_cast<size_t>(selected)] : bracket_values[static_cast<size_t>(selected)]});
+    } else if (id == wubi_phrase_placement && HIWORD(command) == CBN_SELCHANGE) {
+      const auto selected = SendMessageW(GetDlgItem(body, id), CB_GETCURSEL, 0, 0);
+      if (selected < 0 || static_cast<size_t>(selected) >= input::wubi_phrase_placements.size()) return;
+      // 选默认「同码词后」也照实写回：共享反序列化认出它，序列化时按缺省省略，文档里不会留下多余的一项。
+      job.changes.push_back({{"wubi_phrase_placement"},
+          control_text::utf8(input::wubi_phrase_placements[static_cast<size_t>(selected)].id).value_or(std::string{})});
     } else if (id == word_character_keys && HIWORD(command) == CBN_SELCHANGE) {
       const auto selected = SendMessageW(GetDlgItem(body, word_character_keys), CB_GETCURSEL, 0, 0);
       if (selected < 0 || static_cast<size_t>(selected) >= word_choices.size()) return;

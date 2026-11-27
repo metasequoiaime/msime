@@ -28,7 +28,7 @@ int main() {
   auto stop = loop.addTimeEvent(
       CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 1000, 0,
       [&](fcitx::EventSourceTime *timer, uint64_t) {
-        timer->setOneShot();
+        timer->setEnabled(false);
         loop.exit();
         return true;
       });
@@ -43,7 +43,7 @@ int main() {
   auto stop_after_cancel = cancel_loop.addTimeEvent(
       CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC), 0,
       [&](fcitx::EventSourceTime *timer, uint64_t) {
-        timer->setOneShot();
+        timer->setEnabled(false);
         cancel_loop.exit();
         return true;
       });

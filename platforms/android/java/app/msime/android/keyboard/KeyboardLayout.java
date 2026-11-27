@@ -242,12 +242,15 @@ public final class KeyboardLayout {
         List.of("_", "\\", "|", "~", "<", ">", "€", "&", "·", "£");
 
     /** 第三行两端（`#+=` / `123` 与 ⌫）的宽度份额，与字母层的 ⇧ ⌫ 相同。 */
-    public static final float LAYER_EDGE_WEIGHT = 1.4f;
-    /** 层底行的宽度份额：返回字母 1.25、表情 / 符号 1.05、中英文标点 1.05、空格 4.95、回车 1.9，合计与原来的底行一样宽（10.2）。 */
-    public static final float LAYER_BACK_WEIGHT = 1.25f;
-    public static final float LAYER_EMOJI_WEIGHT = 1.05f;
-    public static final float LAYER_SPACE_WEIGHT = 4.95f;
-    public static final float LAYER_RETURN_WEIGHT = 1.9f;
+    public static final float LAYER_EDGE_WEIGHT = KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT;
+    /**
+     * 层底行的宽度份额，与字母层底行同一套（{@link KeyboardActionRow#ROW_SHARES}）：返回与 123 同一格（1.5）、表情 / 符号 1、中英文标点 1、回车 1.5（在 ⌫ 下面），空格占剩下的，一行合计 10。
+     */
+    public static final float LAYER_BACK_WEIGHT = KeyboardActionRow.DESIGN_LAYER_WEIGHT;
+    public static final float LAYER_EMOJI_WEIGHT = KeyboardActionRow.DESIGN_SYMBOL_PANEL_WEIGHT;
+    public static final float LAYER_RETURN_WEIGHT = KeyboardActionRow.DESIGN_RETURN_WEIGHT;
+    public static final float LAYER_SPACE_WEIGHT = KeyboardActionRow.ROW_SHARES - LAYER_BACK_WEIGHT
+        - 2 * LAYER_EMOJI_WEIGHT - LAYER_RETURN_WEIGHT;
 
     /**
      * 新设计的 123 层：1–0 / 十个符号 / `#+=` + 五个标点 + ⌫ / 返回 | 😀 | 中标或英标 | 空格 | ↵。
@@ -346,12 +349,14 @@ public final class KeyboardLayout {
         List<String> punctuation = chinesePunctuation ? CHINESE_PUNCTUATION : ENGLISH_PUNCTUATION;
         List<LayerKey> third = new java.util.ArrayList<>(punctuation.size() + 2);
         third.add(toggle);
+        // 五个标点平分两端之间的宽度，这一行与上面两行一样合计 10 份，两端的内边落在第二行的键边上。
+        float punctuationWeight = (KeyboardActionRow.ROW_SHARES - 2 * LAYER_EDGE_WEIGHT) / punctuation.size();
         for (String key : punctuation)
-            third.add(character(key));
+            third.add(new LayerKey(key, key, LayerKeyKind.CHARACTER, punctuationWeight));
         third.add(new LayerKey("⌫", "删除", LayerKeyKind.DELETE, LAYER_EDGE_WEIGHT));
         LayerKey back = new LayerKey(lettersKeyTitle(chinese), "返回原键盘", LayerKeyKind.LETTERS,
             LAYER_BACK_WEIGHT);
-        // 「符」与「123」互换后字母层是 符 1.05 | 123 1.25：这一层换成 😀/符号 1.05 | 返回 1.25，返回键与 123 同一格、同宽。
+        // 「符」与「123」互换后字母层是 符 | 123：这一层换成 😀/符号 | 返回，返回键与 123 同一格、同宽。
         List<LayerKey> bottom = List.of(
             symbolFirst ? panelKey : back,
             symbolFirst ? back : panelKey,

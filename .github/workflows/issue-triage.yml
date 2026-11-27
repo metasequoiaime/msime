@@ -1,0 +1,64 @@
+name: Issue triage
+
+# 给还没有平台标签的 issue 补 `platform/*` 标签。PR 的平台标签按改动路径打（pr-triage.yml + labeler.yml）；issue 没有路径。官网需求表单提交的 issue 由 msime-web 打好平台标签，模板按 .agents/notes/implemented/process/2026-10-10-feature-request-template-fields.md 不设平台字段，所以直接在 GitHub 上提交的 issue 一直只能靠维护者手动补。
+#
+# 只认标题和 Bug 模板「系统与输入法版本」、功能建议模板「输入法版本」两栏，不扫整篇正文：正文里「不像 macOS 那样」「Android 上没问题」之类的对比很常见，扫正文误报太多。
+#
+# 只给没有任何平台标签（`platform/*`、`pc`、`mobile`）的 issue 加，从不删：官网或维护者打过的标签说了算。见 .agents/notes/implemented/process/2026-11-27-issue-platform-labels.md。
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+concurrency:
+  group: issue-triage-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  platforms:
+    name: Platform labels
+    if: ${{ !endsWith(github.actor, '[bot]') }}
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const patterns = [
+              [/\bwin(dows)?\s*(7|8|10|11)?\b|\bwin(7|8|10|11)\b/i, 'platform/windows'],
+              [/\bmac(os)?\b|\bosx\b/i, 'platform/macos'],
+              [/\blinux\b|\bubuntu\b|\bfedora\b|\bdebian\b|\barch\b|\bfcitx5?\b|\bibus\b|\bwayland\b/i, 'platform/linux'],
+              [/\bandroid\b|安卓/i, 'platform/android'],
+              [/\bi(os|pados|phone|pad)\b/i, 'platform/ios'],
+              [/\bharmony(os)?\b|鸿蒙/i, 'platform/harmony'],
+            ];
+            const platformish = (name) => name.startsWith('platform/') || name === 'pc' || name === 'mobile';
+
+            const { owner, repo } = context.repo;
+            const issue = context.payload.issue;
+            // 读当前标签而不是事件里的：重新运行会重放旧的 payload，期间维护者可能已经补过。
+            const current = (await github.paginate(github.rest.issues.listLabelsOnIssue, {
+              owner, repo, issue_number: issue.number, per_page: 100,
+            })).map((l) => l.name);
+            if (current.some(platformish)) {
+              core.info('已有平台标签，不处理。');
+              return;
+            }
+
+            // 表单提交后的正文形如「### 系统与输入法版本\n\nWindows 10 专业版……\n\n### 下一节」。
+            const section = (heading) => {
+              const m = new RegExp(`^### ${heading}\\s*\\n([\\s\\S]*?)(?=^### |(?![\\s\\S]))`, 'm').exec(issue.body || '');
+              return m ? m[1] : '';
+            };
+            const text = [issue.title, section('系统与输入法版本'), section('输入法版本')].join('\n');
+
+            const labels = patterns.filter(([p]) => p.test(text)).map(([, l]) => l);
+            if (labels.length === 0) {
+              core.info('标题和版本栏里没有认出平台。');
+              return;
+            }
+            await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels });
+            core.info(`已添加：${labels.join(', ')}`);

@@ -206,6 +206,7 @@ fuzzy_en_eng = false
 fuzzy_in_ing = false
 fuzzy_ian_iang = false
 fuzzy_uan_uang = false
+fuzzy_un_ong = false
 
 #
 # Helpcode

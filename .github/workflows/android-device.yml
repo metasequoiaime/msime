@@ -31,8 +31,8 @@ jobs:
     name: Android device (API ${{ matrix.api }})
     # 模拟器需要 KVM；普通 Depot GitHub Actions runner 不提供 /dev/kvm，不能用单台探测结果代替平台能力保证。见 .agents/notes/implemented/process/2026-10-30-android-device-kvm-runner.md。此 job 不接触 secrets，APK 使用开发密钥。
     runs-on: ubuntu-24.04
-    # 冷构建后整套验收已接近 90 分钟；验收步骤单独限时，给日志上传和退出留出余量。
-    timeout-minutes: 120
+    # 冷构建到整套验收实测已经用满 120 分钟：11-25 nightly 的验收步骤自己就跑了 89 分钟，11-26 手动完整运行在这 90 分钟上限处被掐断、尾部几个套件没跑到。验收步骤单独限时，给日志上传和退出留出余量。
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
@@ -149,7 +149,7 @@ jobs:
           mkdir -p target/resources
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources --locked -- target/resources)"
           bash platforms/android/build-apk.sh "$resource_dir"
-      # 崩溃链路独立于完整输入冒烟；普通 UI 套件失败或耗时过长时也必须留下真实故障门禁结果。此前运行在 4 分钟内完成；10 分钟上限加上约 17 分钟的构建和下一步的 90 分钟，仍在 job 的 120 分钟以内。
+      # 崩溃链路独立于完整输入冒烟；普通 UI 套件失败或耗时过长时也必须留下真实故障门禁结果。此前运行在 4 分钟内完成；10 分钟上限加上约 21–25 分钟的构建和下一步的 110 分钟，仍在 job 的 150 分钟以内。
       - name: Verify crash reporting before the full input smoke
         if: ${{ matrix.smoke != '--pr' && matrix.smoke != '--key-faces' && matrix.smoke != '--theme' }}
         timeout-minutes: 10
@@ -161,7 +161,8 @@ jobs:
       # 上一步崩溃专项已经装过一次 265 MB 的 APK 并启动过应用，smoke.sh 再用 install -r 覆盖安装时，包管理器要在旧 APK、它的 dex 产物和首启准备好的数据之外再腾出一份新 APK 的空间。API 35 的 /data 余量本来就紧，2026-11-05 #10934 的 API 35 两次在这里报 INSTALL_FAILED_INSUFFICIENT_STORAGE: Failed to override installation location，验收一项没跑就停了，同一个 APK 在 API 28 和另一次重跑里都装得上。完整冒烟本来就按全新安装写（smoke.sh 里会跳过首启引导），这里先卸掉崩溃专项留下的安装再装，前后各打一次 /data 的余量，下次再报空间不足时日志里有数可查。
       - name: Install, prepare resources and accept input on the AVD
         if: ${{ matrix.smoke != '--crash-only' }}
-        timeout-minutes: 90
+        # 默认完整套件在 API 35 上跑了 89 分钟（11-25 nightly），90 分钟上限下没有余量，任何轻微变慢都会被掐断。
+        timeout-minutes: 110
         run: |
           set -euo pipefail
           mkdir -p target/android

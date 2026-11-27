@@ -8,6 +8,8 @@ import java.util.function.LongSupplier;
  * 在会话线程上安排停顿评分；视图和模型状态仍由共享运行时拥有。
  *
  * <p>计时只从用户的输入算起（{@link #schedule}），别的重绘只能在不再适用时取消它（{@link #keep}），不能重新计时：释义、在线行这些异步刷新各有各的时机，挂在它们上面，换序什么时候发生就由不相干的事决定。手指按着候选时不起跑、不接续，松手后再接着做：每一片都推进候选代次，按下时画出来的那个候选到松手时就选不中了。
+ *
+ * <p>展开面板开着时同样不起跑、不接续，但不轮询：停在原处，面板收起时宿主调 {@link #resume()} 接着做。重排只换顺序、不添新词，用户要找的词还在面板里；面板里的格子绑着打开时的代次，这时换代，面板会换成新一代并回到顶部。
  */
 public final class PauseRerankController<V> {
     public interface Scheduler {
@@ -47,7 +49,11 @@ public final class PauseRerankController<V> {
     private final Consumer<V> publish;
     private final Runnable onError;
     private final BooleanSupplier candidateHeld;
+    private final BooleanSupplier panelOpen;
     private Runnable timer;
+    /** 面板开着时停下的那一步；{@link #resume()} 接着做，{@link #cancel()} 清掉。 */
+    private long parkedGeneration = -1;
+    private long parkedSession;
     /** 最近一次回复说挂着延后模型的会话句柄；0 表示还不知道或没有。 */
     private long deferredSession;
     private long epoch;
@@ -61,12 +67,18 @@ public final class PauseRerankController<V> {
     /** {@code candidateHeld} 为真时有手指按着候选（或它的点击还在排队）。 */
     public PauseRerankController(Scheduler scheduler, Bridge<V> bridge, LongSupplier currentSession,
             Consumer<V> publish, Runnable onError, BooleanSupplier candidateHeld) {
+        this(scheduler, bridge, currentSession, publish, onError, candidateHeld, () -> false);
+    }
+    /** {@code panelOpen} 为真时展开面板开着。 */
+    public PauseRerankController(Scheduler scheduler, Bridge<V> bridge, LongSupplier currentSession,
+            Consumer<V> publish, Runnable onError, BooleanSupplier candidateHeld, BooleanSupplier panelOpen) {
         this.scheduler = scheduler;
         this.bridge = bridge;
         this.currentSession = currentSession;
         this.publish = publish;
         this.onError = onError;
         this.candidateHeld = candidateHeld;
+        this.panelOpen = panelOpen;
     }
     /** 用户的一次输入之后调用：从这一刻重新计时。 */
     public void schedule(boolean eligible) {
@@ -102,8 +114,16 @@ public final class PauseRerankController<V> {
         publishView(last);
         follow(generation, handle, result.status());
     }
+    /** 面板收起了：面板开着时停下的那一步接着做；没有停下的什么也不做。 */
+    public void resume() {
+        long generation = parkedGeneration;
+        long handle = parkedSession;
+        parkedGeneration = -1;
+        if (generation >= 0 && current(generation, handle) && timer == null) post(generation, handle, 0);
+    }
     public void cancel() {
         epoch++;
+        parkedGeneration = -1;
         if (timer != null) scheduler.remove(timer);
         timer = null;
         if (job != null) {
@@ -133,6 +153,11 @@ public final class PauseRerankController<V> {
         // 按着候选时不起跑也不接续：松手（连同排队的点击）之后再做。归还取消的评分不经这里，照常进行。
         if (candidateHeld.getAsBoolean()) {
             post(generation, handle, POLL_MILLIS);
+            return;
+        }
+        if (panelOpen.getAsBoolean()) {
+            parkedGeneration = generation;
+            parkedSession = handle;
             return;
         }
         Reply<V> result = step(handle);

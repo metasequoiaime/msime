@@ -23,3 +23,61 @@ enum CandidatePageSizePreference {
     return value
   }
 }
+
+/// 展开候选面板的样式。
+///
+/// `card` 是原来那一套格子：64pt 起自动分列、格子画得像按键、带底色和阴影。`system` 是系统拼音的样子：固定六列、格子只有文字、首行与下面的格子同一条列线。
+///
+/// 只有 `system` 从候选条那一行铺起（右侧一条窄列放收起、手写、删除），于是「点展开」看起来就是候选栏原地向下展开，不再多出一条候选；`card` 仍装在候选条下沿，与加入这个选项之前一样。面板视图两种样式都支持原地展开，靠调用方传 `expandsInPlace` 决定，目前只有系统样式传。
+///
+/// 存在 App Group（与每页候选数一样属 iOS 自己的观感），不写共享文档：其他平台的面板各有各的样子。
+enum CandidatePanelStylePreference {
+  static let key = "candidate.panelStyle"
+
+  enum Style: String, CaseIterable {
+    case card
+    case system
+  }
+
+  static let options: [(style: Style, title: String)] = [(.card, "卡片"), (.system, "系统样式")]
+
+  /// 没有任何存值时用的样式：卡片，老用户升级后维持原来的样子。真机验收期间曾临时改成 `.system`（未签名安装的包拿不到 App Group，设置页写的那份键盘读不到），验收完已改回。
+  static let fallbackStyle: Style = .card
+
+  static var defaults: UserDefaults {
+    InputSchemePreference.appGroupDefaults
+  }
+
+  static var style: Style {
+    get { Style(rawValue: defaults.string(forKey: key) ?? "") ?? fallbackStyle }
+    set { defaults.set(newValue.rawValue, forKey: key) }
+  }
+
+  static func title(for style: Style) -> String {
+    options.first { $0.style == style }?.title ?? options[0].title
+  }
+}
+
+/// 卡片样式的展开网格里，每个候选格子底色的不透明度，按百分比存（0–100）。
+///
+/// 格子画得像按键，底色深一点时整屏是一块块方砖；调低之后格子融进键盘背景，只剩文字。100 是原来那套，缺省就是它，老用户升级后看不出变化。系统样式本来就没有格子底，这一项不作用于它。
+enum CandidatePanelChipOpacityPreference {
+  static let key = "candidate.panelChipOpacity"
+  static let defaultPercent = 100
+  static let range = 0...100
+  static let step = 5
+
+  static var defaults: UserDefaults {
+    InputSchemePreference.appGroupDefaults
+  }
+
+  /// 0–1，直接给 `UIColor.withAlphaComponent` 用。
+  static var opacity: CGFloat {
+    CGFloat(clamped(defaults.object(forKey: key) as? Int)) / 100
+  }
+
+  static func clamped(_ value: Int?) -> Int {
+    guard let value, range.contains(value) else { return defaultPercent }
+    return value
+  }
+}

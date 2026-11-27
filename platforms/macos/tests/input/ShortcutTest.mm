@@ -7325,6 +7325,87 @@ static void TestEditableShiftController() {
     [defaults removePersistentDomainForName:suite];
 }
 
+// #11846：`keybindings.shift_tap_uppercase_english` 默认关，单按 Shift 进英文后照旧把字母交给应用；打开后只有单按 Shift 从中文切到英文才输出大写，标点照常走中文标点，其它入口进入的英文仍是普通英文。
+static void TestShiftTapUppercaseEnglish() {
+    NSString *suite = [@"msime.shift-tap-uppercase." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    ShortcutSession *session = [ShortcutSession new];
+    NSDictionary *empty = @{@"focused": @YES, @"editing_text": @"", @"candidates": @[]};
+    session.finishTransition = @{@"handled": @YES, @"view": empty};
+    session.cancelTransition = session.finishTransition;
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:empty forKey:@"view"];
+    [controller setValue:[HiddenCandidatePanel new] forKey:@"panel"];
+    __block double clock = 10.0;
+    void (^tapShift)(void) = ^{
+        assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, clock) client:client]);
+        assert([controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, 0, clock + 0.1) client:client]);
+        clock += 1.0;
+    };
+    // 按一个键，返回输入法是否接管以及它这次写进客户端的文字（没写为 nil）。
+    __block BOOL handled = NO;
+    NSString *(^type)(NSString *, unsigned short, NSEventModifierFlags) = ^NSString *(NSString *text, unsigned short code, NSEventModifierFlags flags) {
+        client.committed = nil;
+        handled = [controller handleEvent:[NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0
+                                                       windowNumber:0 context:nil characters:text charactersIgnoringModifiers:text
+                                                          isARepeat:NO keyCode:code] client:client];
+        return client.committed;
+    };
+
+    // 出厂默认：开关关着，单按 Shift 进英文后小写字母原样交给应用。
+    assert(!prefs.shiftTapUppercaseEnglish && prefs.shiftTapShortcut && !prefs.englishMode);
+    tapShift();
+    assert(prefs.englishMode);
+    assert(!type(@"a", 0, 0) && !handled);
+
+    [prefs applySharedInputPreferences:@{@"keybindings": @{@"switch_language_shift": @YES, @"shift_tap_uppercase_english": @YES}}];
+    assert(prefs.shiftTapUppercaseEnglish);
+    // 已经在英文时打开开关不追认，从英文切回中文也不进大写。
+    assert(!type(@"a", 0, 0) && !handled);
+    tapShift();
+    assert(!prefs.englishMode);
+
+    // 单按 Shift 从中文切到英文：小写字母由输入法写成大写，不能交还应用（应用收到的是原始小写键）。
+    tapShift();
+    assert(prefs.englishMode);
+    assert([type(@"a", 0, 0) isEqual:@"A"] && handled);
+    assert([type(@"z", 6, 0) isEqual:@"Z"] && handled);
+    // 数字和标点不受大写影响：数字照旧交给应用，Shift+标点照常走中文标点锁定。
+    assert(!type(@"1", 18, 0) && !handled);
+    prefs.punctuationLock = @"chinese";
+    assert([type(@"!", 18, NSEventModifierFlagShift) isEqual:@"！"] && handled);
+    prefs.punctuationLock = @"follow";
+
+    // 从菜单等其它入口改变中英文后回到普通英文。
+    [controller setEnglishInputMode:NO];
+    [controller setEnglishInputMode:YES];
+    assert(prefs.englishMode);
+    assert(!type(@"a", 0, 0) && !handled);
+    // 单按 Control 进入的英文也不是大写英文。
+    [controller setEnglishInputMode:NO];
+    prefs.controlTapShortcut = YES;
+    assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 62, NSEventModifierFlagControl, clock) client:client]);
+    assert([controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 62, 0, clock + 0.1) client:client]);
+    clock += 1.0;
+    assert(prefs.englishMode);
+    assert(!type(@"a", 0, 0) && !handled);
+    // 进入英文候选模式（⌃⇧E）同样清掉大写状态，再用菜单回英文仍是普通英文。
+    [controller setEnglishInputMode:NO];
+    tapShift();
+    assert(prefs.englishMode);
+    [controller setDedicatedEnglishInputMode:YES];
+    assert(!prefs.englishMode);
+    [controller setValue:empty forKey:@"view"];
+    [controller setEnglishInputMode:YES];
+    assert(!type(@"a", 0, 0) && !handled);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 static void TestModifierTaps() {
     for (NSNumber *key in @[@56, @60, @59, @62]) {
         const auto code = key.unsignedShortValue;
@@ -17633,6 +17714,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestSmartPunctuationVersionNumberThroughRealSession(); }
         @autoreleasepool { TestEditableShiftController(); }
         @autoreleasepool { TestModifierTaps(); }
+        @autoreleasepool { TestShiftTapUppercaseEnglish(); }
         @autoreleasepool { TestShiftChordRecoversWithoutFlagsChanged(); }
         @autoreleasepool { TestInputModeStatusItem(); }
         @autoreleasepool { TestInputModeGlyphIconsPreference(); }

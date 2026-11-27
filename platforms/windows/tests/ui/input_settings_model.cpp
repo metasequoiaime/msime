@@ -50,6 +50,22 @@ int main() {
         "each stored profile selects its own entry");
   check(wubi_profile_index(L"wubi06") == 0 && wubi_profile_index(L"") == 0,
         "an unknown stored profile reads as 86");
+  // 五笔自造词位置：顺序、取值和文字与共享偏好的 WubiPhrasePlacement 相同；缺省和不认识的取值都按「同码词后」（bottom，等于现状），并且只出现在五笔且学习开启时。
+  check(wubi_phrase_placements.size() == 2 && wubi_phrase_placements[0].id == L"bottom" &&
+            wubi_phrase_placements[0].label == L"同码词后" &&
+            wubi_phrase_placements[1].id == L"top" && wubi_phrase_placements[1].label == L"同码词前",
+        "the two wubi phrase placements in the shared order and words");
+  check(wubi_phrase_placement_id(L"bottom") == L"bottom" && wubi_phrase_placement_id(L"top") == L"top",
+        "stored phrase placements keep their value");
+  check(wubi_phrase_placement_id(L"") == L"bottom" && wubi_phrase_placement_id(L"middle") == L"bottom",
+        "a missing or unknown phrase placement reads as bottom");
+  check(wubi_phrase_placement_index(L"top") == 1 && wubi_phrase_placement_index(L"bottom") == 0 &&
+            wubi_phrase_placement_index(L"unknown") == 0,
+        "the phrase placement index follows the shared order and falls back to bottom");
+  check(wubi_phrase_placement_offered(true, true), "the phrase placement is offered for Wubi with learning on");
+  check(!wubi_phrase_placement_offered(false, true) && !wubi_phrase_placement_offered(true, false) &&
+            !wubi_phrase_placement_offered(false, false),
+        "the phrase placement is hidden outside Wubi or with learning off");
   check(valid_wubi_candidate_keys(L";", L"'"), "the default pair is valid");
   check(valid_wubi_candidate_keys(L"'", L";"), "a swapped pair is valid");
   check(valid_wubi_candidate_keys(L"[", L"~"), "brackets and tilde are punctuation");
@@ -169,6 +185,6 @@ int main() {
 
   if (failures)
     return 1;
-  std::puts("input settings model: tabs, Wubi keys, Chinese output, local modes, fuzzy groups, paging keys and shuangpin preedit");
+  std::puts("input settings model: tabs, Wubi keys and placements, Chinese output, local modes, fuzzy groups, paging keys and shuangpin preedit");
   return 0;
 }

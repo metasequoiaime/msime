@@ -164,11 +164,6 @@ final class ImeCandidates {
         ViewPolicy.clearElevation(button);
     }
 
-    boolean openGlossCard(Button button, int slot, JSONObject id, String text) {
-        if (!s.candidateGlossInsertionEnabled() && !s.candidateManagementEnabled()) return false;
-        return openGlossCard(button, slot, id, text, s.visibleCandidate(slot), false);
-    }
-
     boolean openGlossCard(Button button, int slot, JSONObject id, String text,
                           JSONObject candidate, boolean expanded) {
         return openGlossCard(button, slot, id, text, candidate, expanded, null);
@@ -191,17 +186,19 @@ final class ImeCandidates {
         // HorizontalScrollView cancels the child on a drag, so the button keeps immediate tap
         // feedback without changing the existing scroll-versus-select boundary.
         KeyboardPressButton button = candidateButton();
-        ViewPolicy.bindClick(button, () -> s.selectVisibleCandidate(button, slot));
+        // 按钮会复用，点按和长按都按画出来的那个候选，不按这一代视图里的同一个槽位（#11816）。
+        ViewPolicy.bindClick(button, () -> s.selectVisibleCandidate(button));
         s.bindCandidateRenderRelease(button);
         button.setOnLongClickListener(ignored -> {
-            JSONObject current = s.visibleCandidate(slot);
-            JSONObject id = current == null ? null : current.optJSONObject("id");
+            JSONObject current = s.resolveDrawnCandidate(s.drawnCandidate(button));
+            if (current == null) { s.noticeCandidateStale(); return true; }
+            JSONObject id = current.optJSONObject("id");
             if (id == null || (!s.candidateManagementEnabled() && !s.candidateGlossInsertionEnabled())) return false;
             // AI 占位行（来源 12，共享内核已经不再产出）没有可管理的词，长按不弹菜单（#6888）；平时它也不可长按，见 updateCandidateButton。
             if (!AiPendingCandidatePolicy.offersMenu(InputViewValuePolicy.integer(current, "source", -1))) return false;
             String text = s.chineseCandidateOutput(InputViewValuePolicy.textOr(current, "text", ""), s.view,
                 InputViewValuePolicy.integer(current, "source", -1));
-            return openGlossCard(button, slot, id, text);
+            return openGlossCard(button, slot, id, text, current, false);
         });
         return button;
     }
@@ -216,14 +213,17 @@ final class ImeCandidates {
     /** 横向完整候选按全局身份选择，点击不再依赖引擎当前页的槽位。按钮会复用：点击和长按每次都重新绑到这一代的候选与快照上。 */
     void bindStripCandidateButton(KeyboardPressButton button, JSONObject snapshot, JSONObject candidate,
                                   int visibleSlot) {
-        JSONObject id = candidate.optJSONObject("id");
         ViewPolicy.bindClick(button, () -> s.selectStripCandidate(button, candidate));
         if (AiPendingCandidatePolicy.offersMenu(InputViewValuePolicy.integer(candidate, "source", -1)))
             button.setOnLongClickListener(ignored -> {
-                if (!s.candidateVersionIsCurrent(id)) return false;
-                String text = s.chineseCandidateOutput(InputViewValuePolicy.textOr(candidate, "text", ""), s.view,
-                    InputViewValuePolicy.integer(candidate, "source", -1));
-                return openGlossCard(button, -1, id, text, candidate, false, snapshot);
+                // 长按按画出来的这个候选：换代后它能按文字找回来，找不回来就提示，不静默丢弃（#11816）。
+                JSONObject drawn = s.resolveDrawnCandidate(candidate);
+                if (drawn == null) { s.noticeCandidateStale(); return true; }
+                JSONObject drawnId = drawn.optJSONObject("id");
+                if (drawnId == null) return true;
+                String text = s.chineseCandidateOutput(InputViewValuePolicy.textOr(drawn, "text", ""), s.view,
+                    InputViewValuePolicy.integer(drawn, "source", -1));
+                return openGlossCard(button, -1, drawnId, text, drawn, false, snapshot);
             });
         else button.setOnLongClickListener(null);
         // 放在绑长按之后：setOnLongClickListener 总会把按钮设成可长按，updateCandidateButton 再按来源改回去。
@@ -280,13 +280,23 @@ final class ImeCandidates {
             ViewPolicy.bindClick(button, () -> {
                 s.imeKeyFeedback.playFeedback(button);
                 // 点占位行什么也不发生：Engine 本来就不上屏，这里连面板也不收起，用户还在看完整列表（#6888）。
-                if (placeholder || !s.candidateVersionIsCurrent(id)) return;
-                s.selectPanelCandidate(id);
+                if (placeholder) return;
+                // 面板里的候选也会被异步换代：按画出来的这个候选，找不回来就提示，不静默丢弃（#11816）。
+                JSONObject drawn = s.resolveDrawnCandidate(candidate);
+                JSONObject drawnId = drawn == null ? null : drawn.optJSONObject("id");
+                if (drawnId == null) { s.noticeCandidateStale(); return; }
+                s.selectPanelCandidate(drawnId);
             });
             // 占位行不挂长按：没有可管理的词，读屏也不该提示长按（#6888）。
             if (AiPendingCandidatePolicy.offersMenu(source)) button.setOnLongClickListener(ignored -> {
                 if (!s.candidateManagementEnabled() && !s.candidateGlossInsertionEnabled()) return false;
-                return openGlossCard(button, -1, id, text, candidate, true);
+                JSONObject drawn = s.resolveDrawnCandidate(candidate);
+                JSONObject drawnId = drawn == null ? null : drawn.optJSONObject("id");
+                if (drawnId == null) { s.noticeCandidateStale(); return true; }
+                String drawnText = s.chineseCandidateOutput(
+                    InputViewValuePolicy.textOr(drawn, "text", ""), s.view,
+                    InputViewValuePolicy.integer(drawn, "source", -1));
+                return openGlossCard(button, -1, drawnId, drawnText, drawn, true);
             });
         }
         return button;

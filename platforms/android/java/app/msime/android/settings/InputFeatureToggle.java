@@ -58,7 +58,7 @@ public enum InputFeatureToggle {
         "为候选词附上译文；联网翻译用哪个服务在「设置 → 输入 → 翻译服务」里选"),
     CANDIDATE_TRANSLATION_ACCOUNT(Group.PRIVACY, "translation_account", false, "用水杉账号翻译候选",
         "把当前页的中文候选词发送到 api.msime.app 翻译，首次使用会创建匿名账号；打开会停用你在「翻译服务」里配置的小牛、腾讯或自定义服务"),
-    CANDIDATE_ENGLISH_GLOSS(Group.PRIVACY, "candidate_english_gloss", false, "候选英文释义",
+    CANDIDATE_ENGLISH_GLOSS(Group.PRIVACY, "candidate_english_gloss", false, "离线释义",
         "用本机的离线词典给候选词标注释义；英语以外的目标语言要先下载离线释义词典"),
     CANDIDATE_PRONUNCIATION(Group.PRIVACY, "candidate_pronunciation", false, "显示读音",
         "给英文候选和释义标注离线读音：英文给音标，日文和韩文给罗马音，法、西、俄、德语给国际音标；缺少读音词典时不会显示"),

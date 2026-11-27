@@ -93,12 +93,14 @@ final class KeyLayoutPreview extends View {
             List<KeyLayoutStylesPolicy.Key> row = rows.get(r);
             float weights = 0;
             for (KeyLayoutStylesPolicy.Key key : row) weights += key.weight();
-            // 和键盘的 LinearLayout 一样，按份额铺满整行。
-            float unit = (innerWidth - gap * (row.size() - 1)) / weights;
+            // 和键盘一样先按份额切格（KeyCellEdges），键宽是格宽减一个键距，各行同一列的边对齐。
+            float span = innerWidth + gap;
             float top = padding + r * (rowHeight + gap);
-            float x = padding;
+            float prefix = 0;
             for (KeyLayoutStylesPolicy.Key key : row) {
-                float width = unit * key.weight();
+                float x = padding + span * prefix / weights;
+                prefix += key.weight();
+                float width = padding + span * prefix / weights - gap - x;
                 if (key.rows() > 0) {
                     float height = key.rows() * rowHeight + (key.rows() - 1) * gap;
                     int background = switch (key.tone()) {
@@ -122,7 +124,6 @@ final class KeyLayoutPreview extends View {
                         }
                     }
                 }
-                x += width + gap;
             }
         }
     }

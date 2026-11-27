@@ -14,7 +14,7 @@ use crate::pinyin::autocorrect::{
 use crate::pinyin::segment::is_complete_pinyin_input;
 use crate::shuangpin::query::{
     detect_active_double_helpcode_length, effective_input_length, is_complete_input,
-    raw_length_for_effective_prefix, remove_manual_delimiters,
+    raw_length_for_effective_prefix, remove_manual_delimiters, standalone_direct_helpcode,
 };
 use crate::shuangpin::ShuangpinProfile;
 use crate::text::count_han_chars;
@@ -62,35 +62,13 @@ pub(super) fn resolve_shuangpin_composition_base<'a>(
         request.raw_input_with_cases.as_str()
     };
     let effective_raw_input_with_cases = remove_manual_delimiters_cow(raw_input_with_cases_source);
-    let mut base = ShuangpinCompositionBase {
+    ShuangpinCompositionBase {
         effective_raw_input,
         effective_raw_input_with_cases,
         raw_input,
         raw_input_with_cases,
-        helpcode_length: 0,
-    };
-    if !request.enable_shuangpin_helpcode
-        || !request.shuangpin_helpcode_modes.direct
-        || base.effective_raw_input.is_empty()
-    {
-        return base;
+        helpcode_length: active_shuangpin_helpcode_length(request, profile),
     }
-    if detect_active_double_helpcode_length(&base.raw_input, &base.raw_input_with_cases, profile)
-        == 2
-    {
-        base.helpcode_length = 2;
-        return base;
-    }
-    let length = base.effective_raw_input.len();
-    if length % 2 == 1 && length > 1 {
-        let raw_prefix_length = raw_length_for_effective_prefix(&base.raw_input, length - 1);
-        // An apostrophe right before the odd letter makes it a pinyin segment the user started, not an auxiliary code.
-        let separated = base.raw_input.as_bytes().get(raw_prefix_length) == Some(&b'\'');
-        if !separated && is_complete_input(&base.raw_input[..raw_prefix_length], profile) {
-            base.helpcode_length = 1;
-        }
-    }
-    base
 }
 
 fn remove_manual_delimiters_cow(raw: &str) -> Cow<'_, str> {
@@ -125,7 +103,9 @@ fn remove_consumed_leading_separators(raw: &str) -> &str {
 /// Detect an active shuangpin helpcode without constructing the owned composition base. The
 /// candidate refresh path only needs this length to decide whether dynamic rows can move.
 fn active_shuangpin_helpcode_length(request: &QueryRequest, profile: &ShuangpinProfile) -> usize {
-    if !request.enable_shuangpin_helpcode || !request.shuangpin_helpcode_modes.direct {
+    if !request.enable_shuangpin_helpcode
+        || !(request.shuangpin_helpcode_modes.direct || standalone_direct_helpcode(request))
+    {
         return 0;
     }
     let raw = &request.raw_input;
@@ -143,6 +123,7 @@ fn active_shuangpin_helpcode_length(request: &QueryRequest, profile: &ShuangpinP
     let length = effective_input_length(raw);
     if length % 2 == 1 && length > 1 {
         let raw_prefix_length = raw_length_for_effective_prefix(raw, length - 1);
+        // 音节后手打的撇号把下一键明确交给新的拼音段。
         let separated = raw.as_bytes().get(raw_prefix_length) == Some(&b'\'');
         if !separated && is_complete_input(&raw[..raw_prefix_length], profile) {
             return 1;

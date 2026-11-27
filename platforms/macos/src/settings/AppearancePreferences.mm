@@ -364,6 +364,7 @@ static NSArray<NSArray<NSString *> *> *FuzzyPinyinRuleControls() {
         @[@"n-l", @"n / l"], @[@"f-h", @"f / h"], @[@"r-l", @"r / l"],
         @[@"an-ang", @"an / ang"], @[@"en-eng", @"en / eng"], @[@"in-ing", @"in / ing"],
         @[@"ian-iang", @"ian / iang"], @[@"uan-uang", @"uan / uang"],
+        @[@"un-ong", @"un / ong"],
     ];
 }
 static BOOL ValidFuzzyPinyinRules(id value) {
@@ -1105,6 +1106,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSNumber *_sharedInputModeShortcut;
     NSNumber *_sharedShiftTapShortcut;
     BOOL _sharedShiftTapRequiresEditable;
+    BOOL _sharedShiftTapUppercaseEnglish;
     NSNumber *_sharedControlTapShortcut;
     NSNumber *_sharedCapsLockTapShortcut;
     NSNumber *_sharedTrilingualCycle;
@@ -2307,12 +2309,15 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     id keys = preferences[@"keybindings"];
     // 新开关没有旧版偏好回退；移除字段也应恢复默认关闭。
     _sharedShiftTapRequiresEditable = NO;
+    _sharedShiftTapUppercaseEnglish = NO;
     if ([keys isKindOfClass:NSDictionary.class]) {
         // 中日英循环切换：缺键读作关，和共享偏好的默认值（对齐旧版 Windows 出厂值）一致。
         id cycle = keys[@"trilingual_cycle"];
         if (LocalModeBoolean(cycle)) _sharedTrilingualCycle = cycle;
         id editable = keys[@"switch_language_shift_requires_editable"];
         if (LocalModeBoolean(editable)) _sharedShiftTapRequiresEditable = [editable boolValue];
+        id uppercase = keys[@"shift_tap_uppercase_english"];
+        if (LocalModeBoolean(uppercase)) _sharedShiftTapUppercaseEnglish = [uppercase boolValue];
         id shift = keys[@"switch_language_shift"];
         if (LocalModeBoolean(shift)) {
             // The shared Tauri setting reaches both native Shift routes.
@@ -2793,6 +2798,7 @@ static NSString *SkinFilesIdentity(const std::vector<std::string> &paths) {
     return [_defaults objectForKey:ShiftTapShortcutKey] == nil || [_defaults boolForKey:ShiftTapShortcutKey];
 }
 - (BOOL)shiftTapRequiresEditable { return _sharedShiftTapRequiresEditable; }
+- (BOOL)shiftTapUppercaseEnglish { return _sharedShiftTapUppercaseEnglish; }
 - (void)setShiftTapShortcut:(BOOL)value {
     _sharedInputModeShortcut = nil;
     _sharedShiftTapShortcut = nil;

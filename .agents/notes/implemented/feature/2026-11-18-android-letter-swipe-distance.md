@@ -23,7 +23,7 @@ Android 26 键和 14/18 键字母键的纵滑判定是固定的 14 dp（`SwipeHi
 距离调大之后，手指纵向移出键帽（约半个键高加 touch slop）却没到距离时，按钮自己会取消点击。
 
 - 14/18 键：`GridKeyGesturePolicy` 把「纵向为主、超过 14 dp 却没触发手势」的按压记为点按（`verticalTap`，`forcesTap()` 为真），松手由监听补一次 `performClick`，与关闭「滑动输入符号」时的纵滑相同。判定用固定的 `THRESHOLD_DP` 而不是「滑动距离」，所以关闭时的行为与加设置之前逐字相同。
-- 26 键不补：它关闭滑动时纵移也交给按钮，移出键帽就没有输入；距离调大后没滑到时与关闭时一致。
+- 26 键不补：它关闭滑动时纵移也交给按钮，移出键帽就没有输入；距离调大后没滑到时与关闭时一致。#11822 起 26 键也补，见 [Android 26 键与 14/18 键字母键滑动判定统一](2026-11-22-android-letter-swipe-detection.md)。
 
 ## Alternatives considered
 
@@ -37,6 +37,6 @@ Android 26 键和 14/18 键字母键的纵滑判定是固定的 14 dp（`SwipeHi
 
 收益：误触多的用户可以把距离调大，不必关掉整个「滑动输入符号」；默认手感不变；14/18 键调大距离后没滑到的纵移仍输入这一组，不丢键。
 
-代价：多一项设置，只在 Android、只在本机，换设备要重新调。26 键调大距离后，纵向移出键帽却没到距离的按压没有输入，与关闭滑动时相同。
+代价：多一项设置，只在 Android、只在本机，换设备要重新调。26 键调大距离后，纵向移出键帽却没到距离的按压没有输入，与关闭滑动时相同（#11822 起补点按，见 [Android 26 键与 14/18 键字母键滑动判定统一](2026-11-22-android-letter-swipe-detection.md)）。
 
 验证：`SwipeHintPolicySmoke`、`GridKeyGesturePolicySmoke`（距离 30、48 的边界，两个方向，没滑到时补点按，横滑仍是 24 dp）和 `AndroidLocalSettingsSmoke`（默认 14、越界和不合步进的值丢弃、不同步）；设备上 `GridLetterSymbolDeviceChecks` 的 14 键距离 40 和 `LetterHintPunctuationDeviceSmoke -e letter-swipe true` 的 26 键距离 30。

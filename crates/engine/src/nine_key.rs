@@ -5,6 +5,7 @@
 mod grid_exact;
 mod grid_helpcode;
 mod lenient_reading;
+mod precise;
 mod typo_prefix;
 
 use grid_exact::{fits, marks_agree};
@@ -467,6 +468,8 @@ pub struct NineKeySession {
     stroke_texts: HashSet<char>,
     /// 把字母归成组码的键盘，`digits` 里存的是它的组码。
     grid: KeyGrid,
+    /// 全拼九键的可选精确拼写模式。
+    precise_nine_key: bool,
 }
 
 /// 一次锁定之前的样子。
@@ -568,7 +571,12 @@ impl NineKeySession {
             stroke: None,
             stroke_texts: HashSet::new(),
             grid: KeyGrid::NineKey,
+            precise_nine_key: false,
         }
+    }
+
+    pub(crate) fn set_precise_nine_key(&mut self, enabled: bool) {
+        self.precise_nine_key = enabled;
     }
 
     /// 笔画筛选读的 `msime-stroke.db`；空路径表示没有，`set_filter` 带笔画时报 `LANGUAGE_DICTIONARY_UNAVAILABLE`。
@@ -788,7 +796,7 @@ impl NineKeySession {
         }
     }
 
-    /// 选左列的一项。音节锁进数字；字母限定下一个音节的首字母；数字直接上屏这一位。数字全部锁定时左列是最后一次锁定时的选项，选哪一项都先撤销那次锁定，相当于换选。放下网格辅助码的分隔符后左列是辅助码的整串解释。
+    /// 选左列的一项。音节锁进数字；精确模式下字母锁住一键，否则只限定下一个音节的首字母。数字直接上屏这一位。数字全部锁定时左列是最后一次锁定时的选项，选哪一项都先撤销那次锁定，相当于换选。放下网格辅助码的分隔符后左列是辅助码的整串解释。
     pub fn choose_spelling(&mut self, index: usize) -> KeyResult {
         if self.helpcode.is_some() {
             return self.choose_grid_helpcode(index);
@@ -819,14 +827,18 @@ impl NineKeySession {
                 self.refresh();
                 return KeyResult::committed(char::from(digit).to_string());
             }
-            Choice::Letter(letter) => {
+            Choice::Letter(letter) if !self.precise() => {
                 self.initial = Some(Initial {
                     letter,
                     typed: self.digits.len(),
                     splits: self.splits.len(),
                 });
             }
-            Choice::Syllable => {
+            choice_kind => {
+                let choice = match choice_kind {
+                    Choice::Letter(letter) => char::from(letter).to_string(),
+                    _ => choice,
+                };
                 let choices = if reselecting {
                     choices
                 } else {
@@ -1377,6 +1389,12 @@ impl NineKeySession {
 
     pub fn snapshot(&self) -> SessionSnapshot {
         let locked_length = self.locked_length();
+        let protect_exact = self.precise()
+            && self.candidates.iter().any(|item| {
+                reads_pinyin(item.source)
+                    && item.pinyin.len() == self.digits.len()
+                    && !self.precise_completion(item)
+            });
         let locked_preedit_length = self
             .locked
             .iter()
@@ -1447,11 +1465,14 @@ impl NineKeySession {
                 .iter()
                 .map(|item| item.corrected_from.to_string())
                 .collect(),
-            // The same test `select` performs: consuming the candidate's digits empties the buffer exactly when its code covers everything typed.
+            // 精确读法已覆盖整串时，重排模型只比较同样覆盖整串的精确读法。
             candidate_answers_key: self
                 .candidates
                 .iter()
-                .map(|item| item.pinyin.len() >= self.digits.len())
+                .map(|item| {
+                    item.pinyin.len() >= self.digits.len()
+                        && (!protect_exact || !self.precise_completion(item))
+                })
                 .collect(),
             candidate_contest: if self.contests.len() == self.candidates.len() {
                 self.contests.clone()
@@ -1492,6 +1513,7 @@ impl NineKeySession {
         // 每个锁定都有一条撤销记录，哪怕是作废的。
         self.lock_undo.resize_with(self.locked.len(), || None);
         let grid = self.grid;
+        let precise = self.precise();
         let table = grid.spelling_table();
         let locked_length = self.locked_length();
         let remaining = remaining_digits(&self.digits, locked_length);
@@ -1525,7 +1547,10 @@ impl NineKeySession {
                 &mut self.spellings,
                 &mut self.spelling_match_indices,
             );
-            self.spellings.retain(|syllable| starts_right(syllable));
+            self.spellings.retain(|syllable| {
+                starts_right(syllable)
+                    && (!precise || (2..=remaining.len()).contains(&syllable.len()))
+            });
             table.split_paths_with_scratch(
                 remaining,
                 splits,
@@ -1571,6 +1596,14 @@ impl NineKeySession {
         };
 
         let window = &self.digits[..window];
+        let coverage = |reading: &str| {
+            if precise {
+                precise::align(reading, window, &self.locked, &self.splits, |_| {})
+                    .map(|aligned| aligned.covered)
+            } else {
+                grid.matching_code_prefix_len(reading, window)
+            }
+        };
         let mut locked_key = String::new();
         append_path_key(&mut locked_key, "", &self.locked);
         // 按切分查出的词库行的 `pinyin` 换成它覆盖的那段数字：同样长度的行共用一份，一次刷新上千行只按不同的覆盖长度各申请一次。简拼行和九键双拼的整词行另在下面就地改写自己独占的缓冲区，本来就不申请。
@@ -1595,7 +1628,8 @@ impl NineKeySession {
             self.locked.is_empty() && initial.is_none() && initials_apply(remaining.len(), splits);
         let initials_lead = initials && !splits.is_empty();
         // 模糊页已拥有结果；九键双拼的覆盖核对会另建编码，保留原单次核对路径。
-        let filter_dominated = self.fuzzy.rules == 0
+        let filter_dominated = !precise
+            && self.fuzzy.rules == 0
             && matches!(
                 grid,
                 KeyGrid::NineKey | KeyGrid::FourteenKey | KeyGrid::EighteenKey
@@ -1624,7 +1658,7 @@ impl NineKeySession {
                     return false;
                 }
                 let matched = if fuzzy { pinyin } else { canonical };
-                if !agrees_with_locked(matched, &locked_key) {
+                if !precise && !agrees_with_locked(matched, &locked_key) {
                     return false;
                 }
                 if let Some(letter) = initial {
@@ -1659,9 +1693,11 @@ impl NineKeySession {
                 }
                 true
             };
-            for mut candidate in
-                dictionary.query_filtered_rows(&key, &key, self.fuzzy, accepts_reading)
-            {
+            let mut rows = dictionary.query_filtered_rows(&key, &key, self.fuzzy, accepts_reading);
+            if precise {
+                precise::append_long_tail_completions(&dictionary, &key, &mut rows);
+            }
+            for mut candidate in rows {
                 let canonical = take_candidate_canonical_pinyin(&mut candidate);
                 let matched = if candidate.fuzzy {
                     candidate.pinyin.as_str()
@@ -1669,20 +1705,24 @@ impl NineKeySession {
                     canonical.as_str()
                 };
                 // 组码覆盖只算一次；九键双拼的既有实现会申请临时编码。
-                let Some(covered) = grid.matching_code_prefix_len(matched, window) else {
+                let Some(covered) = coverage(matched) else {
                     continue;
                 };
                 // 词库行与缓存共享，整段换新比在共享的那份上清空再写少一次复制。
                 candidate.pinyin = covered_digits.prefix(covered);
                 candidate.canonical_pinyin = canonical;
-                push_ranked(
-                    &mut candidates,
-                    &mut leading,
-                    candidate,
-                    prefer_exact,
-                    initials_lead,
-                    grid,
-                );
+                if precise {
+                    candidates.push(candidate);
+                } else {
+                    push_ranked(
+                        &mut candidates,
+                        &mut leading,
+                        candidate,
+                        prefer_exact,
+                        initials_lead,
+                        grid,
+                    );
+                }
             }
             if let Some(seen) = queried.as_mut() {
                 seen.insert(key.clone());
@@ -1772,14 +1812,18 @@ impl NineKeySession {
                 // 没有锁定的拼音时 `remaining` 就是全部数字，简拼行一个数字一个音节，吃掉全部数字。
                 candidate.pinyin.clear();
                 candidate.pinyin.push_str(&self.digits);
-                push_ranked(
-                    &mut candidates,
-                    &mut leading,
-                    candidate,
-                    prefer_exact,
-                    initials_lead,
-                    grid,
-                );
+                if precise {
+                    candidates.push(candidate);
+                } else {
+                    push_ranked(
+                        &mut candidates,
+                        &mut leading,
+                        candidate,
+                        prefer_exact,
+                        initials_lead,
+                        grid,
+                    );
+                }
             }
         }
         drop(dictionary);
@@ -1790,7 +1834,10 @@ impl NineKeySession {
         }
         // 网格辅助码要在整张已查到的列表上筛，先不截断。
         let constrained = self.grid_helpcode_constrains();
-        if constrained {
+        if precise {
+            self.order_precise_candidates(&mut candidates, initials_lead);
+            candidates.truncate(CANDIDATE_LIMIT);
+        } else if constrained {
             order_candidates(
                 &mut candidates,
                 prefer_exact,
@@ -1808,6 +1855,9 @@ impl NineKeySession {
             );
         }
         self.rerank_sentences(&mut candidates);
+        if precise && self.sentence_association.neural_keyboard {
+            self.restore_precise_groups(&mut candidates);
+        }
         if constrained {
             self.settle_grid_helpcode(candidates, alternatives);
             return;
@@ -1882,7 +1932,8 @@ impl NineKeySession {
             grid_demotion(item, &vulgar)
         });
         // 混入行、固定位置都排好之后才折算，只在首页的拼音词典行之间调序：英文、固定位置这些行坐着原来的位置，首页由哪些行组成与不折算时相同。句子种子和 emoji 查读法用的也是折算前的顺序。
-        self.completions_discounted = !prefer_exact
+        self.completions_discounted = !precise
+            && !prefer_exact
             && discount_completions_on_first_page(
                 &mut candidates,
                 self.first_page_rows.get(),
@@ -1910,14 +1961,18 @@ impl NineKeySession {
         let mut reading = std::mem::take(&mut self.reading);
         self.write_reading(candidates.first(), &mut reading);
         self.reading = reading;
-        mark_contests(
-            &candidates,
-            self.digits.len(),
-            self.first_page_rows.get(),
-            grid,
-            |word, kind| manually_pinned(&journal, &position_context, locked_key.len(), word, kind),
-            &mut self.contests,
-        );
+        if !precise {
+            mark_contests(
+                &candidates,
+                self.digits.len(),
+                self.first_page_rows.get(),
+                grid,
+                |word, kind| {
+                    manually_pinned(&journal, &position_context, locked_key.len(), word, kind)
+                },
+                &mut self.contests,
+            );
+        }
         self.candidates = candidates;
         self.path_buffer = alternatives;
         let remaining = remaining_digits(&self.digits, locked_length);
@@ -2187,7 +2242,7 @@ impl NineKeySession {
         };
         let table = self.grid.spelling_table();
         let letters = self.grid.letters(digit);
-        let raw_key = self.locked.is_empty() && self.grid.offers_raw_key();
+        let raw_key = !self.precise() && self.locked.is_empty() && self.grid.offers_raw_key();
         self.spellings.reserve(letters.len() + usize::from(raw_key));
         for letter in letters
             .bytes()
@@ -2313,7 +2368,11 @@ impl NineKeySession {
             return;
         }
         let covered = front.pinyin.len();
-        if let Some(table) = self.grid.shuangpin_table() {
+        if self.precise() {
+            if !self.write_precise_reading(front, reading) {
+                return;
+            }
+        } else if let Some(table) = self.grid.shuangpin_table() {
             // 一个音节两位；只覆盖了一位的那个音节显示它的声母（零声母音节显示首字母）：`8146` 上没打完的 中国 是 `zhong'g`。
             let mut digits = covered;
             for syllable in front.canonical_pinyin.split('\'') {
@@ -4417,6 +4476,7 @@ mod typo_prefix_tests;
 
 #[cfg(test)]
 mod tests {
+    include!("nine_key/precise_tests.rs");
     use super::*;
     use crate::types::{CandidateSource, NineKeyShuangpinKind, DEFAULT_FIRST_PAGE_ROWS};
     use rusqlite::Connection;

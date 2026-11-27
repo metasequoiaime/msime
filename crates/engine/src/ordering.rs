@@ -63,6 +63,11 @@ pub trait CandidateScorer: Send {
         0
     }
 
+    /// 键位网格静态证据分支比较的条数。默认 0，沿用九条；测量时可显式扩大窗口。
+    fn grid_comparison_limit(&self) -> usize {
+        0
+    }
+
     /// 词网格整句之间比较时（[`rerank_pick`] 的静态证据分支），词网格逐字分在混合里的权重，模型逐字分占其余。默认 0.5，等权，是在随包 `model-v1` 上定的（`.agents/notes/implemented/bug-fix/2026-10-14-rerank-static-evidence.md`）。更准的模型可以让它少一些：ONNX Runtime 后端报 0.3，见 `.agents/notes/implemented/feature/2026-11-02-onnx-static-evidence-weight.md`。
     fn static_evidence_weight(&self) -> f64 {
         0.5
@@ -613,7 +618,7 @@ pub fn rerank_pick<'a, R: OrderRowSource<'a> + ?Sized>(
     )
 }
 
-/// 同 [`rerank_pick`]，但静态证据分支比较几条由调用方给（`pool`，取它与九条中较大的那个，最多 [`MAX_SENTENCE_POOL`]），而不是打分器报的整句池。引擎只在 26 键全拼上多解读法（`Session::set_sentence_pool`）；九宫格和 14 键的列表来自几十条切分，比较整池只会多花时间、不在逐键耗时的估计里，runtime 在键位网格上传 0。
+/// 同 [`rerank_pick`]，但静态证据分支比较几条由调用方给（`pool`，取它与九条中较大的那个，最多 [`MAX_SENTENCE_POOL`]）。引擎只在 26 键全拼上多解读法（`Session::set_sentence_pool`）；键位网格使用打分器单独给出的比较上限。
 pub fn rerank_pick_within<'a, R: OrderRowSource<'a> + ?Sized>(
     reranker: &mut dyn CandidateScorer,
     context: &str,

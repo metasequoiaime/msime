@@ -1229,6 +1229,69 @@ fn typo_sentence_never_leads_a_strong_literal_phrase() {
     assert_ne!(typo_row(&listed), Some(0));
 }
 
+/// 错键后整串仍是合法拼音、字面最优路径又全是多字词时（`juntiantianqi` 读成「均田」「天气」），纠错整句也要生成：非弱位置照样规划一换一替换（u/i 邻键给出 jin'tian）。最后一个多字母音节单独成字时（`juntianxi` 读成「均田」「系」），前面那个词同样要规划。
+#[test]
+fn legal_pinyin_typo_gets_a_typo_sentence_when_the_literal_path_is_all_phrases() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("jun", "均", 1000)
+        .insert("jin", "今", 1000)
+        .insert("tian", "田", 1000)
+        .insert("xi", "系", 1000)
+        .insert("qi", "气", 1000)
+        .insert("jun'tian", "均田", 100)
+        .insert("jin'tian", "今天", 100_000)
+        .insert("tian'qi", "天气", 100_000);
+    fixture.table("jin'tian'xi");
+    fixture.table("jin'tian'tian'qi");
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    dictionary.set_sentence_alternatives(true);
+
+    let off = query(&mut dictionary, "juntiantianqi", "jun'tian'tian'qi", NONE);
+    assert_eq!(typo_row(&off), None, "{:?}", words(&off));
+
+    for (raw, segmentation, expected) in [
+        ("juntiantianqi", "jun'tian'tian'qi", "今天天气"),
+        ("juntianxi", "jun'tian'xi", "今天系"),
+    ] {
+        let listed = query(&mut dictionary, raw, segmentation, ALL_FOUR);
+        let row =
+            typo_row(&listed).unwrap_or_else(|| panic!("{raw} 缺纠错整句：{:?}", words(&listed)));
+        assert_eq!(listed[row].word, expected, "{:?}", words(&listed));
+        assert_eq!(listed[row].corrected_from, raw);
+    }
+}
+
+/// 拼写纠错后的输入里，4 个音节以上的更贵读法也要按完整系列查询：它自己的前缀词（`gau` 换成 `gai` 那一档的「该你」）要留在候选里，不能只剩整串恰好是一行词条的结果。
+#[test]
+fn costlier_corrected_cut_of_four_syllables_keeps_its_prefix_rows() {
+    let fixture = Fixture::new();
+    fixture
+        .insert("gua", "瓜", 1000)
+        .insert("gai", "该", 1000)
+        .insert("gai'ni", "该你", 5000)
+        .insert("ni", "你", 1000)
+        .insert("hao", "好", 1000)
+        .insert("ma", "吗", 1000)
+        .insert("ni'hao", "你好", 100_000);
+    fixture.table("gai'ni'hao'ma");
+    let raw = "gaunihaoma";
+    let resolution = crate::quanpin::series::resolve_series_query(raw, &[], BOTH);
+    assert!(resolution.corrected_input, "{resolution:?}");
+    assert_eq!(resolution.corrected, ["gua", "ni", "hao", "ma"]);
+    assert!(
+        resolution
+            .costlier_corrected_cuts
+            .iter()
+            .any(|cut| cut == &["gai", "ni", "hao", "ma"]),
+        "{resolution:?}"
+    );
+
+    let mut dictionary = QuanpinDictionary::new(&fixture.paths);
+    let listed = dictionary.query(raw, "", BOTH, NO_FUZZY);
+    assert!(contains(&listed, "该你"), "{:?}", words(&listed));
+}
+
 #[test]
 fn online_rows_land_in_the_series_slot_the_query_used() {
     let fixture = phrase_fixture();
@@ -1737,7 +1800,8 @@ fn fuzzy_candidate_rows_reuse_the_first_typed_reading_string() {
     let (_, allocations) = crate::ime::personal_rerank::allocations::count(|| {
         let _ = dictionary.fuzzy_candidates("zong'guo", options);
     });
-    assert_eq!(skipped, 12, "两个前缀展开路径要申请的次数");
+    // un-ong 让 zong 多出 zun 一条展开路径，路径数随之翻倍。
+    assert_eq!(skipped, 24, "两个前缀展开路径要申请的次数");
     assert_eq!(
         allocations, 7,
         "模糊候选重复复制了读音、文字字段或查询键: {allocations}"

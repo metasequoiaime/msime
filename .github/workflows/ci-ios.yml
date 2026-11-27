@@ -150,8 +150,12 @@ jobs:
         run: |
           python3 platforms/ios/tests/settings/ProjectConfigurationTests.py
           if [[ -f platforms/ios/tests/DictionaryPackagingTests.py ]]; then python3 platforms/ios/tests/DictionaryPackagingTests.py; fi
-          # 提交 TestFlight 审核那段只在发布当天跑,而那一天出错的代价是一次失败的发布。缺 pyjwt 时它自己跳过。
-          if [[ -f platforms/ios/tests/TestFlightSubmissionTests.py ]]; then python3 platforms/ios/tests/TestFlightSubmissionTests.py; fi
+          # 提交 TestFlight 审核那段只在发布当天跑,而那一天出错的代价是一次失败的发布。脚本依赖 pyjwt，缺了它测试会整套跳过，旧用例就是这样跟着脚本改动坏了很久没人发现；这里装上与 release-ios.yml 同一版本，放在独立 venv 里，不碰 runner 的系统 Python（PEP 668）。
+          if [[ -f platforms/ios/tests/TestFlightSubmissionTests.py ]]; then
+            python3 -m venv "$RUNNER_TEMP/testflight-tests"
+            "$RUNNER_TEMP/testflight-tests/bin/pip" install --quiet --disable-pip-version-check 'pyjwt[crypto]==2.10.1'
+            "$RUNNER_TEMP/testflight-tests/bin/python" platforms/ios/tests/TestFlightSubmissionTests.py
+          fi
       - name: Package iOS dictionary
         run: |
           mkdir -p target/resources
@@ -260,8 +264,12 @@ jobs:
         run: |
           python3 platforms/ios/tests/settings/ProjectConfigurationTests.py
           if [[ -f platforms/ios/tests/DictionaryPackagingTests.py ]]; then python3 platforms/ios/tests/DictionaryPackagingTests.py; fi
-          # 提交 TestFlight 审核那段只在发布当天跑,而那一天出错的代价是一次失败的发布。缺 pyjwt 时它自己跳过。
-          if [[ -f platforms/ios/tests/TestFlightSubmissionTests.py ]]; then python3 platforms/ios/tests/TestFlightSubmissionTests.py; fi
+          # 提交 TestFlight 审核那段只在发布当天跑,而那一天出错的代价是一次失败的发布。脚本依赖 pyjwt，缺了它测试会整套跳过，旧用例就是这样跟着脚本改动坏了很久没人发现；这里装上与 release-ios.yml 同一版本，放在独立 venv 里，不碰 runner 的系统 Python（PEP 668）。
+          if [[ -f platforms/ios/tests/TestFlightSubmissionTests.py ]]; then
+            python3 -m venv "$RUNNER_TEMP/testflight-tests"
+            "$RUNNER_TEMP/testflight-tests/bin/pip" install --quiet --disable-pip-version-check 'pyjwt[crypto]==2.10.1'
+            "$RUNNER_TEMP/testflight-tests/bin/python" platforms/ios/tests/TestFlightSubmissionTests.py
+          fi
       - name: Package iOS dictionary
         run: |
           mkdir -p target/resources

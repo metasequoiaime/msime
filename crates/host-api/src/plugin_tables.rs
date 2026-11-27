@@ -254,6 +254,7 @@ impl PluginTables {
                     .map(|row| QuickPhraseEntry {
                         key: row.key,
                         text: row.text,
+                        position: row.position,
                     })
                     .collect();
             (table, true)

@@ -1,6 +1,5 @@
 //! Legal-to-legal syllable typos for the lattice's typo sentence and for typo learning (quanpin.md §7.9). This keyboard adjacency is not the generator's neighbour table; both are kept.
 
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use super::syllables::{intact_pinyin_list, is_intact, normalized_syllable};
@@ -66,7 +65,56 @@ fn add_variant(
     });
 }
 
+/// ST:56-99：按原始拼写编辑，以规范拼写比较变体与输入，排除只是别名不同的同一音节；复用调用方提供的缓冲。
+fn compute_typos_into(syllable: &str, variants: &mut Vec<SyllableTypo>, edited: &mut Vec<u8>) {
+    variants.clear();
+    let typed = normalized_syllable(syllable);
+    if typed.len() < 2 {
+        return;
+    }
+    let letters = syllable.as_bytes();
+    if edited.capacity() < letters.len() + 1 {
+        edited.reserve(letters.len() + 1 - edited.len());
+    }
+    for i in 0..letters.len() - 1 {
+        if letters[i] == letters[i + 1] {
+            continue;
+        }
+        edited.clear();
+        edited.extend_from_slice(letters);
+        edited.swap(i, i + 1);
+        add_variant(variants, &typed, edited, SyllableTypoKind::Transposition);
+    }
+    for i in 0..letters.len() {
+        for key in b'a'..=b'z' {
+            if key == letters[i] || !keys_adjacent(key, letters[i]) {
+                continue;
+            }
+            edited.clear();
+            edited.extend_from_slice(letters);
+            edited[i] = key;
+            add_variant(variants, &typed, edited, SyllableTypoKind::Neighbor);
+        }
+    }
+    for i in 0..letters.len() {
+        edited.clear();
+        edited.extend_from_slice(letters);
+        edited.remove(i);
+        add_variant(variants, &typed, edited, SyllableTypoKind::MissingOrExtra);
+    }
+    for i in 0..=letters.len() {
+        for key in b'a'..=b'z' {
+            edited.clear();
+            edited.extend_from_slice(letters);
+            edited.insert(i, key);
+            add_variant(variants, &typed, edited, SyllableTypoKind::MissingOrExtra);
+        }
+    }
+    variants.sort_by_key(|variant| variant.kind);
+}
+
 /// ST:56-99：按原始拼写编辑，以规范拼写比较变体与输入，排除只是别名不同的同一音节。
+#[cfg(test)]
 fn compute_typos(syllable: &str) -> Vec<SyllableTypo> {
     let typed = normalized_syllable(syllable);
     if typed.len() < 2 {
@@ -88,69 +136,52 @@ fn compute_typos(syllable: &str) -> Vec<SyllableTypo> {
     let mut variants = Vec::with_capacity(capacity);
     // 所有编辑从原字节恢复；多出的一个字节容纳插入，循环中不重新申请存储。
     let mut edited = Vec::with_capacity(letters.len() + 1);
-    for i in 0..letters.len() - 1 {
-        if letters[i] == letters[i + 1] {
-            continue;
-        }
-        edited.clear();
-        edited.extend_from_slice(letters);
-        edited.swap(i, i + 1);
-        add_variant(
-            &mut variants,
-            &typed,
-            &edited,
-            SyllableTypoKind::Transposition,
-        );
-    }
-    for i in 0..letters.len() {
-        for key in b'a'..=b'z' {
-            if key == letters[i] || !keys_adjacent(key, letters[i]) {
-                continue;
-            }
-            edited.clear();
-            edited.extend_from_slice(letters);
-            edited[i] = key;
-            add_variant(&mut variants, &typed, &edited, SyllableTypoKind::Neighbor);
-        }
-    }
-    for i in 0..letters.len() {
-        edited.clear();
-        edited.extend_from_slice(letters);
-        edited.remove(i);
-        add_variant(
-            &mut variants,
-            &typed,
-            &edited,
-            SyllableTypoKind::MissingOrExtra,
-        );
-    }
-    for i in 0..=letters.len() {
-        for key in b'a'..=b'z' {
-            edited.clear();
-            edited.extend_from_slice(letters);
-            edited.insert(i, key);
-            add_variant(
-                &mut variants,
-                &typed,
-                &edited,
-                SyllableTypoKind::MissingOrExtra,
-            );
-        }
-    }
-    variants.sort_by_key(|variant| variant.kind);
+    compute_typos_into(syllable, &mut variants, &mut edited);
     variants
+}
+
+struct CompactSyllableTypoTable {
+    /// 与 `intact_pinyin_list()` 一一对应的偏移表。
+    offsets: Box<[u32]>,
+    /// 所有合法音节的一步编辑变体连续平铺，避免 421 个过量预留的 `Vec` 长期滞留堆内存。
+    items: Box<[SyllableTypo]>,
+}
+
+impl CompactSyllableTypoTable {
+    fn build() -> Self {
+        let syllables = intact_pinyin_list();
+        let mut offsets = Vec::with_capacity(syllables.len() + 1);
+        let mut items = Vec::new();
+        let mut scratch = Vec::with_capacity(32);
+        let mut edited = Vec::with_capacity(8);
+        offsets.push(0);
+        for &syllable in syllables {
+            compute_typos_into(syllable, &mut scratch, &mut edited);
+            items.append(&mut scratch);
+            offsets.push(u32::try_from(items.len()).expect("音节错键条目数超出 u32 范围"));
+        }
+        Self {
+            offsets: offsets.into_boxed_slice(),
+            items: items.into_boxed_slice(),
+        }
+    }
+
+    fn get(&self, typed: &str) -> &[SyllableTypo] {
+        let Ok(index) = intact_pinyin_list().binary_search(&typed) else {
+            return &[];
+        };
+        let start = self.offsets[index] as usize;
+        let end = self.offsets[index + 1] as usize;
+        &self.items[start..end]
+    }
 }
 
 /// The precomputed variants of an intact syllable, cheapest kind first; empty for unknown input (ST:56-110).
 pub fn syllable_typos(typed: &str) -> &'static [SyllableTypo] {
-    static TABLE: OnceLock<HashMap<&'static str, Vec<SyllableTypo>>> = OnceLock::new();
-    let table = TABLE.get_or_init(|| {
-        intact_pinyin_list()
-            .iter()
-            .map(|&syllable| (syllable, compute_typos(syllable)))
-            .collect()
-    });
-    table.get(typed).map_or(&[], Vec::as_slice)
+    static TABLE: OnceLock<CompactSyllableTypoTable> = OnceLock::new();
+    TABLE
+        .get_or_init(CompactSyllableTypoTable::build)
+        .get(typed)
 }
 
 /// The kind of single edit that turns `typed` into `intended`, if both are intact and one edit apart.
@@ -321,6 +352,20 @@ mod tests {
         assert!((discounted(20.0, 1) - (20.0 - 4.0 * 2f64.ln())).abs() < 1e-12);
         // The discount is capped at three fifths of the base.
         assert!((discounted(20.0, 1000) - 8.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn compact_syllable_typo_table_matches_compute_typos_for_all_syllables() {
+        for &syllable in intact_pinyin_list() {
+            assert_eq!(
+                syllable_typos(syllable),
+                compute_typos(syllable).as_slice(),
+                "{syllable:?}"
+            );
+        }
+        for invalid in ["", "a", "xyz"] {
+            assert!(syllable_typos(invalid).is_empty(), "{invalid:?}");
+        }
     }
 }
 

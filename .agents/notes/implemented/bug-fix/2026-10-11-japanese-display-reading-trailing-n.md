@@ -18,6 +18,8 @@ Android 是第一个改读 `display_reading` 的宿主：组字区、键盘上�
 
 `settle` 只替换编辑器回报里还在的组字区（`composingStart >= 0` 且不为空）。`onUpdateSelection` 在编辑器报告没有组字区时也会走到这里（应用自己改了文字或去掉了组字区：发送后清空的聊天框、值被重置的 Compose/Flutter 输入框、自己确定了组字的编辑器），这时 `setComposingText` 会把 `かん` 插到光标处、替换选中的文字，所以和原来的 `abandon` 一样只结束组字、不写文字。会话停下（`stop`）那条路径不知道编辑器里是否还有组字区（`restartInput` 之前应用常已清空或改写了文字），所以仍是 `abandon`。
 
+[按键型的组字区不再被当成正文结束](2026-11-23-android-key-letter-composition-stop.md)（#11831）在这两条路径上给全拼、双拼、五笔、粤拼、笔画加了另一条分岘：这些方案的组字区里是按键，结束时删掉而不是留在文档里。日文罗马字不在其中，两条路径的 `settle` 与 `abandon` 与本篇一致。
+
 ## Alternatives considered
 
 - 直接改 `reading` 的含义，让所有宿主一起显示 `かn`：改动最小、六个宿主同时生效。但 `reading` 已被当作「确定的读音」使用：`input-runtime` 靠它判断单个完整假名，给ん/ン保留前两个位置；iOS 光标移动时 `unmarkText` 留下画出的读音；网页引擎的 `routing.rs` 钉着 `nihon` 的预编辑是 `にほん`。改它会让这些地方一起变，而其中几个宿主这次没法验证。

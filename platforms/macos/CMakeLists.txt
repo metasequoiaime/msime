@@ -1557,6 +1557,12 @@ add_test(
           "${MSIME_INFO_PLIST_TEMPLATE}"
           "${MSIME_LOCALIZED_RESOURCES}"
           "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+# 系统的「使用大写锁定键切换 ABC」只认声明了 TICapsLockLanguageSwitchCapable 的输入源；缺键或写成假都静默不生效，用户关掉水杉自己的 Caps Lock 切换后就切不回输入源。
+add_test(
+  NAME info-plist-caps-lock
+  COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/info_plist_caps_lock.py"
+          "${MSIME_INFO_PLIST_TEMPLATE}")
 add_test(
   NAME entitlements-guard
   COMMAND "${Python3_EXECUTABLE}"
@@ -1751,7 +1757,12 @@ foreach(msime_test IN LISTS msime_tests)
 endforeach()
 
 # 控制器测试直接包含 InputController.mm，适配器及分组窗口的有界文件读取随共用的 apple-client 链接。
-target_sources(apple-client PRIVATE src/cloud/EmbeddedTranslationBatch.mm src/translation/LocalTranslationWindow.mm src/dictionary/DictionaryCollectionsWindow.mm src/core/BoundedFileReader.mm)
+target_sources(apple-client PRIVATE
+  src/cloud/EmbeddedTranslationBatch.mm
+  src/translation/LocalTranslationWindow.mm
+  src/dictionary/DictionaryCollectionsWindow.mm
+  src/dictionary/DictionaryCollectionWordsSheet.mm
+  src/core/BoundedFileReader.mm)
 
 include(../common/tests/embedded_translation.cmake)
 

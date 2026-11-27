@@ -33,6 +33,11 @@ final class ImeCandidateStrip {
      * 候选条按钮按位置复用。render 前候选行照旧 `removeAllViews`，这里只把同一批按钮按顺序挂回去、换上这一代的内容和点击目标，不再每次整排新建：每键几十个 Button 连同各自的监听、底图和文字测量，在低端机上是一两帧的主线程时间，旧按钮又全成了垃圾。换了键盘视图就整池丢掉。
      */
     private final java.util.ArrayList<KeyboardPressButton> pool = new java.util.ArrayList<>();
+    /** 已挂上的按钮各是哪个候选（{@link CandidateScrollAnchor#key}），与候选行的子视图一一对应。 */
+    private final java.util.ArrayList<String> builtKeys = new java.util.ArrayList<>();
+    /** 晚到的换代之前眼前第一个候选是第几个按钮、离可视区左边多远；render 按它对齐新的一代。没有要对齐的时为 -1。 */
+    private int anchorIndex = -1;
+    private int anchorOffset;
 
     ImeCandidateStrip(MSIMEInputService service) { s = service; }
 
@@ -53,10 +58,14 @@ final class ImeCandidateStrip {
             return null;
         }
         if (sourceView == s.view && MSIMEInputService.sameCandidateVersion(snapshot, s.view)) return snapshot;
+        anchorIndex = -1;
+        // 候选行这时还挂着上一代的按钮（render 前才 removeAllViews）：晚到的换代先记下眼前第一个候选。
+        if (!MSIMEInputService.sameCandidateVersion(snapshot, s.view) && keepsPosition(s.view)) rememberFirstVisible();
         try {
             // 同一代换了视图（释义晚到）取回已经建出来的数量，滚动位置不被截掉；追加时放出尾部换的代取回记下的数量；其余换代只取第一批。
             int wanted = CandidateGridBatchPolicy.BATCH;
-            if (MSIMEInputService.sameCandidateVersion(snapshot, s.view))
+            // 晚到的换代（停顿重排、在线候选）保持滚动位置，也就要建回同样多的按钮，否则位置会被截到第一批的宽度。
+            if (MSIMEInputService.sameCandidateVersion(snapshot, s.view) || keepsPosition(s.view))
                 wanted = BoundsPolicy.atLeast(built, CandidateGridBatchPolicy.BATCH);
             else if (CandidateGlossPolicy.strictOr(s.view.opt("session"), Long.MIN_VALUE) == carriedSession
                     && CandidateGlossPolicy.strictOr(s.view.opt("generation"), -1) == carriedGeneration)
@@ -79,6 +88,8 @@ final class ImeCandidateStrip {
         boolean same = nextSession == renderedSession && nextGeneration == renderedGeneration;
         // 追加时放出尾部换的代和同一代重画一样：建回原来的数量，滚动位置不回到开头。
         boolean carried = !same && nextSession == carriedSession && nextGeneration == carriedGeneration;
+        // 不是用户输入引起的换代：和放出尾部一样建回原来的数量，不回到开头（CandidateScrollAnchor）。
+        boolean kept = !same && !carried && s.view != null && keepsPosition(s.view);
         carriedSession = Long.MIN_VALUE;
         carriedGeneration = Long.MIN_VALUE;
         renderedSession = nextSession;
@@ -99,12 +110,60 @@ final class ImeCandidateStrip {
         }
         int total = entries == null ? 0 : entries.length();
         // 换了一代只先建第一批；之前滚远时多出来的按钮留两批备用，其余放掉，不长期占着内存。
-        if (!same && !carried) {
+        if (!same && !carried && !kept) {
             int retained = 2 * CandidateGridBatchPolicy.BATCH;
             if (pool.size() > retained) pool.subList(retained, pool.size()).clear();
         }
-        add(CandidateGridBatchPolicy.initialCount(total, previous, same || carried), false);
-        if (!same && !carried) scroll.scrollTo(0, 0);
+        java.util.List<String> before = kept ? new java.util.ArrayList<>(builtKeys) : java.util.List.of();
+        builtKeys.clear();
+        add(CandidateGridBatchPolicy.initialCount(total, previous, same || carried || kept), false);
+        if (kept) keepFirstVisible(before);
+        else if (!same && !carried) scroll.scrollTo(0, 0);
+    }
+
+    private void rememberFirstVisible() {
+        if (list == null || scroll == null || scroll.getScrollX() == 0) return;
+        int x = scroll.getScrollX();
+        for (int index = 0; index < list.getChildCount() && index < builtKeys.size(); index++) {
+            android.view.View child = list.getChildAt(index);
+            if (child.getRight() <= x) continue;
+            anchorIndex = index;
+            anchorOffset = child.getLeft() - x;
+            return;
+        }
+    }
+
+    /** 晚到的换代：让眼前第一个候选留在原处；它不在了就回到开头。对齐放在下一次绘制前，新按钮那时才量好位置，用户看不到中间那一帧。 */
+    private void keepFirstVisible(java.util.List<String> before) {
+        int first = anchorIndex;
+        anchorIndex = -1;
+        if (first < 0) return;
+        int index = CandidateScrollAnchor.follow(before, first, builtKeys);
+        if (index < 0) {
+            scroll.scrollTo(0, 0);
+            return;
+        }
+        android.view.View target = list.getChildAt(index);
+        int offset = anchorOffset;
+        HorizontalScrollView viewport = scroll;
+        viewport.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                if (viewport.getViewTreeObserver().isAlive())
+                    viewport.getViewTreeObserver().removeOnPreDrawListener(this);
+                if (target.getParent() != list) return true;
+                int x = Math.max(0, target.getLeft() - offset);
+                if (x == viewport.getScrollX()) return true;
+                viewport.scrollTo(x, 0);
+                return false;
+            }
+        });
+    }
+
+    private boolean keepsPosition(JSONObject next) {
+        return s.candidateScrollAnchor.keepsPosition(
+            CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE),
+            CandidateGlossPolicy.strictOr(next.opt("generation"), -1),
+            MSIMEInputService.strictCandidatePage(next, "page"));
     }
 
     private void postAppendCheck() {
@@ -161,6 +220,8 @@ final class ImeCandidateStrip {
             if (visible == pool.size()) pool.add(s.imeCandidates.newStripCandidateButton());
             KeyboardPressButton button = pool.get(visible);
             s.imeCandidates.bindStripCandidateButton(button, snapshot, candidate, visible++);
+            builtKeys.add(CandidateScrollAnchor.key(InputViewValuePolicy.textOr(candidate, "text", ""),
+                InputViewValuePolicy.integer(candidate, "source", -1)));
             // render 前候选行已经 removeAllViews，池里的按钮这时都没有父视图；万一还挂在别处，先摘下来再挂。
             if (button.getParent() instanceof android.view.ViewGroup parent) parent.removeView(button);
             list.addView(button, new LinearLayout.LayoutParams(

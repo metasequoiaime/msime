@@ -1,8 +1,8 @@
 import Foundation
 
-/// 键盘这一侧的一次按住说话：经 `VoiceSessionChannel` 让后台的主 App 开始、停止或取消录音，把 App 写回的实时文字和结果交给键盘。键盘扩展不能录音，录音和识别都在 App 里（`VoiceSessionService`）。
+/// 键盘这一侧的一次按住说话：经 `VoiceSessionChannel` 让后台的主 App 开始、停止或取消录音，把 App 写回的实时文字和结果交给键盘，录音和识别都在 App 里（`VoiceSessionService`）。App 发布了说完整段上传的联网服务时，键盘改用 `KeyboardDirectDictation` 自己录音。
 @MainActor
-final class KeyboardVoiceDictation {
+final class KeyboardVoiceDictation: KeyboardDictation {
   enum Event: Equatable {
     /// 正在听，带实时识别的文字。
     case listening(String)
