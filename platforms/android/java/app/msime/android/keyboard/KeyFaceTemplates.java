@@ -29,8 +29,9 @@ public final class KeyFaceTemplates {
     /** 底部的双拼提示：设计 9 sp，墨迹离下边 0.25 个字号，稍淡。 */
     static final KeyFaceTemplate.SlotSpec BOTTOM = slot(9, 7, 11, 0.25f, 204);
 
-    /** 功能键（分词、重输）的文字：设计 15 sp，最小 10 sp（与底行功能键一样），最大 17 sp；另外不大过字母（{@link KeyFaceGroup#capMainAt}）。 */
-    static final KeyFaceTemplate.SlotSpec FUNCTION_TEXT = slot(15, 10, 17, 0, 255);
+    /** 功能键（分词、重输）的文字：设计 {@link KeyboardTypographyPolicy#FUNCTION_KEY_TEXT_SP}（15 sp），最小 {@link KeyboardTypographyPolicy#FUNCTION_KEY_MIN_TEXT_SP}（9 sp，与底行功能键一样），最大 17 sp；另外不大过字母（{@link KeyFaceGroup#capMainAt}）。 */
+    static final KeyFaceTemplate.SlotSpec FUNCTION_TEXT = slot(KeyboardTypographyPolicy.FUNCTION_KEY_TEXT_SP,
+        KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP, 17, 0, 255);
     /** 功能键的图标（⌫、⇧）：设计 {@link KeyboardIconKey#ICON_DP}，最小 16 dp，最大 26 dp。 */
     static final KeyFaceTemplate.IconSpec FUNCTION_ICON = new KeyFaceTemplate.IconSpec(
         KeyboardIconKey.ICON_DP / REFERENCE_KEY_HEIGHT_DP, 16, 26);
@@ -84,10 +85,87 @@ public final class KeyFaceTemplates {
         KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES,
         FUNCTION_ICON);
 
+    /** 日语九键两侧列一格有多高时用设计字号和图标尺寸（dp）：四行键高分成五格。 */
+    private static final float JAPANESE_SIDE_REFERENCE_DP = KeyboardHeightPolicy.KEYBOARD_ROW_COUNT * REFERENCE_KEY_HEIGHT_DP / 5;
+
+    /**
+     * 日语九键的功能键（两侧列的文字键、⌫ 和网格左下角的「小゛゜」）：同 {@link #FUNCTIONS}，只是设计字号和图标尺寸落在侧列一格的高度上。侧列五格分四行键高，组按最矮的键格求字号，用整行键高作参照时字和 ⌫ 都比别的键盘小一圈（15 sp 成了 12 sp）。
+     */
+    public static final KeyFaceTemplate JAPANESE_FUNCTIONS = new KeyFaceTemplate("japanese-functions",
+        functionSlots(new KeyFaceTemplate.SlotSpec(KeyboardTypographyPolicy.FUNCTION_KEY_TEXT_SP / JAPANESE_SIDE_REFERENCE_DP,
+            KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP, 17, 0, 255)),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES,
+        new KeyFaceTemplate.IconSpec(KeyboardIconKey.ICON_DP / JAPANESE_SIDE_REFERENCE_DP, 16, 26));
+
     private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> functionSlots() {
+        return functionSlots(FUNCTION_TEXT);
+    }
+
+    private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> functionSlots(KeyFaceTemplate.SlotSpec text) {
         Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = new EnumMap<>(KeyFaceSlot.class);
-        slots.put(KeyFaceSlot.MAIN, FUNCTION_TEXT);
+        slots.put(KeyFaceSlot.MAIN, text);
         slots.put(KeyFaceSlot.TOP_RIGHT, CORNER);
+        return slots;
+    }
+
+    // ---- 底行（功能行，以及挪进右侧大回车外框、注音九键两列、#+= 层最后一行的同一批常驻键）----
+
+    /**
+     * 底行的逗号键：与字母同字号（设计 22 sp，原来的固定字号），右上角是长按输入的标点；它画的每段文字都按 1.3 倍、按自己的墨迹居中、比中线低 0.1 个字号，与原来每次渲染套的 {@link CenteredGlyphSpan} 相同（全角「，」原样居中时只剩键底一个小点）。
+     */
+    public static final KeyFaceTemplate BOTTOM_COMMA = new KeyFaceTemplate("bottom-comma", letterCornerSlots(),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES, null,
+        new KeyFaceTemplate.Glyphs(Map.of("，", 1.3f, ",", 1.3f, ".", 1.3f, "、", 1.3f), 0.1f));
+
+    /**
+     * 底行的句号键：设计 22 sp，主标签以逗号键为上限；句号沿用字体里的大小和基线位置（按内容域里汉字参照的墨迹居中，见 {@link BottomRowKeyFaceDomains#period}），放大居中会像圆圈。手写底行右上角是叹号。
+     */
+    public static final KeyFaceTemplate BOTTOM_PERIOD = new KeyFaceTemplate("bottom-period", letterCornerSlots(),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> letterCornerSlots() {
+        Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = mainOnly(LETTER);
+        slots.put(KeyFaceSlot.TOP_RIGHT, CORNER);
+        return slots;
+    }
+
+    /** 空格键的方案短名：设计 {@link SpaceKeyFace#LABEL_SP}（13 sp，原来的固定字号），最小 9 sp，最大 15 sp。 */
+    static final KeyFaceTemplate.SlotSpec SPACE_LABEL = slot(SpaceKeyFace.LABEL_SP, 9, 15, 0, 255);
+
+    /**
+     * 空格键：{@link SpaceKeyFace} 自己画麦克风、短名和数字页的 ␣，字号和图标尺寸取这一组算的参数（短名的主标签字号，麦克风和 ␣ 的图标边长，设计 22 dp），所以随键高和字体缩放变，原来固定 13 sp / 22 dp。
+     */
+    public static final KeyFaceTemplate SPACE = new KeyFaceTemplate("space", mainOnly(SPACE_LABEL),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES,
+        new KeyFaceTemplate.IconSpec(SpaceKeyFace.MIC_DP / REFERENCE_KEY_HEIGHT_DP, 16, 26));
+
+    /**
+     * 回车键：空闲画 ↵（图标，与 ⌫ 同为设计 22 dp），组字时画粗体的「确认」「確定」（与功能键文字同为设计 15 sp，以底行的功能键为上限），右上角是「译」或「换行」：字号和位置与字母键角标相同，颜色取键面文字色、稍淡（与原来回车自己画的角标一样）。
+     */
+    public static final KeyFaceTemplate RETURN = new KeyFaceTemplate("return", returnSlots(REFERENCE_KEY_HEIGHT_DP),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES,
+        returnIcon(REFERENCE_KEY_HEIGHT_DP));
+
+    /** 右侧大回车占两行键高。 */
+    private static final float TALL_RETURN_REFERENCE_DP = 2 * REFERENCE_KEY_HEIGHT_DP;
+    /** 右侧大回车：同 {@link #RETURN}，设计字号、角标和图标都落在两行键高上，所以 ↵ 和同一列的 ⌫ 一样大（原来是同一个回车键，在两行高的键上 ↵ 仍是 22 dp）；字以拼音九键右列的功能键为上限。 */
+    public static final KeyFaceTemplate TALL_RETURN = new KeyFaceTemplate("tall-return", returnSlots(TALL_RETURN_REFERENCE_DP),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES,
+        returnIcon(TALL_RETURN_REFERENCE_DP));
+
+    /** 回车的 ↵：与 ⌫ 同为设计 22 dp，墨迹的上沿和右沿按 ↵ 的路径（{@link KeyboardIconPaths#RETURN_INK_TOP}），核对「换行」时按墨迹算。 */
+    private static KeyFaceTemplate.IconSpec returnIcon(float referenceDp) {
+        return new KeyFaceTemplate.IconSpec(KeyboardIconKey.ICON_DP / referenceDp, 16, 26,
+            KeyboardIconPaths.RETURN_INK_TOP / KeyboardIconPaths.VIEWBOX, KeyboardIconPaths.RETURN_INK_RIGHT / KeyboardIconPaths.VIEWBOX);
+    }
+
+    private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> returnSlots(float referenceDp) {
+        Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = new EnumMap<>(KeyFaceSlot.class);
+        slots.put(KeyFaceSlot.MAIN, new KeyFaceTemplate.SlotSpec(KeyboardTypographyPolicy.FUNCTION_KEY_TEXT_SP / referenceDp,
+            KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP, 17, 0, 255));
+        slots.put(KeyFaceSlot.TOP_RIGHT, new KeyFaceTemplate.SlotSpec(KeyHintButton.CORNER_HINT_SP / referenceDp, 8, 12,
+            KeyHintButton.CORNER_HINT_TOP_DP / KeyHintButton.CORNER_HINT_SP,
+            KeyHintButton.CORNER_HINT_RIGHT_DP / KeyHintButton.CORNER_HINT_SP, 204));
         return slots;
     }
 
@@ -102,6 +180,143 @@ public final class KeyFaceTemplates {
     /** 数字九宫格和九键双拼的数字键：数字作主标签，九键双拼底部是简短的声韵提示。 */
     public static final KeyFaceTemplate NINE_DIGITS = new KeyFaceTemplate("nine-digits", nineSlots(NINE_DIGIT, false, true),
         KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, true, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    /**
+     * 韩文的字母键（字母层画两套辅音、元音）：和字母键同字号（设计 22 sp），按整个墨迹居中（字母是方块字形，没有大写字母高可对）。原来是建键的默认 14 sp，比同一套字母行的其他语言小得多。
+     */
+    public static final KeyFaceTemplate KOREAN = new KeyFaceTemplate("korean", mainOnly(LETTER),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    /** 大千的声调键：ˊ ˇ ˋ ˙ 只是字身上方一道短笔画，按 1.8 倍画、按自己的墨迹居中，与原来的 {@link CenteredGlyphSpan} 相同；其余注音符号共用一条基线。 */
+    static final KeyFaceTemplate.Glyphs DACHEN_TONES = new KeyFaceTemplate.Glyphs(dachenTones(1.8f), 0.1f, false);
+
+    /** 大千（注音 26 键一族）的字母键：注音符号设计 22 sp（原来 18–22 sp 按键宽缩小），最小 12 sp，按整个墨迹居中；声调键见 {@link #DACHEN_TONES}。 */
+    public static final KeyFaceTemplate DACHEN = new KeyFaceTemplate("dachen", mainOnly(LETTER),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES, null,
+        DACHEN_TONES);
+
+    private static Map<String, Float> dachenTones(float scale) {
+        Map<String, Float> tones = new java.util.HashMap<>();
+        for (List<String> row : ZhuyinKeyboardLayout.rows())
+            for (String key : row) if (ZhuyinKeyboardLayout.toneKey(key)) tones.put(ZhuyinKeyboardLayout.face(key), scale);
+        return tones;
+    }
+
+    /** 笔画键盘的笔画键（一丨丿丶乛 和通配 ＊）：设计 22 sp（原来 14–22 sp 按键宽各自缩小），按整个墨迹居中，笔画共用一条基线，与原来按行盒排的位置一样。 */
+    public static final KeyFaceTemplate STROKES = new KeyFaceTemplate("strokes", mainOnly(LETTER),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    /** 与其他文字同组的「，」「。」「、」：按 1.3 倍画、按自己的墨迹居中、往下挪 0.1 个字号，同 {@link #SMALL_PUNCTUATION}；其余文字共用全组的基线。 */
+    static final KeyFaceTemplate.Glyphs SMALL_PUNCTUATION_ONLY = new KeyFaceTemplate.Glyphs(
+        Map.of("，", 1.3f, "。", 1.3f, "、", 1.3f), 0.1f, false);
+
+    /**
+     * 笔画键盘的其他键：网格最后一行的 @#、0、句点和右列的 ！。与拼音九键的 @#、！ 同字号（设计 18 sp，{@link #NINE_LETTER}，原来是建键的默认 14 sp），主标签以笔画组为上限；「。」按自己的墨迹居中（{@link #SMALL_PUNCTUATION_ONLY}）。
+     */
+    public static final KeyFaceTemplate STROKE_KEYS = new KeyFaceTemplate("stroke-keys", mainOnly(NINE_LETTER),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES, null,
+        SMALL_PUNCTUATION_ONLY);
+
+    /** 注音九键左列一个声调键有多高时用设计字号（dp）：四行键高分成五个声调键。 */
+    private static final float ZHUYIN_TONE_REFERENCE_DP =
+        KeyboardHeightPolicy.KEYBOARD_ROW_COUNT * REFERENCE_KEY_HEIGHT_DP / ZhuyinNineKeyLayout.tones().size();
+    /** 注音九键的声调符号：设计 20 sp（原来的固定字号），随格高变化，最小 12 sp，最大 22 sp。 */
+    static final KeyFaceTemplate.SlotSpec ZHUYIN_TONE = new KeyFaceTemplate.SlotSpec(20 / ZHUYIN_TONE_REFERENCE_DP, 12, 22, 0,
+        255);
+
+    /**
+     * 注音九键左列的声调键：ˉ ˊ ˇ ˋ ˙ 只是一道短笔画，每个按自己的墨迹居中、比中线低 0.1 个字号，与原来的 {@link CenteredGlyphSpan}（1 倍）相同。
+     */
+    public static final KeyFaceTemplate ZHUYIN_TONES = new KeyFaceTemplate("zhuyin-tones", mainOnly(ZHUYIN_TONE),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES, null,
+        new KeyFaceTemplate.Glyphs(zhuyinTones(), 0.1f));
+
+    private static Map<String, Float> zhuyinTones() {
+        Map<String, Float> tones = new java.util.HashMap<>();
+        for (ZhuyinNineKeyLayout.Tone tone : ZhuyinNineKeyLayout.tones()) tones.put(tone.face(), 1f);
+        return tones;
+    }
+
+    /** 注音九键音键上的一组注音符号：设计 14 sp（原来两行自动缩放的上限），最小 9 sp，最大 16 sp。 */
+    static final KeyFaceTemplate.SlotSpec ZHUYIN_SOUND = slot(14, 9, 16, 0, 255);
+    /** 注音九键音键底部的数字：注音符号的一半（设计 7 sp），颜色与注音符号相同，离下边 0.25 个字号。 */
+    static final KeyFaceTemplate.SlotSpec ZHUYIN_DIGIT = slot(7, 6, 8, 0.25f, 255);
+
+    /** 注音九键的音键（1–9 和 0）：注音符号作主标签、全组共用一条基线，它发送的数字在底部。 */
+    public static final KeyFaceTemplate ZHUYIN_SOUNDS = new KeyFaceTemplate("zhuyin-sounds", zhuyinSoundSlots(),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> zhuyinSoundSlots() {
+        Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = mainOnly(ZHUYIN_SOUND);
+        slots.put(KeyFaceSlot.BOTTOM, ZHUYIN_DIGIT);
+        return slots;
+    }
+
+    /**
+     * 注音九键最后一行的逗号和句号（各占半格）：与注音符号同字号（设计 14 sp），主标签以音键组为上限；「，」「。」按自己的墨迹居中、放大 1.3 倍（{@link #SMALL_PUNCTUATION_ONLY}），与原来相同，半角的 , . 落在文字的基线上。
+     */
+    public static final KeyFaceTemplate ZHUYIN_MARKS = new KeyFaceTemplate("zhuyin-marks", mainOnly(ZHUYIN_SOUND),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES, null,
+        SMALL_PUNCTUATION_ONLY);
+
+    /**
+     * 日语九键网格上的假名键（符号层上是数字）：与字母键同字号（设计 22 sp，原来的固定字号），按整个墨迹居中、全组共用一条基线（「、」仍落在文字的基线上，与原来一样）。矮键盘上随键高缩小，原来固定 22 sp 不缩。
+     */
+    public static final KeyFaceTemplate JAPANESE_KANA = new KeyFaceTemplate("japanese-kana", mainOnly(LETTER),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    /** #+= 层第一排的符号：设计 20 sp，最小 12 sp，最大 22 sp，与原来的固定 20 sp 和数字行相同。 */
+    static final KeyFaceTemplate.SlotSpec LAYER_TOP = slot(20, 12, 22, 0, 255);
+    /** #+= 层其余几排和第五排补充行的符号：设计 18 sp，最小 12 sp，最大 20 sp。 */
+    static final KeyFaceTemplate.SlotSpec LAYER_CHARACTER = slot(18, 12, 20, 0, 255);
+
+    /**
+     * #+= 层第一排的字符键：只有主标签，全排共用一条基线（按内容域的整个墨迹居中，与原来 TextView 按行盒排的效果一样，下划线、引号仍在各自的高度上，不按自己的墨迹居中）。
+     */
+    public static final KeyFaceTemplate LAYER_TOP_ROW = new KeyFaceTemplate("layer-top-row", mainOnly(LAYER_TOP),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    /** #+= 层其余几排和第五排补充行的字符键，同 {@link #LAYER_TOP_ROW}，字号小一号。 */
+    public static final KeyFaceTemplate LAYER_CHARACTERS = new KeyFaceTemplate("layer-characters", mainOnly(LAYER_CHARACTER),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES);
+
+    private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> mainOnly(KeyFaceTemplate.SlotSpec main) {
+        Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = new EnumMap<>(KeyFaceSlot.class);
+        slots.put(KeyFaceSlot.MAIN, main);
+        return slots;
+    }
+
+    /** 九键、笔画和数字九宫格左侧符号栏的一格有多高时用设计字号（dp）：三行键高分成一屏 {@link NineKeySidebarPolicy#VISIBLE_ROWS} 格。 */
+    private static final float SIDE_ROW_REFERENCE_DP = 3 * REFERENCE_KEY_HEIGHT_DP / NineKeySidebarPolicy.VISIBLE_ROWS;
+
+    /** 符号栏的符号：设计 {@link KeyboardTypographyPolicy#NINE_KEY_SIDE_TEXT_SP}（18 sp，原来的固定字号），随格高变化，最小 12 sp；最大也是 18 sp，格子更高时不再放大，与原来一样。 */
+    static final KeyFaceTemplate.SlotSpec SIDE_SYMBOL = new KeyFaceTemplate.SlotSpec(
+        KeyboardTypographyPolicy.NINE_KEY_SIDE_TEXT_SP / SIDE_ROW_REFERENCE_DP, 12, KeyboardTypographyPolicy.NINE_KEY_SIDE_TEXT_SP,
+        0, 255);
+    /** 符号栏里 ！ 右上角的 0（大回车外框，{@link SuperscriptShortcutPolicy#ZERO}）：在设计格高上与九键右上角的数字同字号、同位置。 */
+    static final KeyFaceTemplate.SlotSpec SIDE_CORNER = new KeyFaceTemplate.SlotSpec(
+        KeyHintButton.CORNER_HINT_SP / SIDE_ROW_REFERENCE_DP, 8, 12,
+        KeyHintButton.CORNER_HINT_TOP_DP / KeyHintButton.CORNER_HINT_SP,
+        NineKeyDigitButton.DIGIT_HINT_RIGHT_DP / KeyHintButton.CORNER_HINT_SP, 255);
+    /**
+     * 全角「，」「。」「、」的墨迹只占字身左下角一小块：按字号的 1.3 倍画、按自己的墨迹居中，再往下挪 0.1 个字号，与原来的 {@link CenteredGlyphSpan} 相同（它把墨迹中点放在行盒中线以下行高的 8%，行高约 1.2 个字号）。
+     */
+    static final KeyFaceTemplate.Glyphs SMALL_PUNCTUATION = new KeyFaceTemplate.Glyphs(
+        Map.of("，", 1.3f, "。", 1.3f, "、", 1.3f), 0.1f);
+
+    /**
+     * 九键、笔画和数字九宫格左侧的符号栏：每格一个符号（表可自定义），按每个符号自己的墨迹居中（{@link KeyFaceTemplate.Glyphs}），字号全栏一个；大回车外框接在末尾的 ！ 右上角印 0。
+     */
+    public static final KeyFaceTemplate SIDE_SYMBOLS = new KeyFaceTemplate("side-symbols", sideSlots(),
+        KeyboardTypographyPolicy.KEY_CAP_HORIZONTAL_PADDING_DP, 1, 0, false, LETTER_MAX_SHRINK, LETTER_STRATEGIES, null,
+        SMALL_PUNCTUATION);
+
+    private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> sideSlots() {
+        Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> slots = new EnumMap<>(KeyFaceSlot.class);
+        slots.put(KeyFaceSlot.MAIN, SIDE_SYMBOL);
+        slots.put(KeyFaceSlot.TOP_RIGHT, SIDE_CORNER);
+        return slots;
+    }
 
     private static Map<KeyFaceSlot, KeyFaceTemplate.SlotSpec> nineSlots(KeyFaceTemplate.SlotSpec main, boolean corner,
             boolean bottom) {

@@ -12,6 +12,7 @@ import android.graphics.drawable.Drawable;
 import android.view.ContextThemeWrapper;
 import android.view.View;
 import android.widget.Button;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -43,6 +44,13 @@ final class KeyFaceGroupChecks {
                         verifyFunctions(context, height);
                         verifyNineKeys(context, height);
                         verifyNumberRow(context, height);
+                        verifySideSymbols(context, height);
+                        verifyLayer(context, height);
+                        verifyScripts(context, height);
+                        verifyStroke(context, height);
+                        verifyZhuyinNineKey(context, height);
+                        verifyJapaneseNineKey(context, height);
+                        verifyBottomRow(context, height);
                         verifyOutlines(context, height);
                     }
                 }
@@ -117,17 +125,16 @@ final class KeyFaceGroupChecks {
         layout(letter, Math.round(30 * density), height);
 
         Button shift = product.iconKey("SHIFT", "⇧");
-        product.setDrawsText(shift, true);
-        shift.setText("分词");
-        verifyFunctionRow(product, density, scale, height, "26 键 " + where, letter, null,
+        product.setTextFace(shift, "分词");
+        verifyFunctionRow(product, density, scale, height, "26 键 " + where, 0, letter, null,
             new Button[] {shift, product.iconKey("BACKSPACE", "⌫")}, new int[] {48, 48});
         // 组字结束：⇧ 换回图标，只重画。
-        product.setDrawsText(shift, false);
+        product.setIconFace(shift, "SHIFT");
         shift.setText("⇧");
         check(!shift.isLayoutRequested(), "⇧ 换回图标后请求了重新布局：" + where);
 
         Button separator = product.letterKey("分词", "", "辅");
-        verifyFunctionRow(product, density, scale, height, "14/18 键 " + where, letter, separator,
+        verifyFunctionRow(product, density, scale, height, "14/18 键 " + where, 8, letter, separator,
             new Button[] {separator, product.iconKey("BACKSPACE", "⌫")}, new int[] {52, 52});
         product.setCorner(separator, "");
         product.setCorner(separator, "辅");
@@ -135,19 +142,20 @@ final class KeyFaceGroupChecks {
 
         Button rewrite = product.plainKey("重输");
         // TextView 可能按过期的排版把内容滚开（键组里的键不走它的测量）；键面要照样画在键格中间。
-        verifyFunctionRow(product, density, scale, height, "九键 " + where, null, null,
+        verifyFunctionRow(product, density, scale, height, "九键 " + where, 1, null, null,
             new Button[] {product.iconKey("BACKSPACE", "⌫"), rewrite}, new int[] {56, 56});
     }
 
     /**
      * 一组功能键：参数相同、字不大过字母组、图标和文字竖直居中、文字按全组的水平偏移居中、不压住角标；TextView 补建了自己的排版之后换文字（连行数都变）也不请求重新布局。
      *
+     * @param touchLayout 这副键盘的触屏布局（{@code KeyboardLayout} 的常量），功能键组按它列内容域
      * @param letter 同一副键盘的一个字母键（功能键的字以它的组为上限），九键为 {@code null}
      * @param cornerKey 带右上角提示的那个键，没有时为 {@code null}
      */
     private static void verifyFunctionRow(Product product, float density, float scale, int height, String where,
-            Button letter, Button cornerKey, Button[] keys, int[] widthsDp) throws Exception {
-        Object functions = product.functionGroup(density, scale);
+            int touchLayout, Button letter, Button cornerKey, Button[] keys, int[] widthsDp) throws Exception {
+        Object functions = product.functionGroup(density, scale, touchLayout);
         if (letter != null) product.capMainAt(functions, product.faceGroup(letter));
         for (int index = 0; index < keys.length; index++) {
             keys[index].setLayoutParams(new android.view.ViewGroup.LayoutParams(
@@ -284,6 +292,519 @@ final class KeyFaceGroupChecks {
     }
 
     /**
+     * 符号栏：一格是三行键高的五分之一（{@code heightDp} 是一行键高），宽 55 dp。整栏一个组、一个字号（带 0 的 ！ 自己一组，不比整栏大），整栏不左移，每个符号按自己的墨迹居中（「，」「。」「、」不贴底，比中线低 0.1 个字号），不出格子；带 0 的 ！ 的 0 不压住 ！；换符号只重画。
+     */
+    private static void verifySideSymbols(Context context, int heightDp) throws Exception {
+        Product product = new Product(context);
+        float density = context.getResources().getDisplayMetrics().density;
+        float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
+        int width = Math.round(55 * density), height = Math.round(heightDp * 3 / 5f * density);
+        String where = heightDp + "dp fontScale=" + context.getResources().getConfiguration().fontScale;
+        List<String> symbols = List.of("，", "。", "、", "？", "……", "@", "！");
+        Class<?> domains = product.loader.loadClass("app.msime.android.SideColumnKeyFaceDomains");
+        Method domain = domains.getMethod("symbols", List.class, boolean.class);
+        // 与 ImeKeyFaces.beginSideSymbols 相同：整栏一组，带 0 的 ！ 自己一组、以整栏为上限。
+        Object group = product.group("SIDE_SYMBOLS", domain.invoke(null, symbols, false), Typeface.DEFAULT, density, scale);
+        Object cornerGroup = product.group("SIDE_SYMBOLS", domain.invoke(null, List.of("！"), true), Typeface.DEFAULT, density,
+            scale);
+        cornerGroup.getClass().getMethod("capMainAt", cornerGroup.getClass()).invoke(cornerGroup, group);
+        List<Button> keys = new ArrayList<>();
+        for (String symbol : symbols.subList(0, symbols.size() - 1)) {
+            Button key = product.plainKey(symbol);
+            product.joinFunction(key, group, false);
+            keys.add(key);
+        }
+        Button exclamation = product.nineKey("！", "0", "");
+        product.joinNine(exclamation, cornerGroup, "TOP_RIGHT");
+        keys.add(exclamation);
+        for (Button key : keys) layout(key, width, height);
+        Object params = product.params(keys.get(0));
+        check(params != null && product.mainShift(params) == 0, "符号栏没有算出参数或整栏左移了：" + where);
+        Object cornerParams = product.params(exclamation);
+        check(cornerParams != null && product.mainSize(cornerParams) <= product.mainSize(params) + 0.01f,
+            "带 0 的 ！ 不应比整栏的符号大：" + where);
+        float tolerance = density + 1;
+        for (Button key : keys) {
+            String at = key.getText() + " " + where;
+            check(key == exclamation || product.params(key) == params, "同一栏的符号参数不同：" + at);
+            Rect[] ink = draw(key);
+            Rect main = ink[1];
+            check(!main.isEmpty() && main.left >= 0 && main.right <= width && main.top >= 0 && main.bottom <= height,
+                "符号没画出来或出了格子：" + main + " " + at);
+            float drop = symbols.indexOf(String.valueOf(key.getText())) < 3 ? 0.1f * product.mainSize(params) : 0;
+            check(Math.abs(main.exactCenterX() - width / 2f - product.mainShift(product.params(key))) <= tolerance
+                && Math.abs(main.exactCenterY() - height / 2f - drop) <= tolerance,
+                "符号没有按自己的墨迹居中：" + main + " 格子 " + width + "x" + height + " " + at);
+            if (key == exclamation && !ink[0].isEmpty()) check(!Rect.intersects(main, ink[0]), "！ 右上角的 0 压住了 ！：" + at);
+        }
+        // 「，」放大 1.3 倍画：墨迹比同字号的「，」高。
+        Rect comma = draw(keys.get(0))[1];
+        check(comma.height() >= 1.15f * product.inkHeight("，", product.mainSize(params)), "「，」没有放大画：" + comma + " " + where);
+        keys.get(3).setText("；");
+        check(!keys.get(3).isLayoutRequested() && product.params(keys.get(3)) == params, "换符号后请求了重新布局或参数变了：" + where);
+    }
+
+    /**
+     * #+= 层：第一排和其余几排各一组，内容域由放进来的键自己的文字组成。同组一份参数，字符不出键格，成对的括号上下沿对齐（共用一条基线），第一排比其余几排大，换字符只重画。
+     */
+    private static void verifyLayer(Context context, int heightDp) throws Exception {
+        Product product = new Product(context);
+        float density = context.getResources().getDisplayMetrics().density;
+        float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
+        int height = Math.round(heightDp * density);
+        String where = heightDp + "dp fontScale=" + context.getResources().getConfiguration().fontScale;
+        Object empty = product.loader.loadClass("app.msime.android.KeyFaceDomain").getConstructor(Map.class)
+            .newInstance(new HashMap<>());
+        Object top = product.group("LAYER_TOP_ROW", empty, Typeface.DEFAULT, density, scale);
+        Object rest = product.group("LAYER_CHARACTERS", empty, Typeface.DEFAULT, density, scale);
+        String[] topFaces = {"[", "]", "{", "}", "#", "%", "^", "*", "+", "="};
+        String[] restFaces = {"_", "\\", "|", "~", "《", "》", "€", "&", "·", "…", "，", "？"};
+        List<Button> topKeys = new ArrayList<>(), restKeys = new ArrayList<>();
+        for (String face : topFaces) {
+            Button key = product.plainKey(face);
+            product.joinFunction(key, top, false);
+            topKeys.add(key);
+        }
+        for (String face : restFaces) {
+            Button key = product.plainKey(face);
+            product.joinFunction(key, rest, false);
+            restKeys.add(key);
+        }
+        int width = Math.round(34 * density);
+        for (Button key : topKeys) layout(key, width, height);
+        for (Button key : restKeys) layout(key, width, height);
+        Object topParams = product.params(topKeys.get(0)), restParams = product.params(restKeys.get(0));
+        check(topParams != null && restParams != null, "#+= 层没有算出参数：" + where);
+        check(product.mainSize(topParams) >= product.mainSize(restParams), "#+= 层第一排应不小于其余几排：" + where);
+        Rect open = null;
+        for (List<Button> keys : List.of(topKeys, restKeys)) {
+            Object params = product.params(keys.get(0));
+            for (Button key : keys) {
+                String at = key.getText() + " " + where;
+                check(product.params(key) == params, "#+= 层同一组参数不同：" + at);
+                Rect main = draw(key)[1];
+                check(!main.isEmpty() && main.left >= 0 && main.right <= width && main.top >= 0 && main.bottom <= height,
+                    "#+= 层字符没画出来或出了键格：" + main + " " + at);
+                if ("[".contentEquals(key.getText())) open = main;
+                if ("]".contentEquals(key.getText()))
+                    check(open != null && Math.abs(main.top - open.top) <= 2 && Math.abs(main.bottom - open.bottom) <= 2,
+                        "成对的括号不在一条基线上：" + main + " 对 " + open + " " + at);
+            }
+        }
+        restKeys.get(0).setText("-");
+        check(!restKeys.get(0).isLayoutRequested() && product.params(restKeys.get(0)) == restParams,
+            "#+= 层换字符后请求了重新布局或参数变了：" + where);
+    }
+
+    /**
+     * 26 键一族的其他文字：韩文字母（换双辅音只重画）、大千（声调按自己的墨迹居中、放大画，注音符号共用基线）、日文罗马字的 ー（自己一组，不比字母大）。同组一份参数，墨迹不出键格。
+     */
+    private static void verifyScripts(Context context, int heightDp) throws Exception {
+        Product product = new Product(context);
+        float density = context.getResources().getDisplayMetrics().density;
+        float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
+        int height = Math.round(heightDp * density), width = Math.round(34 * density);
+        String where = heightDp + "dp fontScale=" + context.getResources().getConfiguration().fontScale;
+        String domains = "app.msime.android.LetterKeyFaceDomains";
+        Object korean = product.group("KOREAN", domains, "korean", Typeface.DEFAULT, density, scale);
+        Object dachen = product.group("DACHEN", domains, "dachen", Typeface.DEFAULT, density, scale);
+        List<Button> keys = new ArrayList<>();
+        for (String jamo : new String[] {"ㅂ", "ㅈ", "ㅏ", "ㅡ"}) {
+            Button key = product.plainKey(jamo);
+            product.joinFunction(key, korean, false);
+            keys.add(key);
+        }
+        Button tone = null;
+        for (String face : new String[] {"ㄅ", "ㄤ", "ˇ", "ㄦ"}) {
+            Button key = product.plainKey(face);
+            product.joinFunction(key, dachen, false);
+            keys.add(key);
+            if ("ˇ".equals(face)) tone = key;
+        }
+        for (Button key : keys) layout(key, width, height);
+        float tolerance = density + 1;
+        for (Button key : keys) {
+            String at = key.getText() + " " + where;
+            Object params = product.params(key);
+            check(params != null && params == product.params(keys.get(key == tone || keys.indexOf(key) >= 4 ? 4 : 0)),
+                "同组参数不同或没算出来：" + at);
+            Rect main = draw(key)[1];
+            check(!main.isEmpty() && main.left >= 0 && main.right <= width && main.top >= 0 && main.bottom <= height,
+                "字没画出来或出了键格：" + main + " " + at);
+        }
+        Object toneParams = product.params(tone);
+        Rect toneInk = draw(tone)[1];
+        check(Math.abs(toneInk.exactCenterX() - width / 2f) <= tolerance
+            && Math.abs(toneInk.exactCenterY() - height / 2f - 0.1f * product.mainSize(toneParams)) <= tolerance,
+            "大千声调没有按自己的墨迹居中：" + toneInk + " " + where);
+        check(toneInk.height() >= 1.5f * product.inkHeight("ˇ", product.mainSize(toneParams)), "大千声调没有放大画：" + where);
+        Object koreanParams = product.params(keys.get(0));
+        keys.get(0).setText("ㅃ");
+        check(!keys.get(0).isLayoutRequested() && product.params(keys.get(0)) == koreanParams,
+            "韩文换双辅音后请求了重新布局或参数变了：" + where);
+
+        Object letters = product.letterGroup(density, scale);
+        Button letter = product.plainKey("W");
+        product.joinFunction(letter, letters, false);
+        Object empty = product.loader.loadClass("app.msime.android.KeyFaceDomain").getConstructor(Map.class)
+            .newInstance(new HashMap<>());
+        Object vowel = product.group("LETTERS", empty, Typeface.DEFAULT, density, scale);
+        vowel.getClass().getMethod("capMainAt", vowel.getClass()).invoke(vowel, letters);
+        Button longVowel = product.plainKey("ー");
+        product.joinFunction(longVowel, vowel, false);
+        layout(letter, Math.round(30 * density), height);
+        layout(longVowel, Math.round(30 * density), height);
+        check(product.mainSize(product.params(longVowel)) <= product.mainSize(product.params(letter)) + 0.01f,
+            "ー 不应比字母大：" + where);
+        Rect bar = draw(longVowel)[1];
+        check(!bar.isEmpty() && bar.left >= 0 && bar.right <= longVowel.getWidth(), "ー 没画出来或出了键格：" + bar + " " + where);
+    }
+
+    /**
+     * 笔画键盘：笔画一组，@#、0、句点和 ！ 一组、以笔画为上限。同组一份参数，墨迹不出键格；「。」按自己的墨迹居中、放大画；中英文标点换句点只重画。
+     */
+    private static void verifyStroke(Context context, int heightDp) throws Exception {
+        Product product = new Product(context);
+        float density = context.getResources().getDisplayMetrics().density;
+        float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
+        int height = Math.round(heightDp * density), width = Math.round(64 * density);
+        String where = heightDp + "dp fontScale=" + context.getResources().getConfiguration().fontScale;
+        String domains = "app.msime.android.NineKeyFaceDomains";
+        Object strokes = product.group("STROKES", domains, "strokes", Typeface.DEFAULT, density, scale);
+        Object others = product.group("STROKE_KEYS", domains, "strokeKeys", Typeface.DEFAULT, density, scale);
+        others.getClass().getMethod("capMainAt", others.getClass()).invoke(others, strokes);
+        List<Button> strokeKeys = new ArrayList<>(), otherKeys = new ArrayList<>();
+        for (String face : new String[] {"一", "丨", "丿", "丶", "乛", "＊"}) {
+            Button key = product.plainKey(face);
+            product.joinFunction(key, strokes, false);
+            strokeKeys.add(key);
+        }
+        for (String face : new String[] {"@#", "0", "。", "！"}) {
+            Button key = product.plainKey(face);
+            product.joinFunction(key, others, false);
+            otherKeys.add(key);
+        }
+        for (Button key : strokeKeys) layout(key, width, height);
+        for (Button key : otherKeys) layout(key, width, height);
+        Object strokeParams = product.params(strokeKeys.get(0)), otherParams = product.params(otherKeys.get(0));
+        check(strokeParams != null && otherParams != null, "笔画键盘没有算出参数：" + where);
+        check(product.mainSize(otherParams) <= product.mainSize(strokeParams) + 0.01f, "@#、0、句点、！ 不应比笔画大：" + where);
+        for (List<Button> keys : List.of(strokeKeys, otherKeys)) {
+            Object params = product.params(keys.get(0));
+            for (Button key : keys) {
+                String at = key.getText() + " " + where;
+                check(product.params(key) == params, "笔画键盘同一组参数不同：" + at);
+                Rect main = draw(key)[1];
+                check(!main.isEmpty() && main.left >= 0 && main.right <= width && main.top >= 0 && main.bottom <= height,
+                    "笔画键盘的字没画出来或出了键格：" + main + " " + at);
+            }
+        }
+        Button period = otherKeys.get(2);
+        Rect periodInk = draw(period)[1];
+        float tolerance = density + 1;
+        check(Math.abs(periodInk.exactCenterX() - width / 2f) <= tolerance
+            && Math.abs(periodInk.exactCenterY() - height / 2f - 0.1f * product.mainSize(otherParams)) <= tolerance,
+            "「。」没有按自己的墨迹居中：" + periodInk + " " + where);
+        check(periodInk.height() >= 1.15f * product.inkHeight("。", product.mainSize(otherParams)), "「。」没有放大画：" + where);
+        period.setText(".");
+        check(!period.isLayoutRequested() && product.params(period) == otherParams, "换句点后请求了重新布局或参数变了：" + where);
+    }
+
+    /**
+     * 注音九键：声调一组（每个按自己的墨迹居中，比中线低 0.1 个字号），音键一组（注音在上、发送的数字在底部，两者不相碰、不出键格，换数字只重画），逗号句号一组（不比音键大；「。」按自己的墨迹居中、放大画，半角的 . 落在文字的基线上，不画成键面正中的点）。
+     */
+    private static void verifyZhuyinNineKey(Context context, int heightDp) throws Exception {
+        Product product = new Product(context);
+        float density = context.getResources().getDisplayMetrics().density;
+        float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
+        int height = Math.round(heightDp * density);
+        String where = heightDp + "dp fontScale=" + context.getResources().getConfiguration().fontScale;
+        String domains = "app.msime.android.NineKeyFaceDomains";
+        float tolerance = density + 1;
+
+        Object tones = product.group("ZHUYIN_TONES", domains, "zhuyinTones", Typeface.DEFAULT, density, scale);
+        int toneWidth = Math.round(60 * density), toneHeight = Math.round(heightDp * 4 / 5f * density);
+        List<Button> toneKeys = new ArrayList<>();
+        for (String face : new String[] {"ˉ", "ˊ", "ˇ", "ˋ", "˙"}) {
+            Button key = product.plainKey(face);
+            product.joinFunction(key, tones, false);
+            layout(key, toneWidth, toneHeight);
+            toneKeys.add(key);
+        }
+        Object toneParams = product.params(toneKeys.get(0));
+        check(toneParams != null, "注音九键声调没有算出参数：" + where);
+        for (Button key : toneKeys) {
+            String at = key.getText() + " " + where;
+            check(product.params(key) == toneParams, "注音九键声调参数不同：" + at);
+            Rect ink = draw(key)[1];
+            check(!ink.isEmpty() && ink.left >= 0 && ink.right <= toneWidth && ink.top >= 0 && ink.bottom <= toneHeight,
+                "声调没画出来或出了键格：" + ink + " " + at);
+            check(Math.abs(ink.exactCenterX() - toneWidth / 2f) <= tolerance
+                && Math.abs(ink.exactCenterY() - toneHeight / 2f - 0.1f * product.mainSize(toneParams)) <= tolerance,
+                "声调没有按自己的墨迹居中：" + ink + " " + at);
+        }
+
+        Object sounds = product.group("ZHUYIN_SOUNDS", domains, "zhuyinSounds", Typeface.DEFAULT, density, scale);
+        Class<?> bottomKey = product.loader.loadClass("app.msime.android.BottomLabelKey");
+        Method setBottom = bottomKey.getMethod("setBottomText", String.class);
+        int width = Math.round(80 * density);
+        List<Button> soundKeys = new ArrayList<>();
+        for (String[] face : new String[][] {{"ㄅㄆㄇㄈ", "1"}, {"ㄓㄔㄕㄖ", "5"}, {"ㄍㄎㄏ", "3"}, {"ㄢㄣㄤㄥ", "0"}}) {
+            Button key = (Button) bottomKey.getConstructor(Context.class).newInstance(context);
+            key.setBackground(null);
+            key.setText(face[0]);
+            key.setTextColor(Color.rgb(0, 200, 0));
+            setBottom.invoke(key, face[1]);
+            product.joinNine(key, sounds, "BOTTOM");
+            layout(key, width, height);
+            soundKeys.add(key);
+        }
+        Object soundParams = product.params(soundKeys.get(0));
+        check(soundParams != null && product.hintSize(soundParams, "bottom") > 0, "注音九键音键没有算出参数或底部数字：" + where);
+        for (Button key : soundKeys) {
+            String at = key.getText() + " " + where;
+            check(product.params(key) == soundParams, "注音九键音键参数不同：" + at);
+            Rect whole = draw(key)[1];
+            check(!whole.isEmpty() && whole.left >= 0 && whole.right <= width && whole.top >= 0 && whole.bottom <= height,
+                "音键没画出来或出了键格：" + whole + " " + at);
+        }
+        // 数字与注音同色：分别只留一样来量墨迹。
+        Button one = soundKeys.get(0);
+        setBottom.invoke(one, "");
+        Rect symbols = draw(one)[1];
+        CharSequence label = one.getText();
+        one.setText("");
+        setBottom.invoke(one, "1");
+        Rect digit = draw(one)[1];
+        one.setText(label);
+        check(!symbols.isEmpty() && !digit.isEmpty() && digit.top > symbols.bottom,
+            "音键的数字没画在注音下面或压住了注音：" + digit + " 对 " + symbols + " " + where);
+        check(Math.abs(digit.exactCenterX() - width / 2f) <= tolerance, "音键的数字没有水平居中：" + digit + " " + where);
+        setBottom.invoke(one, "9");
+        check(!one.isLayoutRequested() && product.params(one) == soundParams, "音键换数字后请求了重新布局或参数变了：" + where);
+
+        Object marks = product.group("ZHUYIN_MARKS", domains, "zhuyinMarks", Typeface.DEFAULT, density, scale);
+        marks.getClass().getMethod("capMainAt", marks.getClass()).invoke(marks, sounds);
+        int half = Math.round(40 * density);
+        Button period = product.plainKey("。");
+        product.joinFunction(period, marks, false);
+        layout(period, half, height);
+        Object markParams = product.params(period);
+        check(markParams != null && product.mainSize(markParams) <= product.mainSize(soundParams) + 0.01f,
+            "注音九键逗号句号没有算出参数或比音键大：" + where);
+        Rect full = draw(period)[1];
+        check(!full.isEmpty() && full.left >= 0 && full.right <= half && full.top >= 0 && full.bottom <= height,
+            "「。」没画出来或出了键格：" + full + " " + where);
+        check(Math.abs(full.exactCenterX() - half / 2f) <= tolerance
+            && Math.abs(full.exactCenterY() - height / 2f - 0.1f * product.mainSize(markParams)) <= tolerance,
+            "注音九键的「。」没有按自己的墨迹居中：" + full + " " + where);
+        // 最小字号上「。」的墨迹只有六七个像素，抗锯齿的边缘浅于取色阈值，量出来少一个像素。
+        check(full.height() + 1 >= 1.15f * product.inkHeight("。", product.mainSize(markParams)),
+            "注音九键的「。」没有放大画：" + full + " 字号 " + product.mainSize(markParams) + " " + where);
+        period.setText(".");
+        check(!period.isLayoutRequested() && product.params(period) == markParams, "换半角句点后请求了重新布局或参数变了：" + where);
+        Rect dot = draw(period)[1];
+        check(!dot.isEmpty() && dot.exactCenterY() >= height / 2f + 0.15f * product.mainSize(markParams),
+            "半角的 . 应落在文字的基线上，不在键面正中：" + dot + " " + where);
+    }
+
+    /**
+     * 日语九键，按 240 dp 宽的窄键盘（网格一格 56 dp、侧列 36 dp）：假名一组、数字一组，同组一份参数、不出键格；「小゛゜」和侧列的文字键放进功能键组（日语九键的内容域），一行画下、不出键格（原来固定 14 sp 的「小゛゜」在窄键盘加大字体时折成两行），侧列的字和「小゛゜」同一个字号。
+     */
+    private static void verifyJapaneseNineKey(Context context, int heightDp) throws Exception {
+        Product product = new Product(context);
+        float density = context.getResources().getDisplayMetrics().density;
+        float scale = Math.min(context.getResources().getConfiguration().fontScale, 1.15f);
+        int height = Math.round(heightDp * density), cell = Math.round(56 * density), side = Math.round(36 * density);
+        int sideHeight = Math.round(heightDp * 4 / 5f * density);
+        String where = heightDp + "dp fontScale=" + context.getResources().getConfiguration().fontScale;
+        Class<?> nineDomains = product.loader.loadClass("app.msime.android.NineKeyFaceDomains");
+        Method kanaDomain = nineDomains.getMethod("japaneseKana", boolean.class);
+        for (boolean symbols : new boolean[] {false, true}) {
+            Object group = product.group("JAPANESE_KANA", kanaDomain.invoke(null, symbols), Typeface.DEFAULT, density, scale);
+            List<Button> keys = new ArrayList<>();
+            for (String face : symbols ? new String[] {"1", "5", "0", "、"} : new String[] {"あ", "さ", "や", "わ", "、"}) {
+                Button key = product.plainKey(face);
+                product.joinFunction(key, group, false);
+                layout(key, cell, height);
+                keys.add(key);
+            }
+            Object params = product.params(keys.get(0));
+            check(params != null, "日语九键" + (symbols ? "数字" : "假名") + "没有算出参数：" + where);
+            for (Button key : keys) {
+                String at = key.getText() + " " + where;
+                check(product.params(key) == params, "日语九键同一组参数不同：" + at);
+                Rect ink = draw(key)[1];
+                check(!ink.isEmpty() && ink.left >= 0 && ink.right <= cell && ink.top >= 0 && ink.bottom <= height,
+                    "日语九键的字没画出来或出了键格：" + ink + " " + at);
+            }
+        }
+
+        Object functions = product.group("JAPANESE_FUNCTIONS", product.functionDomain(2),
+            Typeface.DEFAULT, density, scale);
+        Button variants = product.plainKey("小゛゜");
+        product.joinFunction(variants, functions, false);
+        layout(variants, cell, height);
+        List<Button> sideKeys = new ArrayList<>();
+        for (String face : new String[] {"123", "符", "切换", "空白", "英"}) {
+            Button key = product.plainKey(face);
+            product.joinFunction(key, functions, false);
+            layout(key, side, sideHeight);
+            sideKeys.add(key);
+        }
+        Object params = product.params(variants);
+        check(params != null, "日语九键功能键没有算出参数：" + where);
+        // 默认的 411 dp 宽、默认键高上侧列的字不比原来（按键宽缩到 14 sp 封顶）小：设计字号落在侧列一格的高度上。240 dp 宽时侧列只有 36 dp，要放下符号层的「あいう」，全组跟着小，那是一组一个字号的代价。
+        if (heightDp == 52 && context.getResources().getConfiguration().fontScale == 1f) {
+            Object wide = product.group("JAPANESE_FUNCTIONS", product.functionDomain(2),
+                Typeface.DEFAULT, density, scale);
+            Button space = product.plainKey("空白");
+            product.joinFunction(space, wide, false);
+            layout(space, Math.round(62 * density), sideHeight);
+            check(product.mainSize(product.params(space)) >= 14 * density,
+                "日语九键侧列的字比原来小：" + product.mainSize(product.params(space)) + " " + where);
+        }
+        Rect ink = draw(variants)[1];
+        check(!ink.isEmpty() && ink.left >= 0 && ink.right <= cell && ink.top >= 0 && ink.bottom <= height
+            && ink.height() < 1.6f * product.inkHeight("小", product.mainSize(params)),
+            "「小゛゜」没有一行画在键格里：" + ink + " " + where);
+        for (Button key : sideKeys) {
+            String at = key.getText() + " " + where;
+            check(product.params(key) == params, "日语九键侧列和「小゛゜」字号不同：" + at);
+            Rect text = draw(key)[1];
+            check(!text.isEmpty() && text.left >= 0 && text.right <= side && text.top >= 0 && text.bottom <= sideHeight,
+                "侧列的字没画出来或出了键格：" + text + " " + at);
+        }
+        sideKeys.get(3).setText("変換");
+        check(!sideKeys.get(3).isLayoutRequested() && product.params(sideKeys.get(3)) == params,
+            "空白换成変換后请求了重新布局或参数变了：" + where);
+    }
+
+    /**
+     * 底行：功能键（符、123、中、重写）各自一组，按窄键盘的键宽一行画在键格里，中/英键不因别的键的字缩小，符键按「分词」定字号、换字只重画；逗号按自己的墨迹放大画、句号不放大且落在键面中线以下（沿用字体里的位置），句号不比逗号大；空格的短名和麦克风在默认键高上是原来的 13 sp / 22 dp；回车的「确认」画在键格里、↵ 与 ⌫ 同为 22 dp；右侧大回车（两行高）的 ↵ 和一行高的回车一样大，不随两行的高度放大。
+     */
+    private static void verifyBottomRow(Context context, int heightDp) throws Exception {
+        Product product = new Product(context);
+        float density = context.getResources().getDisplayMetrics().density;
+        float fontScale = context.getResources().getConfiguration().fontScale;
+        float scale = Math.min(fontScale, 1.15f);
+        int height = Math.round(heightDp * density), cell = Math.round(48 * density);
+        String where = heightDp + "dp fontScale=" + fontScale;
+        String domains = "app.msime.android.BottomRowKeyFaceDomains";
+        boolean reference = heightDp == 52 && fontScale == 1f;
+        int standard = product.loader.loadClass("app.msime.android.KeyboardLayout").getField("STANDARD_TOUCH_LAYOUT").getInt(null);
+
+        // 每个功能键一组，按窄键盘上的键宽（320 dp 宽的 26 键：符、中约 26 dp，123 约 40 dp）：每个键只为自己的字缩小。
+        // 符、123、中/英按各自的键面规格列内容域（KeyFaceSpecs），「重写」文字固定，放进组时自己并进来。
+        // 符键按九键双拼列（那里组字时才换成「分词」），26 键的符键另在下面比。
+        String[][] labelCases = {{"SYMBOL_PANEL", "符", "26"}, {"LAYER", "123", "40"}, {"LANGUAGE", "中", "26"}, {"", "重写", "34"}};
+        List<Button> labelKeys = new ArrayList<>();
+        int nineKey = product.loader.loadClass("app.msime.android.KeyboardLayout").getField("QUANPIN_NINE_KEY_LAYOUT").getInt(null);
+        for (String[] labelCase : labelCases) {
+            Object domain = labelCase[0].isEmpty() ? product.emptyDomain()
+                : labelCase[0].equals("SYMBOL_PANEL") ? product.specDomain(labelCase[0], product.layout(nineKey, true))
+                : product.specDomain(labelCase[0], standard);
+            Object group = product.group("FUNCTIONS", domain, Typeface.DEFAULT, density, scale);
+            Button key = product.plainKey(labelCase[1]);
+            product.joinFunction(key, group, false);
+            int width = Math.round(Integer.parseInt(labelCase[2]) * density);
+            layout(key, width, height);
+            labelKeys.add(key);
+            String at = labelCase[1] + " " + labelCase[2] + "dp " + where;
+            check(product.params(key) != null, "底行功能键没有算出参数：" + at);
+            Rect ink = draw(key)[1];
+            check(!ink.isEmpty() && ink.left >= 0 && ink.right <= width && ink.top >= 0 && ink.bottom <= height,
+                "底行功能键的字没画出来或出了键格：" + ink + " " + at);
+        }
+        Object wideLanguage = product.group("FUNCTIONS", product.specDomain("LANGUAGE", standard), Typeface.DEFAULT, density, scale);
+        Button wideKey = product.plainKey("中");
+        product.joinFunction(wideKey, wideLanguage, false);
+        layout(wideKey, cell, height);
+        check(Math.abs(product.mainSize(product.params(labelKeys.get(2))) - product.mainSize(product.params(wideKey))) < 0.5f,
+            "26 dp 的中/英键不应比 48 dp 的小（只按自己的字缩小）：" + product.mainSize(product.params(labelKeys.get(2)))
+                + " 对 " + product.mainSize(product.params(wideKey)) + " " + where);
+        check(product.mainSize(product.params(labelKeys.get(0))) <= product.mainSize(product.params(labelKeys.get(2))) + 0.01f,
+            "符键按「分词」定字号，不应比中/英键大：" + where);
+        // 26 键的符键只为「符」留位置（「分词」只在九键双拼上出现）：与同宽的中/英键一样大。
+        Object standardSymbol = product.group("FUNCTIONS", product.specDomain("SYMBOL_PANEL", standard), Typeface.DEFAULT,
+            density, scale);
+        Button standardSymbolKey = product.plainKey("符");
+        product.joinFunction(standardSymbolKey, standardSymbol, false);
+        layout(standardSymbolKey, Math.round(26 * density), height);
+        check(Math.abs(product.mainSize(product.params(standardSymbolKey)) - product.mainSize(product.params(labelKeys.get(2)))) < 0.5f,
+            "26 键的符键应与中/英键一样大：" + product.mainSize(product.params(standardSymbolKey)) + " "
+                + product.mainSize(product.params(labelKeys.get(2))) + " " + where);
+        Button symbolKey = labelKeys.get(0);
+        Object symbolParams = product.params(symbolKey);
+        symbolKey.setText("分词");
+        check(!symbolKey.isLayoutRequested() && product.params(symbolKey) == symbolParams,
+            "符键换成「分词」后请求了重新布局或参数变了：" + where);
+        Rect wordInk = draw(symbolKey)[1];
+        check(!wordInk.isEmpty() && wordInk.left >= 0 && wordInk.right <= symbolKey.getWidth(),
+            "「分词」出了 26 dp 的键格：" + wordInk + " " + where);
+
+        Object comma = product.group("BOTTOM_COMMA", domains, "comma", Typeface.DEFAULT, density, scale);
+        Object period = product.group("BOTTOM_PERIOD", domains, "period", Typeface.DEFAULT, density, scale);
+        period.getClass().getMethod("capMainAt", period.getClass()).invoke(period, comma);
+        Button commaKey = product.letterKey("，", "", "。");
+        product.joinNine(commaKey, comma, "TOP_RIGHT");
+        Button periodKey = product.letterKey("。", "", "！");
+        product.joinNine(periodKey, period, "TOP_RIGHT");
+        layout(commaKey, cell, height);
+        layout(periodKey, cell, height);
+        Object commaParams = product.params(commaKey), periodParams = product.params(periodKey);
+        check(commaParams != null && periodParams != null
+            && product.mainSize(periodParams) <= product.mainSize(commaParams) + 0.01f, "句号不应比逗号大：" + where);
+        Rect commaInk = draw(commaKey)[1], periodInk = draw(periodKey)[1];
+        check(!commaInk.isEmpty() && commaInk.top >= 0 && commaInk.bottom <= height && commaInk.right <= cell,
+            "逗号没画出来或出了键格：" + commaInk + " " + where);
+        check(commaInk.height() + 1 >= 1.15f * product.inkHeight("，", product.mainSize(commaParams)),
+            "逗号没有放大画：" + commaInk + " " + where);
+        check(!periodInk.isEmpty() && periodInk.exactCenterY() > height / 2f && periodInk.bottom <= height,
+            "句号应沿用字体里的位置、落在键面中线以下：" + periodInk + " " + where);
+        commaKey.setText(",");
+        check(!commaKey.isLayoutRequested() && product.params(commaKey) == commaParams, "逗号换半角后请求了重新布局或参数变了：" + where);
+
+        Object space = product.group("SPACE", domains, "space", Typeface.DEFAULT, density, scale);
+        Button spaceKey = (Button) product.loader.loadClass("app.msime.android.SpaceKeyFace").getConstructor(Context.class)
+            .newInstance(context);
+        spaceKey.setText("空格");
+        product.joinFunction(spaceKey, space, false);
+        layout(spaceKey, Math.round(150 * density), height);
+        Object spaceParams = product.params(spaceKey);
+        check(spaceParams != null, "空格没有算出参数：" + where);
+        if (reference)
+            check(Math.abs(product.mainSize(spaceParams) - 13 * density) < 1 && Math.abs(product.iconPx(spaceParams) - 22 * density) < 1,
+                "默认键高上空格的短名和麦克风应仍是 13 sp / 22 dp：" + product.mainSize(spaceParams) + " / "
+                    + product.iconPx(spaceParams) + " " + where);
+
+        Object enter = product.group("RETURN", product.specDomain("RETURN", standard), Typeface.DEFAULT_BOLD, density, scale);
+        Button confirm = product.iconKey("RETURN", "确认");
+        product.setTextFace(confirm, "确认");
+        product.joinNine(confirm, enter, "TOP_RIGHT");
+        layout(confirm, Math.round(60 * density), height);
+        Object enterParams = product.params(confirm);
+        check(enterParams != null, "回车没有算出参数：" + where);
+        Rect confirmInk = draw(confirm)[1];
+        check(!confirmInk.isEmpty() && confirmInk.left >= 0 && confirmInk.right <= confirm.getWidth()
+            && confirmInk.top >= 0 && confirmInk.bottom <= height, "「确认」没画出来或出了键格：" + confirmInk + " " + where);
+        if (reference) check(Math.abs(product.iconPx(enterParams) - 22 * density) < 1, "默认键高上 ↵ 应是 22 dp：" + where);
+
+        Object tall = product.group("TALL_RETURN", product.specDomain("RETURN", standard), Typeface.DEFAULT_BOLD, density, scale);
+        Button tallKey = product.iconKey("RETURN", "");
+        product.setIconCorner(tallKey, "换行");
+        product.joinNine(tallKey, tall, "TOP_RIGHT");
+        layout(tallKey, Math.round(60 * density), 2 * height);
+        Object tallParams = product.params(tallKey);
+        check(tallParams != null && Math.abs(product.iconPx(tallParams) - product.iconPx(enterParams)) <= 1,
+            "右侧大回车的 ↵ 应和一行高的回车一样大：" + (tallParams == null ? "null" : product.iconPx(tallParams)) + " 对 "
+                + product.iconPx(enterParams) + " " + where);
+        Rect tallInk = draw(tallKey)[1];
+        check(!tallInk.isEmpty() && tallInk.right <= tallKey.getWidth() && tallInk.bottom <= 2 * height,
+            "右侧大回车没画出来或出了键格：" + tallInk + " " + where);
+    }
+
+    /**
      * 键帽轮廓：每种键形和材质配上产品自己的键帽，字母键（窄到宽，带角标和底部提示）、九键字母和数字（双拼底部提示）、回车（「换行」角标）的墨迹都落在键帽面里。键帽面取键帽画出来的白色部分：凸起材质下方的厚度画得更暗，边框是灰色，都不算。
      */
     private static void verifyOutlines(Context context, int heightDp) throws Exception {
@@ -318,9 +839,13 @@ final class KeyFaceGroupChecks {
                 product.joinNine(digit, digits, "BOTTOM");
                 layout(digit, Math.round(78 * density), height);
                 inside(digit, product.keyCap(skin, density), "九键双拼 " + at);
+                // 回车和产品一样放进回车组：「换行」由键组按轮廓挪进键帽。
                 Button enter = product.iconKey("RETURN", "");
                 product.setIconCorner(enter, "换行");
-                product.setKeyOutline(enter, product.outline);
+                int standardLayout = product.loader.loadClass("app.msime.android.KeyboardLayout")
+                    .getField("STANDARD_TOUCH_LAYOUT").getInt(null);
+                product.joinNine(enter, product.group("RETURN", product.specDomain("RETURN", standardLayout),
+                    Typeface.DEFAULT_BOLD, density, scale), "TOP_RIGHT");
                 layout(enter, Math.round(55 * density), height);
                 inside(enter, product.keyCap(skin, density), "回车 " + at);
             }
@@ -440,8 +965,8 @@ final class KeyFaceGroupChecks {
             key.getClass().getMethod("setCornerHint", String.class).invoke(key, text);
         }
 
-        void setKeyOutline(Button key, Object value) throws Exception {
-            key.getClass().getMethod("setKeyOutline", loader.loadClass("app.msime.android.KeyOutline")).invoke(key, value);
+        float iconPx(Object params) throws Exception {
+            return (float) params.getClass().getMethod("iconPx").invoke(params);
         }
 
         Product(Context context) throws Exception {
@@ -476,10 +1001,46 @@ final class KeyFaceGroupChecks {
                 .newInstance(template, environment, domain, measurer);
         }
 
-        Object functionGroup(float density, float fontScale) throws Exception {
+        /** 触屏布局 {@code touchLayout} 上键区功能键组的内容域（{@code KeyFaceSpecs.functionDomain}），按全拼可分词、默认设置。 */
+        Object functionDomain(int touchLayout) throws Exception {
+            return loader.loadClass("app.msime.android.KeyFaceSpecs")
+                .getMethod("functionDomain", loader.loadClass("app.msime.android.KeyFaceLayout")).invoke(null, layout(touchLayout));
+        }
+
+        /** 触屏布局 {@code touchLayout} 的 {@code KeyFaceLayout}：全拼可分词、九键 1 键组字时分词，其余按默认设置。 */
+        Object layout(int touchLayout) throws Exception {
+            return layout(touchLayout, false);
+        }
+
+        /** 同上；{@code nineKeyShuangpin} 为真时是九键双拼。 */
+        Object layout(int touchLayout, boolean nineKeyShuangpin) throws Exception {
+            Class<?> layoutType = loader.loadClass("app.msime.android.KeyFaceLayout");
+            Object marks = loader.loadClass("app.msime.android.ChineseSymbolFaces$Marks").getField("DEFAULT").get(null);
+            return layoutType.getConstructors()[0].newInstance(touchLayout, false, "separate", false, marks, false,
+                List.of(), List.of(), nineKeyShuangpin);
+        }
+
+        /** 键面规格 {@code KeyFaceSpecs.<name>} 在触屏布局 {@code touchLayout} 上的内容域。 */
+        Object specDomain(String name, int touchLayout) throws Exception {
+            return specDomain(name, layout(touchLayout));
+        }
+
+        Object specDomain(String name, Object layout) throws Exception {
+            Class<?> specs = loader.loadClass("app.msime.android.KeyFaceSpecs");
+            Object spec = specs.getField(name).get(null);
+            return specs.getMethod("domain", loader.loadClass("app.msime.android.KeyFaceSpec"),
+                loader.loadClass("app.msime.android.KeyFaceLayout")).invoke(null, spec, layout);
+        }
+
+        /** 空的内容域：文字固定的键放进组时自己的字并进来。 */
+        Object emptyDomain() throws Exception {
+            return loader.loadClass("app.msime.android.KeyFaceDomain").getConstructor(Map.class).newInstance(Map.of());
+        }
+
+        Object functionGroup(float density, float fontScale, int touchLayout) throws Exception {
             Object template = loader.loadClass("app.msime.android.KeyFaceTemplates").getField("FUNCTIONS").get(null);
             Object environment = environment(density, fontScale);
-            Object domain = loader.loadClass("app.msime.android.FunctionKeyFaceDomains").getMethod("functions").invoke(null);
+            Object domain = functionDomain(touchLayout);
             Object measurer = loader.loadClass("app.msime.android.PaintKeyFaceMeasurer")
                 .getConstructor(Typeface.class).newInstance(Typeface.DEFAULT);
             return loader.loadClass("app.msime.android.KeyFaceGroup")
@@ -535,13 +1096,35 @@ final class KeyFaceGroupChecks {
                 .newInstance(spec, environment, texts, measurer);
         }
 
+        /** 一个组：模板 {@code template}，内容域 {@code domain} 已经建好。 */
+        Object group(String template, Object domain, Typeface typeface, float density, float fontScale) throws Exception {
+            Object spec = loader.loadClass("app.msime.android.KeyFaceTemplates").getField(template).get(null);
+            Object measurer = loader.loadClass("app.msime.android.PaintKeyFaceMeasurer").getConstructor(Typeface.class)
+                .newInstance(typeface);
+            return loader.loadClass("app.msime.android.KeyFaceGroup")
+                .getConstructor(loader.loadClass("app.msime.android.KeyFaceTemplate"),
+                    loader.loadClass("app.msime.android.KeyFaceEnvironment"),
+                    loader.loadClass("app.msime.android.KeyFaceDomain"),
+                    loader.loadClass("app.msime.android.KeyFaceMeasurer"))
+                .newInstance(spec, environment(density, fontScale), domain, measurer);
+        }
+
+        /** 默认字体里 {@code text} 在 {@code sizePx} 字号下的墨迹高。 */
+        float inkHeight(String text, float sizePx) {
+            android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            paint.setTextSize(sizePx);
+            Rect bounds = new Rect();
+            paint.getTextBounds(text, 0, text.length(), bounds);
+            return bounds.height();
+        }
+
         /** 九键的组：模板 {@code template}，内容域取 {@code NineKeyFaceDomains} 的 {@code domain}（双拼用一张小表），字体同产品的九键。 */
         Object nineGroup(String template, String domain, float density, float fontScale) throws Exception {
             Object spec = loader.loadClass("app.msime.android.KeyFaceTemplates").getField(template).get(null);
             Object environment = environment(density, fontScale);
             Class<?> domains = loader.loadClass("app.msime.android.NineKeyFaceDomains");
-            Object texts = "letters".equals(domain) ? domains.getMethod("letters").invoke(null)
-                : domains.getMethod("digits").invoke(null);
+            Object texts = "letters".equals(domain) ? domains.getMethod("letters", loader.loadClass(
+                "app.msime.android.KeyFaceLayout")).invoke(null, layout(1)) : domains.getMethod("digits").invoke(null);
             Object measurer = loader.loadClass("app.msime.android.PaintKeyFaceMeasurer").getConstructor(Typeface.class)
                 .newInstance(Typeface.create("sans-serif-medium", Typeface.NORMAL));
             return loader.loadClass("app.msime.android.KeyFaceGroup")
@@ -604,8 +1187,19 @@ final class KeyFaceGroupChecks {
 
         Object faceGroup(Button key) throws Exception { return pressButton.getMethod("faceGroup").invoke(key); }
 
-        void setDrawsText(Button key, boolean value) throws Exception {
-            key.getClass().getMethod("setDrawsText", boolean.class).invoke(key, value);
+        /** 按键面规格画文字（{@code KeyboardIconKey.setFace}）。 */
+        void setTextFace(Button key, String text) throws Exception {
+            Class<?> faceType = loader.loadClass("app.msime.android.KeyFace");
+            key.getClass().getMethod("setFace", faceType).invoke(key, faceType.getMethod("text", String.class).invoke(null, text));
+        }
+
+        /** 按键面规格画图标 {@code kind}（{@code KeyboardIconKey.Kind} 的名字）。 */
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        void setIconFace(Button key, String kind) throws Exception {
+            Class<?> faceType = loader.loadClass("app.msime.android.KeyFace");
+            Class kindType = loader.loadClass("app.msime.android.KeyboardIconKey$Kind");
+            key.getClass().getMethod("setFace", faceType).invoke(key,
+                faceType.getMethod("icon", kindType).invoke(null, Enum.valueOf(kindType, kind)));
         }
 
         @SuppressWarnings({"unchecked", "rawtypes"})

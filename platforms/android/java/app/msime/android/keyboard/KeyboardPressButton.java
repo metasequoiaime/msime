@@ -40,11 +40,16 @@ public class KeyboardPressButton extends Button implements KeyFaceGroup.Member {
      * <p>放进键组时关掉 TextView 的自动字号：键面由键组定字号，自动字号只会在每次换文字时白白试排一遍（不恢复：会离开键组的常驻键里，⇧、⌫ 本来就不用自动字号，底行的 0 只出现在数字九宫格和九键双拼的底行，在那里总在键组里）。
      */
     public void setFaceGroup(KeyFaceGroup group, Set<KeyFaceSlot> slots) {
+        setFaceGroup(group, slots, true);
+    }
+
+    /** 同上；{@code fixedText} 见 {@link KeyFaceGroup#attach(KeyFaceGroup.Member, Set, boolean)}：状态由 {@link KeyFaceSpec} 给出的键传 {@code false}，它此刻的文字可能是上一副键盘留下的，不并进组的内容域。 */
+    public void setFaceGroup(KeyFaceGroup group, Set<KeyFaceSlot> slots, boolean fixedText) {
         if (keyFace != null) keyFace.group().detach(this);
         keyFace = group == null ? null : new KeyFaceRenderer(group);
         if (group != null) {
             if (getAutoSizeTextType() != AUTO_SIZE_TEXT_TYPE_NONE) setAutoSizeTextTypeWithDefaults(AUTO_SIZE_TEXT_TYPE_NONE);
-            group.attach(this, slots);
+            group.attach(this, slots, fixedText);
             reportCell();
         }
         requestLayout();

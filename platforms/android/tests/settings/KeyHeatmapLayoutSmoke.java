@@ -302,13 +302,15 @@ public final class KeyHeatmapLayoutSmoke {
         String bottomRow = read("core/ImeBottomRow.java");
         check(service.contains("keyId(button(controls, \"符\", () -> imeLayoutRows.symbolPanelKey()), \"SoftSymbol\")")
             && service.contains("keyId(layerButton, \"SoftLayer\")")
-            && service.contains("languageButton = keyId(button(controls, \"中/英\", this::toggleInputLanguage), \"SoftLanguage\")"),
+            && service.contains("languageButton = keyId(button(controls, \"中\", this::toggleInputLanguage), \"SoftLanguage\")"),
             "the keyboard still records 符, 123 and 中 under the ids the heatmap draws");
         check(bottomRow.contains("new SpaceKeyFace(s), \"Space\")") && bottomRow.contains("KeyboardIconKey.Kind.RETURN), \"Enter\")"),
             "the keyboard still records space and return under the ids the heatmap draws");
         check(bottomRow.contains("emojiButton = s.keyId(icon, \"SoftEmoji\")"),
             "the emoji style's 😀 records SoftEmoji, the id the heatmap draws for it");
-        check(service.contains("shiftButton.setText(separator ? \"分词\"")
+        check(service.contains("imeKeyFaces.show(shiftButton, KeyFaceSpecs.SHIFT);")
+            && read("keyboard/KeyFaceSpecs.java").contains("SEPARATOR_FACE = FourteenKeyLayout.separatorFace(true);")
+            && read("keyboard/FourteenKeyLayout.java").contains("return composing ? \"分词\" : \"符\";")
             && letterRows.contains("String id = separator ? \"Quote\" : \"ShiftLeft\";"),
             "the 全拼 case key is still 分词 recording Quote, ⇧ recording ShiftLeft otherwise");
         check(layoutRows.contains("weightedMatchParentParams(NineKeyLayout.SIDE_COLUMN_WEIGHT)")

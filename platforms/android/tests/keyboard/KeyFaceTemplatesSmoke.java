@@ -8,7 +8,10 @@ import app.msime.android.KeyFaceSolver;
 import app.msime.android.KeyFaceTemplate;
 import app.msime.android.KeyFaceTemplates;
 import app.msime.android.KeyHintButton;
+import app.msime.android.KeyboardGeometry;
+import app.msime.android.KeyboardTypographyPolicy;
 import app.msime.android.NineKeyDigitButton;
+import app.msime.android.NineKeySidebarPolicy;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -85,6 +88,94 @@ public final class KeyFaceTemplatesSmoke {
         check(near(numbers.main().sizePx(), 20) && numbers.topRight() == null && numbers.bottom() == null,
             "数字行应为 20 sp、没有提示：" + numbers);
         check(KeyFaceTemplates.NUMBER_ROW.capAligned(), "数字行应按大写字母高居中");
+        // 功能键文字最小 9 sp，与底行功能键相同（#11824 把 FUNCTION_KEY_MIN_TEXT_SP 降到了 9）。
+        check(near(functions.slot(KeyFaceSlot.MAIN).minSp(), KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP)
+            && near(KeyboardTypographyPolicy.FUNCTION_KEY_MIN_TEXT_SP, 9), "功能键文字最小应为 9 sp");
+
+        // 符号栏：一格是三行键高的五分之一时 18 sp（原来的固定字号）、右上角的 0 为 10 sp，格子更高也不超过 18 sp，矮格不小于 12 sp；按每个符号自己的墨迹居中，「，」「。」「、」放大 1.3 倍、低 0.1 个字号。
+        KeyFaceTemplate side = KeyFaceTemplates.SIDE_SYMBOLS;
+        int row = Math.round(3f * KeyboardGeometry.KEY_ROW_HEIGHT_DP / NineKeySidebarPolicy.VISIBLE_ROWS * 10);
+        KeyFaceParams rail = solve(side, new KeyFaceEnvironment(10, 1), 600, row);
+        check(Math.abs(rail.main().sizePx() / 10 - 18) < 0.1f, "设计格高上符号栏应为 18 sp：" + rail.main().sizePx() / 10);
+        check(Math.abs(rail.topRight().sizePx() / 10 - 10) < 0.1f, "符号栏右上角的 0 应为 10 sp：" + rail.topRight().sizePx() / 10);
+        check(near(solve(side, new KeyFaceEnvironment(1, 1), 600, 80).main().sizePx(), 18), "高格上的符号不应超过 18 sp");
+        check(near(solve(side, new KeyFaceEnvironment(1, 1), 600, 10).main().sizePx(), 12), "矮格上的符号不应小于 12 sp");
+        check(!side.capAligned() && side.glyphs() != null, "符号栏应按每个符号自己的墨迹居中");
+        for (String small : List.of("，", "。", "、"))
+            check(near(side.glyphs().scale(small), 1.3f), small + " 应放大 1.3 倍");
+        check(near(side.glyphs().scale("？"), 1) && near(side.glyphs().scale("……"), 1), "其他符号不放大");
+        check(near(side.glyphs().dropEm(), 0.1f), "「，」「。」「、」应比中线低 0.1 个字号");
+        // #+= 层：默认键高上第一排 20 sp、其余 18 sp（原来的固定字号），只有主标签，全排共用一条基线。
+        KeyFaceParams top = solve(KeyFaceTemplates.LAYER_TOP_ROW, new KeyFaceEnvironment(1, 1), 400, 52);
+        KeyFaceParams rest = solve(KeyFaceTemplates.LAYER_CHARACTERS, new KeyFaceEnvironment(1, 1), 400, 52);
+        check(near(top.main().sizePx(), 20) && near(rest.main().sizePx(), 18), "#+= 层应为 20 / 18 sp：" + top + " " + rest);
+        check(top.topRight() == null && top.bottom() == null && rest.topRight() == null && rest.bottom() == null,
+            "#+= 层没有提示");
+        check(near(solve(KeyFaceTemplates.LAYER_CHARACTERS, new KeyFaceEnvironment(1, 1), 400, 20).main().sizePx(), 12)
+            && near(solve(KeyFaceTemplates.LAYER_TOP_ROW, new KeyFaceEnvironment(1, 1), 400, 400).main().sizePx(), 22),
+            "#+= 层应夹在 12 sp 和最大字号之间");
+        for (KeyFaceTemplate layer : List.of(KeyFaceTemplates.LAYER_TOP_ROW, KeyFaceTemplates.LAYER_CHARACTERS))
+            check(!layer.capAligned() && layer.glyphs() == null, layer.name() + " 应按整个内容域的墨迹共用一条基线");
+        // 韩文和大千：默认键高上与字母同为 22 sp，按整个墨迹居中；大千的四个声调按 1.8 倍、按自己的墨迹居中，其余注音共用基线。
+        for (KeyFaceTemplate script : List.of(KeyFaceTemplates.KOREAN, KeyFaceTemplates.DACHEN)) {
+            check(near(solve(script, new KeyFaceEnvironment(1, 1), 400, 52).main().sizePx(), 22), script.name() + " 应为 22 sp");
+            check(!script.capAligned(), script.name() + " 应按整个墨迹居中");
+        }
+        KeyFaceTemplate.Glyphs dachenTones = KeyFaceTemplates.DACHEN.glyphs();
+        check(dachenTones != null && !dachenTones.every() && dachenTones.scales().size() == 4, "大千应登记四个声调：" + dachenTones);
+        for (float toneScale : dachenTones.scales().values()) check(near(toneScale, 1.8f), "大千声调应放大 1.8 倍");
+        check(!dachenTones.centres("ㄅ"), "大千的注音符号不按自己的墨迹居中");
+        check(KeyFaceTemplates.KOREAN.glyphs() == null, "韩文不按自己的墨迹居中");
+        // 笔画键盘：笔画 22 sp；@#、0、句点和 ！ 与拼音九键的字母组同为 18 sp，只有「。」按自己的墨迹居中。
+        check(near(solve(KeyFaceTemplates.STROKES, new KeyFaceEnvironment(1, 1), 400, 52).main().sizePx(), 22), "笔画应为 22 sp");
+        check(near(solve(KeyFaceTemplates.STROKE_KEYS, new KeyFaceEnvironment(1, 1), 400, 52).main().sizePx(),
+            solve(KeyFaceTemplates.NINE_LETTERS, new KeyFaceEnvironment(1, 1), 400, 52).main().sizePx()),
+            "笔画键盘的其他键应与拼音九键字母同字号");
+        check(!KeyFaceTemplates.STROKES.capAligned() && KeyFaceTemplates.STROKES.glyphs() == null, "笔画应共用一条基线");
+        KeyFaceTemplate.Glyphs strokePunctuation = KeyFaceTemplates.STROKE_KEYS.glyphs();
+        check(strokePunctuation != null && !strokePunctuation.every() && strokePunctuation.centres("。")
+            && near(strokePunctuation.scale("。"), 1.3f) && !strokePunctuation.centres("@#") && !strokePunctuation.centres("！"),
+            "笔画键盘只有「。」按自己的墨迹居中、放大 1.3 倍：" + strokePunctuation);
+        // 注音九键：声调在自己的格高（四行键高分五格）上是 20 sp、每个按自己的墨迹居中；音键 14 sp，底部数字 7 sp、与主标签同色；逗号句号 14 sp，只有「，」「。」按自己的墨迹居中。
+        check(near(solve(KeyFaceTemplates.ZHUYIN_TONES, new KeyFaceEnvironment(5, 1), 2000, 208).main().sizePx(), 100),
+            "注音九键声调应为 20 sp");
+        KeyFaceTemplate.Glyphs zhuyinTones = KeyFaceTemplates.ZHUYIN_TONES.glyphs();
+        check(zhuyinTones != null && zhuyinTones.every() && zhuyinTones.scales().size() == 5
+            && near(zhuyinTones.scale("ˇ"), 1f) && near(zhuyinTones.drop("ˇ", 10), 1), "注音九键声调应按自己的墨迹居中、1 倍、往下 0.1 个字号");
+        KeyFaceParams sounds = solve(KeyFaceTemplates.ZHUYIN_SOUNDS, new KeyFaceEnvironment(1, 1), 400, 52);
+        check(near(sounds.main().sizePx(), 14) && sounds.bottom() != null && near(sounds.bottom().sizePx(), 7),
+            "注音九键音键应为 14 sp、底部数字 7 sp");
+        check(KeyFaceTemplates.ZHUYIN_SOUNDS.slots().get(KeyFaceSlot.BOTTOM).alpha() == 255, "注音九键的数字与注音同色");
+        check(near(solve(KeyFaceTemplates.ZHUYIN_MARKS, new KeyFaceEnvironment(1, 1), 400, 52).main().sizePx(), 14),
+            "注音九键逗号句号应为 14 sp");
+        KeyFaceTemplate.Glyphs zhuyinMarks = KeyFaceTemplates.ZHUYIN_MARKS.glyphs();
+        check(zhuyinMarks != null && !zhuyinMarks.every() && zhuyinMarks.centres("，") && zhuyinMarks.centres("。")
+            && !zhuyinMarks.centres(".") && !zhuyinMarks.centres(","), "注音九键只有「，」「。」按自己的墨迹居中");
+        // 日语九键的假名：与字母同为 22 sp，按整个墨迹共用一条基线。
+        check(near(solve(KeyFaceTemplates.JAPANESE_KANA, new KeyFaceEnvironment(1, 1), 400, 52).main().sizePx(), 22),
+            "日语九键假名应为 22 sp");
+        check(!KeyFaceTemplates.JAPANESE_KANA.capAligned() && KeyFaceTemplates.JAPANESE_KANA.glyphs() == null,
+            "日语九键假名应按整个墨迹共用一条基线");
+        // 日语九键的功能键：在侧列一格的高度（四行键高分五格）上文字 15 sp、图标 22 dp，与别的键盘整行键高上的功能键相同。
+        KeyFaceParams japaneseSide = solve(KeyFaceTemplates.JAPANESE_FUNCTIONS, new KeyFaceEnvironment(5, 1), 2000, 208);
+        check(near(japaneseSide.main().sizePx(), 5 * KeyboardTypographyPolicy.FUNCTION_KEY_TEXT_SP)
+            && near(japaneseSide.iconPx(), 5 * 22), "日语九键侧列的功能键应为 15 sp、图标 22 dp：" + japaneseSide);
+        // 底行：逗号、句号 22 sp，逗号的每段文字都按 1.3 倍、按自己的墨迹居中，句号不；空格短名 13 sp、麦克风 22 dp；回车 15 sp、↵ 22 dp、角标稍淡；右侧大回车在两行高上同样是 15 sp / 22 dp。
+        for (KeyFaceTemplate punctuation : List.of(KeyFaceTemplates.BOTTOM_COMMA, KeyFaceTemplates.BOTTOM_PERIOD))
+            check(near(solve(punctuation, new KeyFaceEnvironment(1, 1), 400, 52).main().sizePx(), 22), punctuation.name() + " 应为 22 sp");
+        KeyFaceTemplate.Glyphs commaGlyphs = KeyFaceTemplates.BOTTOM_COMMA.glyphs();
+        check(commaGlyphs != null && commaGlyphs.every() && near(commaGlyphs.scale("，"), 1.3f) && near(commaGlyphs.scale("."), 1.3f),
+            "底行逗号的每段文字都应按墨迹居中、放大 1.3 倍");
+        check(KeyFaceTemplates.BOTTOM_PERIOD.glyphs() == null, "底行句号不按自己的墨迹居中");
+        KeyFaceParams space = solve(KeyFaceTemplates.SPACE, new KeyFaceEnvironment(1, 1), 400, 52);
+        check(near(space.main().sizePx(), 13) && near(space.iconPx(), 22), "空格应为 13 sp、麦克风 22 dp：" + space);
+        KeyFaceParams enter = solve(KeyFaceTemplates.RETURN, new KeyFaceEnvironment(1, 1), 400, 52);
+        check(near(enter.main().sizePx(), KeyboardTypographyPolicy.FUNCTION_KEY_TEXT_SP) && near(enter.iconPx(), 22),
+            "回车应为 15 sp、↵ 22 dp：" + enter);
+        check(KeyFaceTemplates.RETURN.slots().get(KeyFaceSlot.TOP_RIGHT).alpha() == 204, "回车的角标应稍淡");
+        KeyFaceParams tallReturn = solve(KeyFaceTemplates.TALL_RETURN, new KeyFaceEnvironment(1, 1), 400, 104);
+        check(near(tallReturn.main().sizePx(), KeyboardTypographyPolicy.FUNCTION_KEY_TEXT_SP) && near(tallReturn.iconPx(), 22),
+            "右侧大回车在两行高上应为 15 sp、↵ 22 dp：" + tallReturn);
         System.out.println("KeyFaceTemplatesSmoke passed");
     }
 
@@ -95,7 +186,7 @@ public final class KeyFaceTemplatesSmoke {
         texts.put(KeyFaceSlot.BOTTOM, List.of("a"));
         Map<KeyFaceSlot, KeyFaceSolver.Cell> cells = new EnumMap<>(KeyFaceSlot.class);
         for (KeyFaceSlot slot : KeyFaceSlot.values()) cells.put(slot, new KeyFaceSolver.Cell(width, height));
-        return KeyFaceSolver.solve(template, new KeyFaceDomain(texts).measure(NARROW, template.pairGapEm()), environment, cells);
+        return KeyFaceSolver.solve(template, new KeyFaceDomain(texts).measure(NARROW, template.pairGapEm(), template.glyphs()), environment, cells);
     }
 
     private static boolean near(float actual, float expected) {
