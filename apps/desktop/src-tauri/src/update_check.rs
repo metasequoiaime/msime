@@ -149,9 +149,18 @@ pub(crate) fn sync_macos_background_updates<R: tauri::Runtime>(
     ) else {
         return;
     };
-    let _ = app.run_on_main_thread(move || {
-        msime_host_macos::configure_settings_background_updates(channel.as_str(), enabled);
+    // 失败照样记成已交过：不带更新配置的构建、加载不了 Sparkle 这类失败在本进程里不会自己好，每次轮询都重试只会反复记同一行日志；偏好再变时会再交一次。
+    let dispatched = app.run_on_main_thread(move || {
+        if !msime_host_macos::configure_settings_background_updates(channel.as_str(), enabled) {
+            eprintln!(
+                "msime: could not configure background updates (channel={}, enabled={enabled})",
+                channel.as_str()
+            );
+        }
     });
+    if let Err(error) = dispatched {
+        eprintln!("msime: could not schedule background update configuration: {error}");
+    }
 }
 
 // ---- Linux 后台更新检查 ----

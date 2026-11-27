@@ -8,12 +8,12 @@ Status: implemented
 
 ## Decision
 
-共享 Rust 偏好新增 `update_auto_download`（`crates/client-core/src/preferences.rs`），默认 `false`，关闭时不写进文档。它和 `update_channel` 一样只属于本机：列进 `settings_document::LOCAL_SECTIONS`，导出设置文件不写、导入时保留本机的值；账号设置同步按白名单上传，不收录它。
+共享 Rust 偏好新增 `update_auto_download`（`crates/client-core/src/preferences.rs`），默认 `false`，关闭时不写进文档。它和 `update_channel` 一样只属于本机：列进 `settings_document::LOCAL_SECTIONS`，导出设置文件不写、导入时保留本机的值；账号设置同步按白名单上传，不收录它；云同步的 `LOCAL_ONLY_FRAGMENTS`（`crates/client-services/src/account/cloud_sync/policy.rs`）也和 `update_channel` 一样列上它，以后白名单收录了也不会上传或应用到别的设备。
 
 设置应用的 Sparkle 后台模式由设置窗口的主实例按这个偏好打开：
 
 - 主实例在启动时（`macos_settings_launch` 为真，设置窗口在 macOS 上是单实例）声明自己负责后台更新（`update_check::own_macos_background_updates`）。面板进程从不声明，也就从不打开后台检查，同时开着几个面板也只有一处在检查。
-- 偏好监视（`desktop_preferences_monitor`）每次轮询读到偏好时交给 `update_check::sync_macos_background_updates`，选择（开关、通道）和上次不同时才回主线程调用 `msime_host_macos::configure_settings_background_updates`。所以 MCP、`msime-mcp config apply` 或以后的原生设置页改了偏好，几百毫秒内生效。开发构建和设置了 `MSIME_DISABLE_UPDATE_CHECK` 时按关闭处理，与 Linux 的后台检查一致。
+- 偏好监视（`desktop_preferences_monitor`）每次轮询读到偏好时交给 `update_check::sync_macos_background_updates`，选择（开关、通道）和上次不同时才回主线程调用 `msime_host_macos::configure_settings_background_updates`。它返回失败（不带更新配置的构建、加载不了 Sparkle）时记一行日志，这次选择照样记成已交过，不在每次轮询时重试：这类失败在本进程里不会自己好。所以 MCP、`msime-mcp config apply` 或以后的原生设置页改了偏好，几百毫秒内生效。开发构建和设置了 `MSIME_DISABLE_UPDATE_CHECK` 时按关闭处理，与 Linux 的后台检查一致。
 - 原生端（`crates/host-macos/native/updater.mm`）把选择写成 Sparkle 的 `automaticallyChecksForUpdates` 和 `automaticallyDownloadsUpdates`：打开时先开检查再开下载（Info.plist 没有 `SUAllowsAutomaticUpdates`，Sparkle 用检查开关代替它），关闭时反过来。两项存在本应用（`app.msime.macos`）的用户默认值里，盖过 `settings_updater.py` 写进 Info.plist 的 false；包里的默认值不变。关闭且更新器还没创建时不加载 Sparkle；之后无论哪条路径创建更新器，启动前都先按当前选择设好这两项，以前留在用户默认值里的打开状态不会让这次启动先排一次后台检查。
 - 后台检查按偏好里保存的 `update_channel` 取 appcast（`MSIMEUpdateFeedURLForChannel`，与手动检查同一条规则），周期是 Info.plist 的 `SUScheduledCheckInterval`（一天）。
 
@@ -44,6 +44,7 @@ Status: implemented
 - 代价：macOS 的设置进程随窗口关闭而退出，后台检查只在设置窗口开着时进行；不开设置窗口的用户得不到这个功能，直到原生容器 App 或别的常驻宿主接手。
 - 代价：这一步没有界面入口，普通用户还打不开它。
 - Sparkle 的两项设置存在 `app.msime.macos` 的用户默认值里，偏好是唯一来源：主实例每次启动和偏好每次变化时按偏好重写它们。
+- Sparkle 自己的更新提示里有「自动下载并安装更新」复选框，用户在那里改了它，Sparkle 直接改写这两项用户默认值，不经过偏好，于是在这个进程剩下的时间里 Sparkle 的状态可以和偏好 `update_auto_download` 不一致；偏好不会跟着变。下次设置窗口的主实例启动时按偏好重新写一遍，偏好仍然为准。没有去拦这个复选框：它是 Sparkle 标准界面的一部分，要改就得换掉整个用户驱动，等开关接入原生设置后再看是否需要。
 - 提案里的「安全时机」一段（设置应用不再 `pkill` 正在组字的输入法，交给输入法自己在空闲时退出）不在这一步里：安装仍是用户主动点的，和今天手动更新的路径相同，自动化只到下载为止。它和原生设置迁移一起留在[提案](../../proposed/feature/2026-11-20-macos-automatic-application-updates.md)里。
 - 它部分改变了[设置应用在应用内更新完整安装包](2026-10-18-macos-settings-in-app-updates.md)里「只在用户主动检查时启动更新器」的决定：默认仍是如此，用户打开 `update_auto_download` 后由主实例在后台检查。
 
