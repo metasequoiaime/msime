@@ -278,7 +278,7 @@ final class KeyboardSkinMiniature: UIView {
     let backdrop = KeyboardSkinBackgroundView(frame: canvas)
     backdrop.skin = skin
     backdrop.overrideUserInterfaceStyle = traitCollection.userInterfaceStyle
-    backdrop.draw(canvas)
+    backdrop.drawArtwork()
 
     let width = Self.canvasWidth - 2 * Self.sidePadding
     drawToolbar(in: CGRect(x: Self.sidePadding, y: 0, width: width, height: Self.toolbarHeight))
@@ -326,12 +326,13 @@ final class KeyboardSkinMiniature: UIView {
       let surface = SkinKeySurfaceView(frame: CGRect(origin: .zero, size: frame.size))
       surface.design = design
       surface.scale = 1
+      surface.overrideUserInterfaceStyle = traitCollection.userInterfaceStyle
       surface.fillColor = key.fill == .action
         ? CustomKeyboardSkin.color(design.actionBackground)
         : CustomKeyboardSkin.color(design.keyBackground).withAlphaComponent(design.keyOpacity ?? 1)
       context.saveGState()
       context.translateBy(x: frame.minX, y: frame.minY)
-      surface.draw(surface.bounds)
+      surface.layer.render(in: context)
       context.restoreGState()
     } else {
       let path = UIBezierPath(roundedRect: frame, cornerRadius: Self.keyRadius)
