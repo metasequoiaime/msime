@@ -32,7 +32,7 @@ DEBIAN_POSTRM = ROOT / "platforms/linux/packaging/debian/msime.postrm"
 CONTROL = ROOT / "platforms/linux/packaging/debian/control"
 ARCH_INSTALL = ROOT / "platforms/linux/packaging/arch/msime/msime.install"
 SETUP = ROOT / "platforms/linux/scripts/msime-linux-setup"
-# 只比 CMake 选项的定义，以及各自允许不传的选项：live ebuild 跟踪 develop，没有发布版本号，不传 MSIME_PACKAGE_VERSION 时 CMake 取 platforms/linux/version.txt。
+# 只比 CMake 选项的定义，以及各自允许不传的选项：live ebuild 跟踪 main，没有发布版本号，不传 MSIME_PACKAGE_VERSION 时 CMake 取 platforms/linux/version.txt。
 OPTIONS_ONLY = [
     (ROOT / "platforms/linux/packaging/gentoo/app-i18n/msime/msime-9999.ebuild", {"MSIME_PACKAGE_VERSION"}),
     (ROOT / "platforms/linux/packaging/gentoo/app-i18n/msime/msime.ebuild.in", set()),

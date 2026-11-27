@@ -17,18 +17,18 @@ Minimal runtime data for the msime-engine input engine (quanpin and shuangpin), 
 | `msime-scowl_Copyright.txt` | {{size:msime-scowl_Copyright.txt}} | `{{sha256:msime-scowl_Copyright.txt}}` | SCOWL 的版权与许可声明，分发 `msime-english.db` 时必须一同携带 |
 | `licenses/` | | | 下文「许可证」要求随附的全文与来源说明 |
 
-五笔、日文、粤语、注音、笔画要的文件不在这个包里，按方案的最小数据集见 [docs/data-formats.md §20](https://github.com/metasequoiaime/msime/blob/develop/docs/data-formats.md#20-每个方案的最小数据集)，文件都在同一个 `dict-v{{version}}` 发布里。表情、颜文字和符号目录用的 `msime-others.db` 也不在：它的部分来源没有再分发授权（§21）。文件格式见 [docs/data-formats.md](https://github.com/metasequoiaime/msime/blob/develop/docs/data-formats.md)。
+五笔、日文、粤语、注音、笔画要的文件不在这个包里，按方案的最小数据集见 [docs/data-formats.md §20](https://github.com/metasequoiaime/msime/blob/main/docs/data-formats.md#20-每个方案的最小数据集)，文件都在同一个 `dict-v{{version}}` 发布里。表情、颜文字和符号目录用的 `msime-others.db` 也不在：它的部分来源没有再分发授权（§21）。文件格式见 [docs/data-formats.md](https://github.com/metasequoiaime/msime/blob/main/docs/data-formats.md)。
 
 ## 怎么用
 
 把这个目录的绝对路径交给引擎当 `resources`，另给两个可写、互不重叠的目录当 `user_data` 和 `cache`。准备代次时的 content id 随数据版本换，例如 `dict-v{{version_id}}`。
 
-- Rust：`cargo run --release --example quickstart -- <这个目录>`（在 msime 仓库里），或照 [crates/engine/README.md 的「快速上手」](https://github.com/metasequoiaime/msime/blob/develop/crates/engine/README.md#快速上手) 写。
-- C：照 [crates/engine-capi/README.md 的「快速上手」](https://github.com/metasequoiaime/msime/blob/develop/crates/engine-capi/README.md#快速上手)，`msime_engine_prepare_runtime` 的 `paths.resources` 就是这个目录。
+- Rust：`cargo run --release --example quickstart -- <这个目录>`（在 msime 仓库里），或照 [crates/engine/README.md 的「快速上手」](https://github.com/metasequoiaime/msime/blob/main/crates/engine/README.md#快速上手) 写。
+- C：照 [crates/engine-capi/README.md 的「快速上手」](https://github.com/metasequoiaime/msime/blob/main/crates/engine-capi/README.md#快速上手)，`msime_engine_prepare_runtime` 的 `paths.resources` 就是这个目录。
 
 ## 许可证
 
-本说明不是法律意见，也不是对再分发授权完整性的评估。每个来源的上游、固定的提交与条款以 msime-dictionary 的 `NOTICE.md` 为准，它在本仓库的副本是 `licenses/msime-engine-dictionary-NOTICE.md`；按文件的汇总是 [docs/data-formats.md §21](https://github.com/metasequoiaime/msime/blob/develop/docs/data-formats.md#21-数据许可证)。`dict-v` 发布是授权构建：没有再分发授权的输入（NOTICE 的「待解决」一节）不进入其中。
+本说明不是法律意见，也不是对再分发授权完整性的评估。每个来源的上游、固定的提交与条款以 msime-dictionary 的 `NOTICE.md` 为准，它在本仓库的副本是 `licenses/msime-engine-dictionary-NOTICE.md`；按文件的汇总是 [docs/data-formats.md §21](https://github.com/metasequoiaime/msime/blob/main/docs/data-formats.md#21-数据许可证)。`dict-v` 发布是授权构建：没有再分发授权的输入（NOTICE 的「待解决」一节）不进入其中。
 
 | 文件 | 数据许可证 |
 | --- | --- |
@@ -39,11 +39,11 @@ Minimal runtime data for the msime-engine input engine (quanpin and shuangpin), 
 
 对采用方意味着：
 
-- **分发这些文件（或从它们改出来的数据）时**，按 GPL-3.0 提供：附上 GPL-3.0 全文（`licenses/GPL-3.0.txt`），保留对 rime-ice 的署名，并能给出对应的源。这些数据的源是 msime-dictionary 仓库里的词条文件和 msime 仓库的构建器 [`crates/dict-builder`](https://github.com/metasequoiaime/msime/tree/develop/crates/dict-builder)，`dict-v{{version}}` 发布里的 `msime-dictionary-manifest.json` 记下了构建所用的两个提交。
+- **分发这些文件（或从它们改出来的数据）时**，按 GPL-3.0 提供：附上 GPL-3.0 全文（`licenses/GPL-3.0.txt`），保留对 rime-ice 的署名，并能给出对应的源。这些数据的源是 msime-dictionary 仓库里的词条文件和 msime 仓库的构建器 [`crates/dict-builder`](https://github.com/metasequoiaime/msime/tree/main/crates/dict-builder)，`dict-v{{version}}` 发布里的 `msime-dictionary-manifest.json` 记下了构建所用的两个提交。
 - **n-gram 表**另外要保留对中文维基百科的署名（例如「Contains statistics derived from Chinese Wikipedia, CC BY-SA 4.0」），并按 CC BY-SA 4.0 提供这两个文件本身；CC BY-SA 4.0 单向兼容 GPL-3.0。
 - **`msime-english.db`** 一定和 `msime-scowl_Copyright.txt` 放在一起。
 - **`msime-pinyin.db` 的权重**有一部分改编自 rime-wanxiang（CC BY 4.0）：分发它时带上 `licenses/rime-wanxiang-CC-BY-4.0.txt`，或以同样完整的方式给出作者 amzxyz、来源链接、许可证链接和改动说明；再改这些权重时补上你的改动说明。
-- **引擎本身仍是 MPL-2.0**，数据不随它改许可证。把这些数据和你的程序一起分发时要承担哪些义务，由你按自己的分发方式判断；不能接受 GPL-3.0 数据的采用方可以给引擎换一套自己的数据，格式见 [docs/data-formats.md](https://github.com/metasequoiaime/msime/blob/develop/docs/data-formats.md)。
+- **引擎本身仍是 MPL-2.0**，数据不随它改许可证。把这些数据和你的程序一起分发时要承担哪些义务，由你按自己的分发方式判断；不能接受 GPL-3.0 数据的采用方可以给引擎换一套自己的数据，格式见 [docs/data-formats.md](https://github.com/metasequoiaime/msime/blob/main/docs/data-formats.md)。
 
 `licenses/` 里的文件：
 

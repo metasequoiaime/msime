@@ -359,7 +359,7 @@ if [[ "$pr" == true ]]; then
   check "Quick delete preview acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.QuickDeletePreviewDeviceSmoke
   check "设置搜索定位验收失败" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e settings-search-anchor true
   check_script "Clipboard save lifecycle acceptance failed" platforms/android/tests/device/clipboard-edit-lifecycle.sh "$serial" app.msime.android
-  # 剪贴板右滑详情只跑这一条短路径；完整分词、滚动和剪贴板操作仍留给 develop、nightly 和发版。
+  # 剪贴板右滑详情只跑这一条短路径；完整分词、滚动和剪贴板操作仍留给 main、nightly 和发版。
   # 这条 instrumentation 以产品进程为目标，不能在测试代码里强停自己；由 shell 在启动前清掉前一条短测试留下的偏好快照。
   "$adb" -s "$serial" shell am force-stop app.msime.android
   wait_product_stopped || stop "app.msime.android did not stop before the clipboard detail fixture"
@@ -367,7 +367,7 @@ if [[ "$pr" == true ]]; then
   finish "Dedicated Android AVD: PR smoke acceptance passed"
 fi
 if [[ "$risk" == true || "$release" == true ]]; then
-  # develop 推送只守住会被资源、沙箱权限或共享存储改动破坏的路径：安装和真实主输入已经在上面完成；这里再跑词库导入、会话存储、内置词书和剪贴板导出/保存。其余长 UI 套件与 14/18 键等交互留给 nightly 完整矩阵。
+  # main 推送只守住会被资源、沙箱权限或共享存储改动破坏的路径：安装和真实主输入已经在上面完成；这里再跑词库导入、会话存储、内置词书和剪贴板导出/保存。其余长 UI 套件与 14/18 键等交互留给 nightly 完整矩阵。
   check "Helpcode import acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.HelpcodeImportDeviceSmoke
   check "Dictionary import acceptance failed" MSIME_DICTIONARY_IMPORT_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.DictionaryImportDeviceSmoke
   check "Bundled wordbook acceptance failed" MSIME_DEVICE_SMOKE_PASSED run_instrumentation app.msime.android.test/app.msime.android.test.SettingsDeviceSmoke -e vocabulary true

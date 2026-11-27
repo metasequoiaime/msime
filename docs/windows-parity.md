@@ -11,7 +11,7 @@
 对照使用的是固定对象，不是某个仓库当天的 HEAD：
 
 - 来源：`metasequoiaime/MSIME-Windows` 的提交 `345cb87a3822f6ad7013bb29506fe3d856c1931a`。所有 reference 门禁统一经 `scripts/reference_source.py` 读取这个对象（`PINNED_SHA`），不跟随相邻检出的当前分支或可变远端 tip；环境变量 `MSIME_REFERENCE_DIR` 只覆盖检出位置，不能覆盖版本。检出存在但缺这个对象时，脚本判定为无效的验证环境并指出恢复命令，而不是回落到一个可变分支。
-- 目标：`metasequoiaime/msime` 的 `develop`。
+- 目标：`metasequoiaime/msime` 的 `main`。
 - Engine：来源把 C++ Engine 以 `engine/` 在自己树内维护；本仓库的输入引擎是移植成 Rust 的 `crates/engine`，不再取回或锁定任何 Engine 源码归档，也没有 overlay 这一层。下文各批次里提到的 `engine-lock.json`、`scripts/fetch_engine.py`、`vendor/MSIME-Engine`、`scripts/apply_engine_*.py` 与 `crates/engine-bridge`，是移植之前的做法，作为当时的记录保留；那些 overlay 承接的行为现在都直接写在 `crates/engine` 的对应模块里。两个 Engine 不因目录名或协议名相同而视为内容相同。
 
 来源的功能入口以该提交的 `README.md`「功能简介」「核心功能指南」、`ui-html/webview2/settings/ime-settings/src/modules/sidebar.ts`、`server/src/settings/settings_app.cpp`、`installer/default_config/config.default.toml` 和 `engine/contracts/webview/messages.json` 交叉核对。README 只是入口索引，真正的判据是后面几道逐字段、逐动作、逐文件的检查。
@@ -280,7 +280,7 @@
 ### Windows 发布流水线产出真实安装包（2026-09-23）
 
 - 流水线：`.github/workflows/release-windows.yml`（MSVC，Visual Studio 18 2026）按 `installer/Package-SimplySign.ps1` 的顺序走完 `Build-Client.ps1` → `Collect-Notices.ps1` → `Prepare-PackageFiles.ps1` → 签 payload → `Compile-Installer.ps1` → 签安装包。原生依赖按 `platforms/windows/vcpkg.json` 的 baseline 装进 x64/x86 两个前缀并缓存；Inno Setup 固定 6.7.1，`ChineseSimplified.isl` 取自同版本标签并校验 SHA-256。
-- 签名：仓库变量 `WINDOWS_SIGNING_PROVIDER=signpath` 打开时，`main` 和 `develop` 上的运行经 SignPath 签名：六个版本的本项目二进制（`installer/SignPath-PackageBinaries.ps1` 认定）合成一次签名请求，签好放回暂存包后编译安装包，六个安装包再合成一次请求，每次都要审批人在 SignPath 里批准。SignPath 的开源项目要求签名请求之前的每个 job 都在 GitHub 托管 runner 上，所以这时构建从 Depot 换到 `windows-2025`。vcpkg、Windows App SDK、ONNX Runtime 和 sherpa-onnx 的 DLL 保持上游原样，SignPath Foundation 不签上游代码。变量不设置时跳过这两步，发布未签名的安装包，代码签名证书是只在发布机上的 Certum SimplySign 卡，签名仍是本地步骤。范围、角色和流程见 [Code signing policy](code-signing-policy.md)。
+- 签名：仓库变量 `WINDOWS_SIGNING_PROVIDER=signpath` 打开时，发版 tag 上的运行经 SignPath 签名：六个版本的本项目二进制（`installer/SignPath-PackageBinaries.ps1` 认定）合成一次签名请求，签好放回暂存包后编译安装包，六个安装包再合成一次请求，每次都要审批人在 SignPath 里批准。SignPath 的开源项目要求签名请求之前的每个 job 都在 GitHub 托管 runner 上，所以这时构建从 Depot 换到 `windows-2025`。vcpkg、Windows App SDK、ONNX Runtime 和 sherpa-onnx 的 DLL 保持上游原样，SignPath Foundation 不签上游代码。变量不设置时跳过这两步，发布未签名的安装包，代码签名证书是只在发布机上的 Certum SimplySign 卡，签名仍是本地步骤。范围、角色和流程见 [Code signing policy](code-signing-policy.md)。
 - 产物：每个版本的 `<installer_base_name>_v<版本>.exe` 与 `.sha256` 作为 workflow artifact 上传；`publish` 输入默认打开，创建 `windows-v<版本>` Release（关掉则只上传 artifact）；构建“Use workflow from”所选分支或标签上的那个提交。
 - 第一次在 MSVC 上完整构建暴露并修掉的问题：Engine overlay 脚本按 ANSI 代码页读写 UTF-8 源；engine-bridge 的 MSVC 编译拿不到 vcpkg 头文件；strict 目标的 `/W4 /WX` 窄化、遮蔽与 `getenv` 弃用告警；TSF 引入 Engine 管道契约时被 SDK 的 `max` 宏改写；PowerShell 调 pnpm（`.cmd`）时 Tauri `--config` 的内联 JSON 丢了引号；`Collect-Notices.ps1` 按整个文件比较 Engine 标记；安装脚本 `[Code]` 里有先用后声明的 `UserConfigPath` 和保留字 `Protected`。
 - 证据：https://github.com/metasequoiaime/msime/actions/runs/35815935438 成功，artifact `msime-windows-0.1.0` 内含 201 MB 的 `MetasequoiaIME_Setup_v0.1.0.exe`，下载后 `.sha256` 校验通过。安装包尚未在真实 Windows 上安装验收。Rust crate 与 npm 包的补充声明已由 #650 收进通知集合，随后的发布运行 https://github.com/metasequoiaime/msime/actions/runs/35830590535（`publish=false`）成功。

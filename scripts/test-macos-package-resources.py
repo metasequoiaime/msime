@@ -472,7 +472,7 @@ def main() -> int:
         check(path in workflow, f"ci-macos-package.yml does not treat {path} as a packaging input")
 
     check(any("platforms/macos/package-release.sh" in line for line in live_lines(RELEASE_WORKFLOW)), "release-macos.yml no longer runs platforms/macos/package-release.sh")
-    # 背单词的内置词书曾经从来没进过发布包：生成脚本存在，却没有任何工作流运行它，设置页的词书列表在每个安装上都是空的。发布和 develop 打包检查都必须生成词书并要求它们在包里。
+    # 背单词的内置词书曾经从来没进过发布包：生成脚本存在，却没有任何工作流运行它，设置页的词书列表在每个安装上都是空的。发布和 main 上的打包检查都必须生成词书并要求它们在包里。
     for workflow_path in (RELEASE_WORKFLOW, PR_WORKFLOW):
         lines = live_lines(workflow_path)
         name = workflow_path.relative_to(ROOT)
@@ -497,7 +497,7 @@ def main() -> int:
         for failure in failures:
             print(f"FAIL: {failure}")
         return 1
-    print(f"macOS package resources: {len(pack_names)} pack files stay out of the package, {len(PACKAGING_INPUTS)} packaging inputs gate the develop package check")
+    print(f"macOS package resources: {len(pack_names)} pack files stay out of the package, {len(PACKAGING_INPUTS)} packaging inputs gate the main package check")
     return 0
 
 

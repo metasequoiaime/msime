@@ -16,7 +16,7 @@ gh issue list --state open --limit 200 --json number,title,labels,url \
   | jq -r '.[] | select((.title + " " + ([.labels[].name]|join(" "))) | test("harmony|鸿蒙|ohos"; "i"))'
 ```
 
-同时搜索 issue 正文和评论里的 `HarmonyOS`、`鸿蒙`、`platform/harmony`，因为跨平台 issue 可能没有平台标签。读取关联 PR 的状态、验证段和设备证据；合入 develop 不等于鸿蒙 issue 完成。
+同时搜索 issue 正文和评论里的 `HarmonyOS`、`鸿蒙`、`platform/harmony`，因为跨平台 issue 可能没有平台标签。读取关联 PR 的状态、验证段和设备证据；合入 main 不等于鸿蒙 issue 完成。
 
 按 issue 单独建立 `fix/<issue>-harmony-*` 或 `feat/<issue>-harmony-*` 分支和 PR。一个 PR 只处理一个 issue；跨平台需求按平台拆 PR，用 `Refs #N`，最后一个平台完成并有证据后才关闭总 issue。PR 标题、正文、评论和 review 使用中文，Conventional Commits 类型前缀保留英文。
 
@@ -48,7 +48,7 @@ rbuild bash scripts/verify-local.sh --quick
 
 涉及设置 bundle、ArkTS 界面或 HAP 资源时，补跑仓库规定的 Harmony settings bundle/HAP 构建入口；涉及真实输入法行为或资源下载、卸载、切换时，必须在设备接受的签名 HAP 上安装，冷启动设置应用和键盘，记录：安装、首次启用、输入法切换、下载/校验、卸载、再次聚焦后的资源路径与行为。若设备因签名拒绝，记录完整错误码并把设备验收标为未完成。
 
-提交 PR 前确认 `origin/develop` 最近 CI 没有未解释的红灯，跑完 quick 门禁后再推送。PR 必须列出每个 issue 要求对应的命令、设备、版本、结果和未完成项，并附界面改动前后截图；未真实验收的 issue 不关闭。
+提交 PR 前确认 `origin/main` 最近 CI 没有未解释的红灯，跑完 quick 门禁后再推送。PR 必须列出每个 issue 要求对应的命令、设备、版本、结果和未完成项，并附界面改动前后截图；未真实验收的 issue 不关闭。
 
 ## 当前开放鸿蒙范围
 

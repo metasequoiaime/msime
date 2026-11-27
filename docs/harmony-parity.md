@@ -13,7 +13,7 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 比对在固定对象上进行，便于复核：
 
 - 来源：`metasequoiaime/MSIME-Apple`，提交 `b93f169839c442cfa7034f3130c3dfaac11b9467`。
-- 目标：`metasequoiaime/msime` 的 `develop`。
+- 目标：`metasequoiaime/msime` 的 `main`。
 
 来源入口是该检出的 `platforms/ios/` 与 `shared/`。HarmonyOS 的对照面是 `platforms/harmony/entry/src/main/ets`、`apps/harmony/src` 与它渲染的 `packages/ui/src`——鸿蒙的设置界面就是那份共享 React 页，所以对照面必须把它算进来，只比 ArkTS 会把一整层功能误判成缺失。
 

@@ -1381,7 +1381,7 @@ GNOME_WAYLAND_GTK_NOTE = (
     "提示：当前是 GNOME 的 Wayland 会话，且设置了 GTK_IM_MODULE=fcitx。这时 GTK 程序的候选窗由程序自己绘制，"
     "会不停闪烁，也不显示水杉的候选窗皮肤。GNOME Wayland 下不要为 GTK 设置 GTK_IM_MODULE，"
     "做法见 platforms/linux/README.md 的「GNOME Wayland 下候选窗闪烁」一节"
-    "（https://github.com/metasequoiaime/msime/blob/develop/platforms/linux/README.md），改完重新登录。"
+    "（https://github.com/metasequoiaime/msime/blob/main/platforms/linux/README.md），改完重新登录。"
 )
 
 
@@ -1438,7 +1438,7 @@ LINGLONG_IBUS_NOTE = (
     "请先确认应用运行时是否缺少 IBus 模块；GTK_IM_MODULE=ibus 也可能连接的是 Fcitx5 的 IBus 兼容前端。"
     "确认使用 IBus daemon 且缺少模块时，可以考虑改用 Fcitx5：im-config -n fcitx5，重新登录后运行 msime-linux-setup --register "
     "把水杉输入法加进 Fcitx5；已连接 Fcitx5 仍失败的情况需要继续排查。详细步骤见 platforms/linux/README.md 的「deepin 玲珑应用里只能输入字母」一节"
-    "（https://github.com/metasequoiaime/msime/blob/develop/platforms/linux/README.md）。"
+    "（https://github.com/metasequoiaime/msime/blob/main/platforms/linux/README.md）。"
 )
 
 # 带玲珑的发行版：deepin（含 deepin 23/25）和统信 UOS 默认装着玲珑。

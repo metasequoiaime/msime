@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""回归验证发布 PR 正文对累计提交、中文长主题及固定内容超限的处理。"""
+"""回归验证版本号 PR 正文对累计提交、中文长主题及固定内容超限的处理。"""
 
 import importlib.util
 from pathlib import Path
@@ -15,7 +15,7 @@ SPEC = importlib.util.spec_from_file_location("release_pr_body", ROOT / "scripts
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
-PREFIX = "## 版本号\n\n| macos | 0.52.0 | 0.53.0 |\n\n## 合并方式\n\n请用 merge commit 合并。\n"
+PREFIX = "## 版本号\n\n| macos | 0.52.0 | 0.53.0 |\n\n## 发布\n\n合并后推 macos-v0.53.0 tag。\n"
 URL = "https://github.com/example/project/compare/" + "1" * 40 + "..." + "2" * 40
 
 
@@ -77,18 +77,18 @@ class ReleasePrBodyTests(unittest.TestCase):
             since = git("rev-parse", "HEAD")
             for subject in ("合成修复甲", "合成修复乙"):
                 git("-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", subject)
-            develop = git("rev-parse", "HEAD")
+            head = git("rev-parse", "HEAD")
             prefix_file = directory / "body.md"
             prefix_file.write_text(PREFIX, encoding="utf-8")
             command = [sys.executable, str(ROOT / "scripts/release-pr-body.py"),
                        "--prefix-file", str(prefix_file), "--output", str(prefix_file),
-                       "--since", since, "--develop", develop, "--commit-count", "2",
+                       "--since", since, "--head", head, "--commit-count", "2",
                        "--repo-url", "https://github.com/example/project/"]
             subprocess.run(command, cwd=directory, check=True, capture_output=True, text=True)
             body = prefix_file.read_text(encoding="utf-8")
             self.assertLessEqual(len(body.encode("utf-8")), MODULE.BODY_BYTE_BUDGET)
             self.assertIn("- 合成修复乙\n- 合成修复甲\n", body)
-            self.assertIn(f"https://github.com/example/project/compare/{since}...{develop}", body)
+            self.assertIn(f"https://github.com/example/project/compare/{since}...{head}", body)
 
             # 同一个输出文件已经有超长固定内容时，生成失败不得覆盖它。
             oversized = "版本说明" * 30000

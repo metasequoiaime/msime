@@ -7,7 +7,6 @@ name: iOS CI
 on:
   push:
     branches:
-      - develop
       - main
     paths-ignore:
       - PRIVACY.md
@@ -23,6 +22,10 @@ on:
   workflow_dispatch:
 
   merge_group:
+
+  # 每天在 main 上跑一遍完整的界面套件和手写识别。所有 PR 都直接进 main 之后，没有哪个 PR 再是「发布提升」，全量套件不能挂在某一类 PR 上跑（每个 PR 都跑全量会把那几台 macOS runner 占满），于是和 ci-macos.yml 的 x86_64、Sanitizers 一样由定时运行兜底，最多隔一天报出来；发版前也可以在 main 上手动触发一次。
+  schedule:
+    - cron: "37 18 * * *"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
@@ -55,7 +58,7 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" != push && "$GITHUB_EVENT_NAME" != pull_request ]]; then
             echo "build=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          # 推送（develop 和 main）不构建，理由同 ci-macos.yml：PR 上已经跑过，合并后再跑一遍只是抢 macOS runner。
+          # 推送（main）不构建，理由同 ci-macos.yml：PR 上已经跑过，合并后再跑一遍只是抢 macOS runner。
           if [[ "$GITHUB_EVENT_NAME" == push ]]; then
             echo "build=false" >> "$GITHUB_OUTPUT"; echo "推送不构建（PR 上已跑过）。"; exit 0
           fi
@@ -67,7 +70,7 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]] && ! git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
             printf 'build=false\n' >> "$GITHUB_OUTPUT"; echo "PR 的 head 提交已取不到（PR 已关闭），跳过。"; exit 0
           fi
-          # PR 要比的是它自己从分叉点起改了什么（三个点）。base.sha 是事件发生时目标分支的最新提交，PR 分支往往从更早的 develop 切出；两个点的 diff 比的是两棵树，会把分叉之后 develop 合进来的改动也算成本 PR 的，于是只改一个 workflow 的 PR 也被判成要编译全部平台（2026-10-02 #2902）。push 的 BASE_SHA 是推送前的提交，两个点正好是这次推送带来的改动。
+          # PR 要比的是它自己从分叉点起改了什么（三个点）。base.sha 是事件发生时目标分支的最新提交，PR 分支往往从更早的 main 切出；两个点的 diff 比的是两棵树，会把分叉之后 main 合进来的改动也算成本 PR 的，于是只改一个 workflow 的 PR 也被判成要编译全部平台（2026-10-02 #2902）。push 的 BASE_SHA 是推送前的提交，两个点正好是这次推送带来的改动。
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
             changed=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
           else
@@ -178,13 +181,9 @@ jobs:
             pod install --deployment --project-directory=platforms/ios
           fi
       - name: Test native iOS keyboard and settings
-        # The full interface suite runs where it gates something: the pull request that promotes
-        # develop to main, and main itself. Everywhere else runs the unit suites and the handful of
-        # interface cases in the pr scope.
+        # The full interface suite runs on main outside the pull request flow: the daily scheduled run, a manual dispatch (run one on main before pushing a release tag) and the merge queue. Pull requests run the unit suites and the handful of interface cases in the pr scope.
         #
-        # It used to run on every push to develop, which is after the merge -- 29 minutes of walking
-        # the app to tell us something a dozen times a day, blocking nothing, while the promotion
-        # that actually ships ran the cheap scope. The expensive scope belongs at the gate.
+        # It used to run on every push to develop, which is after the merge -- 29 minutes of walking the app to tell us something a dozen times a day, blocking nothing. It then ran on the pull request that promoted develop to main; with every pull request now targeting main there is no promotion pull request left, and running the full scope on every one would hold the few macOS runners for an hour each.
         #
         # The interface suite dominates either way -- each case is a cold launch and a walk through
         # the app -- so it runs its classes across cloned Simulators rather than one after another.
@@ -198,9 +197,9 @@ jobs:
         #
         # 90 rather than 60, because 60 stopped catching hangs and started catching the suite. The `all` scope measured 38m43s, then 48m00s, then ran past 58 minutes and was killed with the tests still going -- and a killed run prints nothing at all, because xcodebuild only flushes its per-case lines at the end. So the cost of a tight cap is not a slower gate, it is a red run that says nothing about why. A hang is open-ended and 90 catches it just as well.
         env:
-          # 全量只跑在进 main 的 PR 上。push 到 main 是紧接着的第二遍,内容和刚绿的那个 PR 头一模一样 —— 一次发布为此付两轮,而第二轮没有任何一条是新的。
-          MSIME_TEST_SCOPE: ${{ github.base_ref == 'main' && 'all' || 'pr' }}
-          MSIME_TEST_SHARD: ${{ github.base_ref == 'main' && 'rest' || '' }}
+          # 全量只跑在 PR 之外的运行上（定时、手动、合并队列）。push 到 main 不构建,见 changes。
+          MSIME_TEST_SCOPE: ${{ github.event_name != 'pull_request' && 'all' || 'pr' }}
+          MSIME_TEST_SHARD: ${{ github.event_name != 'pull_request' && 'rest' || '' }}
         timeout-minutes: 90
         run: bash platforms/ios/scripts/run_ui_tests.sh
       - name: Upload iOS test results
@@ -217,8 +216,8 @@ jobs:
   # 切在哪里见 run_ui_tests.sh 的 MSIME_TEST_SHARD:实测 SettingsUITests 743.8s 加 SkinUITests 706.6s 合 1451 秒,其余全部加起来 1173 秒。两边各跑一半,墙钟从一小时出头降到半小时上下,一条用例都不少。
   ios-heavy-interface:
     needs: changes
-    # 整片只在进 main 的 PR 上有事做,其余情况连构建都不必起。job 级的条件在非 matrix 的 job 上是安全的 —— #519 那个「跳过时上报没展开的名字」只发生在 matrix 上。
-    if: ${{ needs.changes.outputs.build == 'true' && github.base_ref == 'main' }}
+    # 整片只在 PR 之外的运行上（定时、手动、合并队列）有事做,PR 上连构建都不必起。job 级的条件在非 matrix 的 job 上是安全的 —— #519 那个「跳过时上报没展开的名字」只发生在 matrix 上。
+    if: ${{ needs.changes.outputs.build == 'true' && github.event_name != 'pull_request' }}
     name: iOS Simulator (settings and skins)
     # Everything except the three handwriting cases, on arm64, always. Only MLKitDigitalInkRecognition
     # needs an Intel runner -- its arm64 slice is built for devices, so there is none to link against
@@ -292,13 +291,9 @@ jobs:
             pod install --deployment --project-directory=platforms/ios
           fi
       - name: Test native iOS keyboard and settings
-        # The full interface suite runs where it gates something: the pull request that promotes
-        # develop to main, and main itself. Everywhere else runs the unit suites and the handful of
-        # interface cases in the pr scope.
+        # The full interface suite runs on main outside the pull request flow: the daily scheduled run, a manual dispatch (run one on main before pushing a release tag) and the merge queue. Pull requests run the unit suites and the handful of interface cases in the pr scope.
         #
-        # It used to run on every push to develop, which is after the merge -- 29 minutes of walking
-        # the app to tell us something a dozen times a day, blocking nothing, while the promotion
-        # that actually ships ran the cheap scope. The expensive scope belongs at the gate.
+        # It used to run on every push to develop, which is after the merge -- 29 minutes of walking the app to tell us something a dozen times a day, blocking nothing. It then ran on the pull request that promoted develop to main; with every pull request now targeting main there is no promotion pull request left, and running the full scope on every one would hold the few macOS runners for an hour each.
         #
         # The interface suite dominates either way -- each case is a cold launch and a walk through
         # the app -- so it runs its classes across cloned Simulators rather than one after another.
@@ -312,9 +307,9 @@ jobs:
         #
         # 90 rather than 60, because 60 stopped catching hangs and started catching the suite. The `all` scope measured 38m43s, then 48m00s, then ran past 58 minutes and was killed with the tests still going -- and a killed run prints nothing at all, because xcodebuild only flushes its per-case lines at the end. So the cost of a tight cap is not a slower gate, it is a red run that says nothing about why. A hang is open-ended and 90 catches it just as well.
         env:
-          # 全量只跑在进 main 的 PR 上。push 到 main 是紧接着的第二遍,内容和刚绿的那个 PR 头一模一样 —— 一次发布为此付两轮,而第二轮没有任何一条是新的。
-          MSIME_TEST_SCOPE: ${{ github.base_ref == 'main' && 'all' || 'pr' }}
-          MSIME_TEST_SHARD: ${{ github.base_ref == 'main' && 'heavy' || '' }}
+          # 全量只跑在 PR 之外的运行上（定时、手动、合并队列）。push 到 main 不构建,见 changes。
+          MSIME_TEST_SCOPE: ${{ github.event_name != 'pull_request' && 'all' || 'pr' }}
+          MSIME_TEST_SHARD: ${{ github.event_name != 'pull_request' && 'heavy' || '' }}
         timeout-minutes: 90
         run: bash platforms/ios/scripts/run_ui_tests.sh
       - name: Upload iOS test results
@@ -332,8 +327,8 @@ jobs:
     #
     # It used to say three and run seven: the runner skipped the whole HandwritingTests class on arm64, so the four cases in it that never touch recognition -- hit testing, panel height, stroke undo -- only ever ran here, behind a twenty-five minute Intel build, and never on a pull request at all. They run on arm64 now, in two and a half seconds, and this job is the three that are left.
     #
-    # Deferred to the gate rather than to merge, which is where the interface suite already sits for the same reason. On a develop push this was the critical path by a wide margin -- 25 to 31 minutes against 19 for the next longest job -- and it gated nothing: the pull request run is the gate, and this job was skipped there. A regression in the ML Kit integration now surfaces on the promotion to main rather than on the merge that caused it.
-    if: ${{ needs.changes.outputs.build == 'true' && (github.base_ref == 'main' || github.ref_name == 'main') }}
+    # Deferred out of the pull request flow, which is where the interface suite already sits for the same reason. On a push after merge this was the critical path by a wide margin -- 25 to 31 minutes against 19 for the next longest job -- and it gated nothing: the pull request run is the gate, and this job was skipped there. A regression in the ML Kit integration now surfaces on the daily scheduled run on main (or a manual dispatch) rather than on the merge that caused it.
+    if: ${{ needs.changes.outputs.build == 'true' && github.event_name != 'pull_request' }}
     runs-on: macos-15-intel
     timeout-minutes: 75
     env:

@@ -1,6 +1,6 @@
 name: Conflict label
 
-# 给与目标分支有冲突的拉取请求打上 conflict 标签，冲突解决后摘掉。目标分支每推进一次，开着的 PR 都可能因此冲突，所以在 develop、main 的推送上把所有开着的 PR 过一遍；PR 自己推新提交时也过一遍，好及时摘掉标签。
+# 给与目标分支有冲突的拉取请求打上 conflict 标签，冲突解决后摘掉。目标分支每推进一次，开着的 PR 都可能因此冲突，所以在 main 的推送上把所有开着的 PR 过一遍；PR 自己推新提交时也过一遍，好及时摘掉标签。
 #
 # 冲突与否直接读 GitHub 算好的 mergeable 字段。推送刚发生时它可能还是 null（GitHub 在后台重算），这时等一会儿再读，几次后仍未知的留到下一次触发。
 #
@@ -9,13 +9,12 @@ name: Conflict label
 on:
   push:
     branches:
-      - develop
       - main
   pull_request_target:
     types: [opened, synchronize, reopened]
 
 concurrency:
-  # 每次都检查全部开着的 PR，所以同一来源连续触发时只需要最新的一次：push 按分支、PR 按编号各自分组。不能所有触发共用一组：develop 一推送，push 和 develop→main 发布 PR 的 synchronize 会在同一个提交上几乎同时触发，后到的取消先到的，被取消的那次就作为失败挂在发布 PR 上；两个 PR 同时推送也会这样互相取消。分组后同一个提交上不会再有被取消的运行，被取消的只剩已不是任何 PR 头部的旧提交。两组偶尔并行各扫一遍，加、摘标签前都先读当前状态，重复执行无害。
+  # 每次都检查全部开着的 PR，所以同一来源连续触发时只需要最新的一次：push 按分支、PR 按编号各自分组。不能所有触发共用一组：以前 develop 一推送，push 和 develop→main 发布 PR 的 synchronize 会在同一个提交上几乎同时触发，后到的取消先到的，被取消的那次就作为失败挂在发布 PR 上；两个 PR 同时推送也会这样互相取消，main 的推送和 PR 的推送同时发生时也一样。分组后同一个提交上不会再有被取消的运行，被取消的只剩已不是任何 PR 头部的旧提交。两组偶尔并行各扫一遍，加、摘标签前都先读当前状态，重复执行无害。
   group: conflict-label-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 

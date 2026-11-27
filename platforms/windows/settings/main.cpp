@@ -1110,7 +1110,7 @@ constexpr const wchar_t *privacy_url = L"https://msime.app/privacy/";
 // 共享设置「帮助」页「完整文档」打开的地址（`packages/ui/src/settings/app-resources.ts` 的 `documentationUrl`）。
 constexpr const wchar_t *documentation_url = L"https://msime.app/docs/";
 constexpr const wchar_t *license_url =
-    L"https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
+    L"https://github.com/metasequoiaime/msime/blob/main/LICENSE";
 constexpr const wchar_t *releases_url =
     L"https://github.com/metasequoiaime/msime/releases";
 

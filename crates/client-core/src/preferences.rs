@@ -81,7 +81,7 @@ pub enum InputScheme {
     Stroke,
 }
 
-/// 桌面应用（Windows、macOS、Linux）检查更新时跟的发布通道：稳定版只认正式发布，测试版另外接受 develop 发出的 `-beta` 预发布，每日构建再接受滚动的 `nightly` 发布。选择规则在 `msime_client_services::update_check`，macOS 的 Sparkle 按它选 appcast。
+/// 桌面应用（Windows、macOS、Linux）检查更新时跟的发布通道：稳定版只认正式发布，测试版另外接受 main 上 `-beta.N` 标签发出的预发布，每日构建再接受滚动的 `nightly` 发布。选择规则在 `msime_client_services::update_check`，macOS 的 Sparkle 按它选 appcast。
 ///
 /// 读文档时不认识的值（以后的版本加的通道、手改的文件）按稳定版读，不让整份偏好读不出来；等于默认值时不写进文档。
 #[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]

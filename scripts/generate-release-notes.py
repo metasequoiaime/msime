@@ -87,7 +87,7 @@ def collect_commits(root: Path, start_tag: str | None, end_ref: str, platform: s
         start_commit = git(root, "rev-parse", f"{start_tag}^{{commit}}").strip()
         history = [line.split() for line in git(root, "log", "--format=%H %T", end_ref).splitlines()]
         if not any(commit == start_commit for commit, _ in history):
-            # squash 发布不在 develop 的祖先中；只用完全相同的源码树认领已发布内容，找不到时保留原范围。
+            # 改成只有 main 之前，正式版是 squash 进 main 的发版 PR，它的 tag 不在集成分支 develop 的祖先中，那段历史至今还在 main 里；只用完全相同的源码树认领已发布内容，找不到时保留原范围。
             start_tree = git(root, "rev-parse", f"{start_tag}^{{tree}}").strip()
             start_ref = next((commit for commit, tree in history if tree == start_tree), start_tag)
     revision_range = f"{start_ref}..{end_ref}" if start_ref else end_ref
@@ -107,7 +107,7 @@ def collect_commits(root: Path, start_tag: str | None, end_ref: str, platform: s
 def assign_pull_requests(root: Path, revision_range: str, records: list[dict[str, object]]) -> None:
     """给每个提交标上它所属的 PR：squash 进来的看标题末尾的 (#N)，merge commit 合进来的看合并提交。
 
-    release/* 分支的 PR 是把整个 develop 带进 main，不是一项改动，跳过；否则它会认领区间里所有还没归属的提交，android-v0.2.0 有 355 个 squash 提交就这样被算到了 release PR 名下。
+    以前的 release/* 分支的 PR 是把整个 develop 带进 main，不是一项改动，跳过；否则它会认领区间里所有还没归属的提交，android-v0.2.0 有 355 个 squash 提交就这样被算到了 release PR 名下。现在只有 main、没有 release/* 分支，但第一次发版的区间仍会跨过这些旧的合并提交。
     """
     owner: dict[str, int] = {}
     merges = git(root, "log", "--merges", "--reverse", "--format=%H %P%x00%s", revision_range)
