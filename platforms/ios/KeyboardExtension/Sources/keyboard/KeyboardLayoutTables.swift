@@ -103,3 +103,26 @@ enum SymbolLayerLayout {
     return ascii && !engineTranslatedKeys.contains(face) ? .symbol(face) : .literal(face)
   }
 }
+
+/// 符号页上输入之后要不要回到字母键盘（App 键盘页的「返回主键盘符号」）。
+///
+/// 判定只比字面：用户填的是他在键上看到的符号。所以「符」面板上画着 `，`、实际送出 `,` 的键要把键面一起算进来，
+/// 中文标点关着时键面就是 ASCII，那时只算 `,`。空清单就是没开启，不做任何判断。
+enum SymbolReturnPolicy {
+  /// 一次点按可能写出的字面：键入的符号本身，以及它在当前键面上画的字。
+  static func faces(symbol: String, drawnFace: String?) -> Set<String> {
+    var faces: Set<String> = [symbol]
+    if let drawnFace { faces.insert(drawnFace) }
+    return faces
+  }
+
+  static func shouldReturn(faces: Set<String>, configured: [String]) -> Bool {
+    guard !configured.isEmpty else { return false }
+    return faces.contains { configured.contains($0) }
+  }
+
+  /// 键面本身就是要写出的字（`#+=` 层、`SymbolLayerLayout` 的字面键）时直接按它判断。
+  static func shouldReturn(face: String, configured: [String]) -> Bool {
+    shouldReturn(faces: [face], configured: configured)
+  }
+}

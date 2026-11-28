@@ -267,6 +267,21 @@ final class KeyboardKeyButton: UIButton {
   /// 松手时输入角标。触发它的触摸被取消而不是正常结束，所以按键自身的动作不会再执行一次。
   var onCornerHint: ((String) -> Void)?
 
+  /// 长按弹出的选项（26 键字母键）：按住 `cornerHintHoldDelay` 后由控制器列出来供选择，触摸被取消，松手不再点按。
+  /// 返回空时仍走原来的「长按输入角标」。
+  var holdOptions: (() -> [String])?
+  /// 弹出选项时回调，参数是这次算好的选项。
+  var onHoldOptions: (([String]) -> Void)?
+  /// 手指横向位置（按键父视图坐标）变化时回调，控制器按气泡里选项的真实位置取最近的一项高亮。
+  /// 按下弹出时也会给一次，默认高亮的就是离手指最近的那一项。字母键才设，九键长按菜单仍靠点按钮选。
+  var onHoldOptionHighlight: ((CGPoint) -> Void)?
+  /// 长按选项弹出后松手，提交控制器当前高亮的那一项。只有字母键设；九键长按不动，松手什么也不输入。
+  var onHoldOptionCommit: (() -> Void)?
+  /// 按下时的手指位置（按键父视图坐标），长按弹出时用它选离手指最近的选项。
+  private var holdOptionPressPoint: CGPoint = .zero
+  /// 为真时长按什么也不做，松手照常点按。组字中用它把长按交还给普通输入，免得选项把拼音组字结束掉。
+  var holdSuppressed: (() -> Bool)?
+
   /// 滑动是否输入角标：「滑动输入符号」（`KeyboardLayoutPreference.swipeSymbols`）关掉时为假。长按不受它影响，与 Android 的 `bindLetterGestures` 一致。
   var swipesCornerHint = true
   var cornerHintSwipeDirection: KeyboardLayoutPreference.SwipeDirection = .up
@@ -375,6 +390,8 @@ final class KeyboardKeyButton: UIButton {
   /// 按下时的触摸时间戳（`UITouch.timestamp`），`cornerHintSwipesEitherWay` 用它判断这次触摸是否已经归长按。
   private var cornerHintDownTime: TimeInterval = 0
   private var cornerHintTriggered = false
+  /// 这一次触摸已经弹出长按选项。弹出后不再点按、不再接滑动，松手什么也不输入。
+  private var holdOptionsTriggered = false
   private var cornerHintHold: Timer?
 
   override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
@@ -388,14 +405,22 @@ final class KeyboardKeyButton: UIButton {
     if began, nineKeyFlickLetters != nil, nineKeyFlickEnabled?() == true {
       nineKeyFlick.begin(at: touch.location(in: nil))
     }
-    guard began, cornerHint != nil || swipeActions != nil else { return began }
+    guard began, cornerHint != nil || swipeActions != nil || holdOptions != nil else { return began }
     cornerHintDown = touch.location(in: nil)
+    // 长按选项按手指在父视图里的实际横向位置选最近项，不能用按键缩放后的自身坐标。
+    holdOptionPressPoint = touch.location(in: self.superview)
     cornerHintDownTime = touch.timestamp
-    guard holdsCornerHint else { return began }
+    guard holdsCornerHint, holdSuppressed?() != true else { return began }
     cornerHintHold = Timer.scheduledTimer(withTimeInterval: Self.cornerHintHoldDelay, repeats: false) { [weak self] _ in
       MainActor.assumeIsolated {
         // 滑出按键的手指不再算按住，对应 Android 检查 `isPressed()`。
-        guard let self, self.isTracking, self.isHighlighted, !self.cornerHintTriggered, let hint = self.cornerHint else { return }
+        guard let self, self.isTracking, self.isHighlighted,
+              !self.cornerHintTriggered, !self.holdOptionsTriggered else { return }
+        if let options = self.holdOptions?(), !options.isEmpty {
+          self.triggerHoldOptions(options)
+          return
+        }
+        guard let hint = self.cornerHint else { return }
         self.triggerCornerHint(hint)
       }
     }
@@ -416,27 +441,28 @@ final class KeyboardKeyButton: UIButton {
     }
     // 26 键：上滑、下滑各是一个动作，先过阈值的方向锁住这次触摸（`LetterSwipePolicy`）。
     if let actions = swipeActions {
-      if directionalSwipe == nil, swipesCornerHint,
+      if directionalSwipe == nil, !holdOptionsTriggered, swipesCornerHint,
          let direction = LetterSwipePolicy.direction(
            down: cornerHintDown, current: touch.location(in: nil),
            requiresVerticalDominance: cornerHintRequiresVerticalDominance),
          let action = actions(direction) {
         beginDirectionalSwipe(action, direction: direction)
       }
-    } else if !cornerHintTriggered, swipesCornerHint, let hint = cornerHint, cornerHintSwiped(touch) {
+    } else if !cornerHintTriggered, !holdOptionsTriggered, swipesCornerHint, let hint = cornerHint, cornerHintSwiped(touch) {
       triggerCornerHint(hint)
     }
     return super.continueTracking(touch, with: event)
   }
 
-  /// 判出某一方向的滑动：锁住动作，取消长按，预览气泡换成这个动作（角标显示符号，其他动作显示名字）。
+  /// 判出某一方向的滑动：锁住动作，取消长按，预览气泡换成这个动作（角标显示符号，其他动作显示短名）。
   private func beginDirectionalSwipe(_ action: LetterSwipeAction,
                                      direction: KeyboardLayoutPreference.SwipeDirection) {
     directionalSwipe = (action, direction)
     touchDownLocation = nil
     cornerHintHold?.invalidate()
     cornerHintHold = nil
-    previewTitleOverride = action == .symbol ? (cornerHint ?? "") : action.title()
+    // 气泡只有按键那么宽，完整名字（「复制选中文字」）会被压成半个字：用短名（「复制」）。
+    previewTitleOverride = action == .symbol ? (cornerHint ?? "") : action.shortTitle()
   }
 
   private func cornerHintSwiped(_ touch: UITouch) -> Bool {
@@ -452,7 +478,13 @@ final class KeyboardKeyButton: UIButton {
   }
 
   override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-    // 判出九键滑动之后这次触摸不再是点按：键停在判出时的样子（输入数字时保持按下，弹出字母时松开），不随手指进出按键变化。
+    // 长按选项已弹出：手指仍在原键上，左右滑动改成在气泡里选离手指最近的那一项，键本身不再跟随手指变高亮
+    // （否则 UIKit 把按键画亮、按下预览又盖回选项上）。控制器按气泡按钮的真实位置换算高亮。
+    if holdOptionsTriggered, let touch = touches.first {
+      onHoldOptionHighlight?(touch.location(in: self.superview))
+      return
+    }
+    // 判出九键滑动之后，这次触摸不再是点按：键不再跟着手指进出变高亮。
     guard nineKeySwipe.gesture == .none, !nineKeyFlick.consumed else { return }
     super.touchesMoved(touches, with: event)
     if nineKeySwipe.gesture != .none { isHighlighted = nineKeySwipe.gesture == .digit }
@@ -490,6 +522,16 @@ final class KeyboardKeyButton: UIButton {
       resetCornerHint()
       touchDownLocation = nil
       onSwipeAction?(directional.action, directional.direction)
+      return
+    }
+    // 长按选项已经在弹窗里：手指一直按着，松手把当前高亮的那一项上屏（左右滑过就换选中项），
+    // 不再输入这个字母，也不执行角标。九键长按没有 onHoldOptionCommit，维持原来松手不输入。
+    if holdOptionsTriggered {
+      let commit = onHoldOptionCommit
+      super.touchesCancelled(touches, with: event)
+      resetCornerHint()
+      touchDownLocation = nil
+      commit?()
       return
     }
     guard cornerHintTriggered, let hint = cornerHint else {
@@ -579,16 +621,35 @@ final class KeyboardKeyButton: UIButton {
     previewTitleOverride = hint
   }
 
+  /// 按住满半秒且有选项：收起按下预览，把选项交给控制器。手指仍按在原键上，左右滑动接着在气泡里选，
+  /// 松手提交高亮项；弹出时按按下位置先选离手指最近的选项。
+  private func triggerHoldOptions(_ options: [String]) {
+    touchDownLocation = nil
+    holdOptionsTriggered = true
+    cornerHintHold?.invalidate()
+    cornerHintHold = nil
+    previewTitleOverride = nil
+    // 键面还按着，预览气泡必须马上消失：选项就在上方，两个气泡叠着会挡住被按的键。
+    isHighlighted = false
+    removePressPreview()
+    onHoldOptions?(options)
+    // 控制器还没建好气泡时记下手指位置，布局完成后按气泡按钮的真实位置选最近的一项。
+    onHoldOptionHighlight?(holdOptionPressPoint)
+  }
+
   private func resetCornerHint() {
     cornerHintHold?.invalidate()
     cornerHintHold = nil
     cornerHintTriggered = false
+    holdOptionsTriggered = false
+    holdOptionPressPoint = .zero
     directionalSwipe = nil
     previewTitleOverride = nil
   }
 
   private func updatePressPreview() {
-    guard showsPressPreview, isHighlighted, isEnabled, traitCollection.userInterfaceIdiom == .phone,
+    guard showsPressPreview, isHighlighted, !holdOptionsTriggered, isEnabled,
+          traitCollection.userInterfaceIdiom == .phone,
           let title = previewTitleOverride ?? configuration?.title, !title.isEmpty, let host = pressPreviewHost else {
       removePressPreview()
       return

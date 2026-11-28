@@ -222,9 +222,30 @@ class LetterSwipePreviewContract(unittest.TestCase):
         self.assertIn("private struct LetterSwipeSheetTarget: Identifiable", self.source)
         self.assertIn("private struct LetterSwipeKeyEditorSheet: View", self.source)
 
-    def test_keys_tap_only_offered_on_twenty_six_key_with_swipe_on(self):
+    def test_preview_bottom_keys_tap_opens_the_bottom_editor(self):
+        # 预览图的底行也能点：空格、中/英、符、表情、回车、逗号、句号各打开自己那一行；
+        # 123、地球和 0 不是可配的底行键，点了不响应。
+        self.assertIn("onBottomKeyTap: { slot in", self.source)
+        self.assertIn("BottomKeySwipeEditorSheet(key: key)", self.source)
+        mapping = member(self.source, "  private func bottomSwipeKey(for slot: TouchBottomRowLayout.Slot)")
+        for slot, key in [("space", "space"), ("language", "language"), ("symbols", "symbols"),
+                          ("emoji", "emoji"), ("returnKey", "enter"), ("comma", "punctuation"),
+                          ("period", "period")]:
+            self.assertIn(f"case .{slot}: return .{key}", mapping)
+        self.assertIn("case .layer, .globe, .zero: return nil", mapping)
+
+    def test_keys_tap_only_offered_on_twenty_six_key_with_a_gesture_on(self):
+        # 滑动总开关关掉、但「长按弹出选项」开着时，逐键编辑页仍要有入口，否则长按清单改不了。
         editable = member(self.source, "  private var letterSwipeEditable: Bool {")
-        self.assertIn("swipeSymbols && letterGrid == nil && !nineKey", editable)
+        self.assertIn("(swipeSymbols || letterHold) && letterGrid == nil && !nineKey", editable)
+
+    def test_hold_options_toggle_and_per_key_editor(self):
+        self.assertIn('DesignToggleRow(title: "长按弹出选项"', self.source)
+        self.assertIn('.accessibilityIdentifier("appLetterHoldOptionsSwitch")', self.source)
+        self.assertIn("LetterHoldPreference.enabled = enabled", self.source)
+        self.assertIn("LetterHoldPreference.set(options, letter: letter)", self.source)
+        self.assertIn('accessibilityIdentifier("letterHoldOptionsField")', self.source)
+        self.assertIn('accessibilityIdentifier("letterHoldSaveOptions")', self.source)
 
     def test_badges_only_mark_customised_keys(self):
         # 徽标存成 @State，值在改完动作后（Sheet 关闭）由 refreshLetterSwipeBadges 重算，预览图立即刷新。

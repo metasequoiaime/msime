@@ -24445,6 +24445,23 @@ fn touch_quick_symbols_use_the_shared_rules_across_the_abi() {
     );
 }
 
+#[test]
+fn touch_return_symbols_keep_an_empty_list_as_off_across_the_abi() {
+    let request = json!({"symbols": ["，", "，", "。", "ab", "\n"]});
+    let value = serde_json::to_vec(&request).unwrap();
+    let result =
+        read(unsafe { msime_client_touch_return_symbols(value.as_ptr(), value.len()) });
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["value"], json!(["，", "。"]));
+    let empty = serde_json::to_vec(&json!({"symbols": ["nope"]})).unwrap();
+    let cleared = read(unsafe { msime_client_touch_return_symbols(empty.as_ptr(), empty.len()) });
+    assert_eq!(cleared["value"], json!([]));
+    assert_eq!(
+        read(unsafe { msime_client_touch_return_symbols(std::ptr::null(), 1) })["ok"],
+        false
+    );
+}
+
 #[path = "dictionary/batch_tests.rs"]
 mod dictionary_batch_tests;
 

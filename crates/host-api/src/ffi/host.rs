@@ -37,6 +37,35 @@ pub unsafe extern "C" fn msime_client_touch_quick_symbols(
     })
 }
 
+/// 规范化「输入后返回主键盘」的符号列表。与快捷符号共用单字素规则，但空列表保持为空，表示关闭这项功能。
+/// # Safety
+/// `value` 指向 `length` 字节的 JSON `{symbols: string[]}`，最多 64 KiB；结果用 string_free 释放。
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_touch_return_symbols(
+    value: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if value.is_null() || length > 64 * 1024 {
+            return Err("invalid_touch_return_symbols".into());
+        }
+        // 安全：调用方保证缓冲区可读，长度已检查。
+        let bytes = unsafe { std::slice::from_raw_parts(value, length) };
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Request {
+            symbols: Vec<String>,
+        }
+        let request: Request =
+            serde_json::from_slice(bytes).map_err(|_| "invalid_touch_return_symbols")?;
+        Ok(json!(
+            msime_client_core::preferences::normalize_return_to_letters_symbols(
+                &request.symbols,
+            )
+        ))
+    })
+}
+
 fn clipboard_history_limit(directory: &std::path::Path) -> usize {
     msime_client_core::preferences::PreferencesStore::new(directory)
         .load_for_runtime()

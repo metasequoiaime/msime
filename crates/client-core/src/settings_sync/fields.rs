@@ -54,6 +54,7 @@ pub(super) const SHARED_FIELDS: &[&str] = &[
     "touch_language_key_side",
     "touch_nine_key_swipe_digits",
     "touch_quick_punctuation_symbols",
+    "touch_return_to_letters_symbols",
     "touch_toolbar",
     "last_chinese_scheme",
     "shuangpin_profile",

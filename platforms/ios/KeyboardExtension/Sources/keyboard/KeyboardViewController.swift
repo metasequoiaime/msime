@@ -185,6 +185,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var glossCardDocument: UUID?
   private let moreShortcut = KeyboardBrandMarkButton()
   private var morePicker: KeyboardMorePickerView?
+  /// 双击品牌键弹出的内存读数气泡；存在即说明它盖在键盘上，点它外面或被键盘收走时消失。
+  private var memoryBubble: KeyboardMemoryBubble?
+  /// 双击已经认出来了，紧接着那一次按钮动作属于双击的第二下，不再当成单击去开功能菜单。
+  private var brandDoubleTapConsumedTap = false
   /// 输入方式或功能面板打开时是不是横屏；转屏后行数变了就关掉它（`closePickerBuiltForOtherOrientation`）。
   private var pickerLandscape = false
   /// 键盘调整：盖住整块键盘的遮罩和它的预览，只在打开期间存在。
@@ -207,8 +211,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var swipeSymbolsDirection: KeyboardLayoutPreference.SwipeDirection = .up
   /// 26 键每个字母的上滑、下滑动作（`LetterSwipePreference`），每次键盘出现时读一次；手势判定时只查这张表。
   private var letterSwipeBindings: [String: [String: LetterSwipeBinding]] = [:]
+  /// 底行按键（空格、中/英、符、表情、回车、常用标点、句号）的上下滑动作（`BottomKeySwipePreference`），
+  /// 同样每次键盘出现时读一次。默认只有空格上滑上屏候选译文，其余都是「无」。
+  private var bottomKeySwipeBindings: [String: [String: LetterSwipeBinding]] = [:]
   /// 「显示字母键角标」（`KeyboardLayoutPreference.letterCornerHints`），每次键盘出现时读一次。只管画不画，按键上的 `cornerHint` 照旧赋值，长按和滑动不受它影响。
   private var letterCornerHintsEnabled = true
+  /// 「显示下滑动作提示」（`KeyboardLayoutPreference.letterSwipeHint`），每次键盘出现时读一次：键面底部用短名标出这个键下滑做什么。
+  private var letterSwipeHintEnabled = true
+  /// 每键滑动配置换过一次就加一，`LetterCaseInputs` 带着它，键面按新的下滑动作重画。
+  private var letterSwipeRevision = 0
+  /// 「全选」在宿主给不出选区时记下的全文。紧接的复制、剪切拿它顶替选区，用之前先比对输入框里的文字还是不是这一份。
+  private var fullSelectionBuffer: String?
   /// 上次配置诊断日志时闸门是否挡着它，`textDidChange` 据此判断要不要重新配置。
   private var diagnosticLogSuppressed = false
   /// 存储的单手模式，在键盘出现时读取，由它的磁贴和侧栏修改。
@@ -275,6 +288,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var emojiPicker: KeyboardEmojiPickerView?
   private var symbolPanel: KeyboardSymbolPanelView?
   private var nineKeyHoldPopup: UIView?
+  /// 长按选项气泡里的按钮、文本和提交回调，与按键的左右滑动选中状态配套：滑动时改高亮，松手提交高亮项。
+  private var holdOptionButtons: [UIButton] = []
+  private var holdOptionTexts: [String] = []
+  private var holdOptionCommit: ((String) -> Void)?
+  private var holdOptionHighlight = 0
+  /// 高亮位置换算用的共同坐标视图：按键和气泡按钮都在这里取坐标，手指位置也由按键报这个坐标系。
+  private weak var holdOptionCoordinateView: UIView?
+  /// 弹出时布局还没完成，先记下手指位置，气泡布局好后再按真实按钮位置选最近项。
+  private var pendingHoldOptionPoint: CGPoint?
+  /// 左右滑过一项给一次反馈，沿用键盘设置里的振动开关与档位；初始高亮不震动。
+  private var holdOptionFeedbackArmed = false
   private struct NineKeyGridKey {
     let button: UIButton
     let digit: Int
@@ -1297,6 +1321,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     super.didReceiveMemoryWarning()
     DiagnosticLog.shared.write("memory_warning \(DiagnosticLog.MemorySample.current().fields)")
     // 收到警告后仍占着可选面板、释义结果或引擎候选缓存的键盘扩展很快会被系统结束。能重建的都丢掉，正在进行的组字和会话保留。
+    // 面板开着时收掉是对的（展开的候选网格最占内存），但要留个能看见的痕：不然用户看到的只是「点了展开，键区闪一下就回来」，
+    // 日志又只在 App Group 里、未签名的包读不到，这个现象就永远说不清是换代、是内存，还是别的。
+    let closedPicker = keyAreaPanel != nil
     closeKeyboardPicker()
     closeKeyboardService()
     handwriting.deactivate()
@@ -1324,6 +1351,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     candidatePalette = currentCandidatePalette()
     applyCandidateAppearance()
     DiagnosticLog.shared.write("memory_released engine_cache=\(engineCache) \(DiagnosticLog.MemorySample.current().fields)")
+    if closedPicker {
+      DiagnosticLog.shared.write("memory_warning_closed_picker")
+      showDiagnostic("内存紧张，已收起展开的候选")
+      renderCandidateStrip()
+    }
   }
 
   /// 补上组字中那次内存警告没清的引擎缓存。只在组字刚结束时由 `render` 调用：引擎这时没有候选，清缓存返回的快照没有要画的东西，丢掉它和空闲时的警告是同一个道理。
@@ -1352,12 +1384,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let spaceVoice = KeyboardLayoutPreference.spaceVoice
     let spaceVoiceChanged = spaceVoice != spaceVoiceEnabled
     spaceVoiceEnabled = spaceVoice
-    swipeSymbolsEnabled = KeyboardLayoutPreference.swipeSymbols
+    let swipeSymbols = KeyboardLayoutPreference.swipeSymbols
+    let swipeSymbolsChanged = swipeSymbols != swipeSymbolsEnabled
+    swipeSymbolsEnabled = swipeSymbols
     swipeSymbolsDirection = KeyboardLayoutPreference.swipeSymbolsDirection
+    let previousBindings = letterSwipeBindings
     letterSwipeBindings = LetterSwipePreference.load()
+    bottomKeySwipeBindings = BottomKeySwipePreference.load()
+    // 在设置里改过某个键的下滑动作后切回键盘：配置变了就让键面按新动作重画那次提示。
+    let letterSwipeBindingsChanged = letterSwipeBindings != previousBindings
+    if letterSwipeBindingsChanged { letterSwipeRevision &+= 1 }
     let letterCornerHints = KeyboardLayoutPreference.letterCornerHints
     let letterCornerHintsChanged = letterCornerHints != letterCornerHintsEnabled
     letterCornerHintsEnabled = letterCornerHints
+    let letterSwipeHint = KeyboardLayoutPreference.letterSwipeHint
+    let letterSwipeHintChanged = letterSwipeHint != letterSwipeHintEnabled
+    letterSwipeHintEnabled = letterSwipeHint
     cursorSwipeEnabled = KeyboardLayoutPreference.cursorSwipe
     if !cursorSwipeEnabled { endKeyboardCursorSwipe() }
     keyboardCursorPan.isEnabled = cursorSwipeEnabled
@@ -1376,7 +1418,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 空格键上的麦克风跟着长按空格语音走：从设置 App 改完切回键盘时立刻换键面（#10143）。键盘还没建好时（`viewDidLoad` 里第一次读）由建完后的那次 `updateSpaceKeyTitle` 画。
     if spaceVoiceChanged && !spaceKeys.isEmpty { updateSpaceKeyTitle() }
     // 从设置 App 切回键盘时已经画好的字母键当场收起或画回角标；`LetterCaseInputs` 带着这一位，键面会重写。
-    if letterCornerHintsChanged { updateLetterCaseControls() }
+    // 总开关变了也要重画：键面底部的下滑动作提示跟着它一起收起。
+    if letterCornerHintsChanged || letterSwipeHintChanged || letterSwipeBindingsChanged || swipeSymbolsChanged {
+      updateLetterCaseControls()
+    }
   }
 
   /// 空格键的 VoiceOver 提示：语音关闭时，长按空格改为移动光标。
@@ -1520,6 +1565,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     cancelBackspacePress()
     diagnosticDismissTimer?.invalidate()
     diagnosticDismissTimer = nil
+    // 读数气泡只属于这一次出现，收起键盘时一起收掉，别留到下次。
+    dismissMemoryBubble()
     keyPressFlushTimer?.invalidate()
     keyPressFlushTimer = nil
     flushStatistics()
@@ -2257,6 +2304,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     symbols.configuration?.contentInsets = .zero
     symbols.accessibilityIdentifier = "numberPadSymbolPanelKey"
+    installBottomKeySwipe(symbols, as: .symbols)
     Self.drawBareInSidebar(symbols)
     numberPadSidebar.addArrangedSubview(symbols)
     // 拼音九键一族的数字层底行自带 符，这里的 符 隐藏，UIStackView 给隐藏项加的零高约束要能压过这一条。
@@ -2470,36 +2518,41 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
+  /// 数字层与字母层之间切换九键键面。被手指按过的按钮，UIKit 之后再套用 configuration 会给标题挂 0.25s
+  /// 的淡入淡出（`CATransition` fade）：切层时旧键面（ABC / JKL / TUV）还没淡出、新键面（2 / 5 / 8）已经淡入，
+  /// 叠成「ABC₂」闪一下（用户实测）。与候选条 #10330 同一处理：整段放进不带动画的块里，键面立即换成目标层的样子。
   private func applyNineKeyDigitLayer(_ digits: Bool) {
     let shuangpin = inputScheme == .nineKeyShuangpin
-    for key in nineKeyGridKeys {
-      if shuangpin {
-        let face = nineKeyShuangpinLayout?.keys.first { $0.key == String(key.digit) }
-        key.button.configuration?.title = String(key.digit)
-        key.button.configuration?.subtitle = digits ? nil : face?.compactHint
-        key.button.configuration?.subtitleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
-          var attributes = attributes
-          attributes.font = .systemFont(ofSize: 11)
-          return attributes
+    UIView.performWithoutAnimation {
+      for key in nineKeyGridKeys {
+        if shuangpin {
+          let face = nineKeyShuangpinLayout?.keys.first { $0.key == String(key.digit) }
+          key.button.configuration?.title = String(key.digit)
+          key.button.configuration?.subtitle = digits ? nil : face?.compactHint
+          key.button.configuration?.subtitleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+            var attributes = attributes
+            attributes.font = .systemFont(ofSize: 11)
+            return attributes
+          }
+          key.button.accessibilityLabel = digits ? "数字 \(key.digit)" : (face?.accessibilityLabel ?? "数字 \(key.digit)")
+          key.button.accessibilityHint = nil
+          key.numberHint?.isHidden = true
+        } else {
+          key.button.configuration?.subtitle = nil
+          key.button.configuration?.title = digits ? String(key.digit) : (key.letters ?? Self.nineKeySymbolsFace)
+          key.button.accessibilityLabel = digits
+            ? "数字 \(key.digit)"
+            : (key.letters.map { "\(key.digit) \($0)" } ?? "1 符号")
+          key.numberHint?.isHidden = digits
+          key.button.accessibilityHint = digits ? nil
+            : (key.letters.map { "长按输入 \(key.digit) 或 \($0)" } ?? "长按输入 1")
         }
-        key.button.accessibilityLabel = digits ? "数字 \(key.digit)" : (face?.accessibilityLabel ?? "数字 \(key.digit)")
-        key.button.accessibilityHint = nil
-        key.numberHint?.isHidden = true
-      } else {
-        key.button.configuration?.subtitle = nil
-        key.button.configuration?.title = digits ? String(key.digit) : (key.letters ?? Self.nineKeySymbolsFace)
-        key.button.accessibilityLabel = digits
-          ? "数字 \(key.digit)"
-          : (key.letters.map { "\(key.digit) \($0)" } ?? "1 符号")
-        key.numberHint?.isHidden = digits
-        key.button.accessibilityHint = digits ? nil
-          : (key.letters.map { "长按输入 \(key.digit) 或 \($0)" } ?? "长按输入 1")
+        key.button.gestureRecognizers?.filter { $0.name == "nineKeyDigitHold" }.forEach { $0.isEnabled = !shuangpin && !digits }
       }
-      key.button.gestureRecognizers?.filter { $0.name == "nineKeyDigitHold" }.forEach { $0.isEnabled = !shuangpin && !digits }
+      let zero = nineKeyShuangpinLayout?.keys.first { $0.key == "0" }
+      nineKeyZeroButton?.configuration?.titleTextAttributesTransformer = digits ? Self.keyLabelTransformer : Self.functionLabelTransformer
+      nineKeyZeroButton?.accessibilityLabel = shuangpin && !digits ? (zero?.accessibilityLabel ?? "数字 0") : "数字 0"
     }
-    let zero = nineKeyShuangpinLayout?.keys.first { $0.key == "0" }
-    nineKeyZeroButton?.configuration?.titleTextAttributesTransformer = digits ? Self.keyLabelTransformer : Self.functionLabelTransformer
-    nineKeyZeroButton?.accessibilityLabel = shuangpin && !digits ? (zero?.accessibilityLabel ?? "数字 0") : "数字 0"
   }
 
   /// 九键「右侧大回车」的回车：从右列第三格（`nineKeyClosingButton` 让出的位置）一直伸到底行，两倍高、中间无缝。它不在任何一行里，而是叠在按键列上，按右列的左右边、第三格的上边和底行的下边约束；底行在它下面留出同宽的一格（`tallReturnSlot`）。外观和行为与底行的回车相同（`returnKeys`），按下记 `Return`。只在这个样式的九键外框上显示。
@@ -2514,6 +2567,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     enter.titleLabel?.adjustsFontSizeToFitWidth = true
     enter.titleLabel?.minimumScaleFactor = 0.65
     enter.isHidden = true
+    installBottomKeySwipe(enter, as: .enter)
     enter.translatesAutoresizingMaskIntoConstraints = false
     keyColumn.addSubview(enter)
     NSLayoutConstraint.activate([
@@ -2618,7 +2672,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     button.accessibilityLabel = key.accessibilityLabel
   }
 
-  /// 数字九宫格上底行的 中/英 键改作句点键：按下写 .，右列中间键随之从 . 改成 =（`NineKeyMiddleKey.equals`）。中/英 键被隐藏（「隐藏中/英键」或布局本来不放）时不改，中间键仍是 .，数字页照样能输入小数点。离开数字九宫格恢复语言键面。
+  /// 数字九宫格上底行的 中/英 键改作句点键：按下写 .，右列中间键随之从 . 改成 =（`NineKeyMiddleKey.equals`）。中/英 键被隐藏时不改，中间键仍是 .，数字页照样能输入小数点；但数字页已对「隐藏中/英键」开关豁免（见 `hidesLanguage`），所以只剩布局本来不放语言键的情况会走到这里。离开数字九宫格恢复语言键面。
   private var languageKeyTypesPeriod: Bool { numberPadShown && bottomLanguageButton?.isHidden == false }
 
   /// 按 `languageKeyTypesPeriod` 给 中/英 键换键面、读屏标签和字号；`updateLanguageModeButton` 先按语言画好，这里在数字九宫格上再盖成句点。
@@ -2689,8 +2743,44 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return [String(digit)] + (nineKeyLetters[digit] ?? "").lowercased().map(String.init)
   }
 
-  /// 长按菜单：九键 1 弹出数字，2–9 弹出数字和字母，14 键弹出这一键的字母。选中的一项先结束组字再上屏，全角开关打开时写全角（`commitNineKeyHoldOption`）。
-  private func showKeyHoldOptions(from key: UIButton, options optionTexts: [String]) {
+  /// 26 键字母键此刻的长按选项；总开关关着、这个键设成空列表时为空（那时按键回到「长按输入角标」）。
+  private func letterHoldOptions(for letter: String) -> [String] {
+    LetterHoldPreference.options(letter: letter, chinese: isChineseMode,
+                                 shifted: letterCaseState != .lowercase)
+  }
+
+  /// 26 键字母键的长按选项：弹出并上屏，统计记这个字母键的一次按键。
+  private func showLetterHoldOptions(from button: UIButton, letter: String) {
+    let options = letterHoldOptions(for: letter)
+    guard !options.isEmpty else { return }
+    showKeyHoldOptions(from: button, options: options, identifierPrefix: "letterHoldOption",
+                       enablesSlideSelection: true) { [weak self] option in
+      guard let self else { return }
+      self.countKeyPress(TypingKeyID.character(letter))
+      // 角标仍走原来那条路（本地模式、英文建议的收尾都在里面）；其余字符按字面上屏。
+      if option == LetterHintSymbols.hint(for: letter) {
+        self.insertSymbolLayerLiteral(option)
+        self.dismissNineKeyHoldOptions()
+      } else {
+        self.commitNineKeyHoldOption(option)
+        // 英文和本地模式下这一下是字面输入，和角标那条路一样刷新建议。
+        if !self.isChineseMode { self.refreshEnglishSuggestions() }
+      }
+    }
+  }
+
+  private func hasLetterHoldOptions(letter: String) -> Bool { !letterHoldOptions(for: letter).isEmpty }
+
+  /// 长按菜单：九键 1 弹出数字，2–9 弹出数字和字母，14 键弹出这一键的字母，26 键字母键弹出它的长按选项
+  /// （音调、角标、大小写、上下标，见 `LetterHoldPreference`）。选中的一项先结束组字再上屏，
+  /// 全角开关打开时写全角（`commitNineKeyHoldOption`）。最多五列，多出的折到下一行，两行放得下十个。
+  /// `enablesSlideSelection` 为 true（26 键字母键）时，默认高亮离按下手指最近的选项；按住左右滑动按气泡里
+  /// 按钮的真实位置改高亮（手指到哪项就高亮哪项），每换一项给一次选择反馈，松手上屏高亮项。
+  /// 九键长按菜单保持原样：只靠点按钮选，松手不输入。
+  private func showKeyHoldOptions(from key: UIButton, options optionTexts: [String],
+                                  identifierPrefix: String = "nineKeyHoldOption",
+                                  enablesSlideSelection: Bool = false,
+                                  commit: ((String) -> Void)? = nil) {
     dismissNineKeyHoldOptions()
     playInputClick()
     let skin = KeyboardTheme.current
@@ -2702,9 +2792,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       UITapGestureRecognizer(target: self, action: #selector(dismissNineKeyHoldOptionsGesture)))
 
     let options = UIStackView()
-    options.axis = .horizontal
+    options.axis = .vertical
     options.spacing = 4
-    options.distribution = .fillEqually
+    options.alignment = .center
     options.accessibilityIdentifier = "nineKeyHoldOptions"
     options.backgroundColor = skin.background
     options.layer.cornerRadius = 10
@@ -2714,15 +2804,45 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     options.layoutMargins = UIEdgeInsets(top: 5, left: 5, bottom: 5, right: 5)
     options.translatesAutoresizingMaskIntoConstraints = false
 
-    for option in optionTexts {
+    var row: UIStackView?
+    holdOptionButtons = []
+    holdOptionTexts = optionTexts
+    holdOptionCommit = commit
+    holdOptionHighlight = 0
+    pendingHoldOptionPoint = nil
+    holdOptionFeedbackArmed = false
+    for (index, option) in optionTexts.enumerated() {
+      if index % 5 == 0 {
+        let next = UIStackView()
+        next.axis = .horizontal
+        next.spacing = KeyboardHoldOptionsLayout.itemSpacing
+        next.alignment = .center
+        options.addArrangedSubview(next)
+        row = next
+      }
       let item = makeKey(title: option, accessibilityLabel: "输入 \(option)") { [weak self] in
-        self?.commitNineKeyHoldOption(option)
+        guard let self else { return }
+        if let commit { commit(option) } else { self.commitNineKeyHoldOption(option) }
       }
       item.configuration?.contentInsets = .zero
-      item.accessibilityIdentifier = "nineKeyHoldOption-\(option)"
-      item.widthAnchor.constraint(equalToConstant: 36).isActive = true
+      item.accessibilityIdentifier = "\(identifierPrefix)-\(option)"
+      item.widthAnchor.constraint(equalToConstant: KeyboardHoldOptionsLayout.itemWidth).isActive = true
       item.heightAnchor.constraint(equalToConstant: 38).isActive = true
-      options.addArrangedSubview(item)
+      row?.addArrangedSubview(item)
+      holdOptionButtons.append(item)
+    }
+
+    // 字母键：源按键报手指位置，控制器按气泡按钮的真实位置选最近项；松手由控制器提交当前高亮项。
+    // 九键长按菜单不接这套，仍是点按钮选、松手不输入。
+    if enablesSlideSelection, let source = key as? KeyboardKeyButton {
+      holdOptionCoordinateView = key.superview
+      source.onHoldOptionHighlight = { [weak self] point in
+        guard let self else { return }
+        // 气泡还没布局好时按钮中心都是 0，先记下位置，等 layoutIfNeeded 之后再选。
+        self.pendingHoldOptionPoint = point
+        self.highlightHoldOption(nearestTo: point)
+      }
+      source.onHoldOptionCommit = { [weak self] in self?.commitHoldOption() }
     }
 
     view.addSubview(backdrop)
@@ -2734,6 +2854,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       backdrop.bottomAnchor.constraint(equalTo: view.bottomAnchor),
     ])
     KeyboardHoldOptionsLayout.activate(options, from: key, in: view)
+    view.layoutIfNeeded()
+    // 布局完成后按钮才有真实中心：按按下手指的位置选最近的一项，之后的左右滑动也走同一条路径。
+    if enablesSlideSelection, let point = pendingHoldOptionPoint {
+      highlightHoldOption(nearestTo: point)
+    }
+    if hapticsEnabled { keyFeedback.prepare() }
+    holdOptionFeedbackArmed = true
     nineKeyHoldPopup = backdrop
     UIAccessibility.post(notification: .layoutChanged, argument: options)
   }
@@ -2746,6 +2873,51 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     dismissNineKeyHoldOptions()
   }
 
+  /// 手指横向位置落在哪个选项上：取气泡里按钮中心离它最近的一项。按键和按钮都换算到同一个父视图坐标，
+  /// 所以按在键的边缘、气泡被屏幕边缘顶偏时也按实际画出来的位置选，而不是按相对按下点的位移猜。
+  private func highlightHoldOption(nearestTo point: CGPoint) {
+    guard let coordinateView = holdOptionCoordinateView else { return }
+    let centers = holdOptionButtons.map {
+      $0.convert(CGPoint(x: $0.bounds.midX, y: $0.bounds.midY), to: coordinateView).x
+    }
+    // 气泡还没布局时中心全是 0，这时不动高亮；showKeyHoldOptions 在 layoutIfNeeded 后会再选一次。
+    guard centers.contains(where: { $0 != 0 }) else { return }
+    let index = KeyboardHoldOptionsLayout.nearestIndex(to: point.x, centers: centers)
+    if highlightHoldOption(at: index), holdOptionFeedbackArmed, hapticsEnabled {
+      hapticStrength.impact(keyFeedback)
+      keyFeedback.prepare()
+    }
+  }
+
+  /// 高亮第 index 项：选中项填强调色、其余恢复按键底色。返回是否换了一项，只有换了才给反馈。
+  /// 用 `performWithoutAnimation` 避免 UIKit 给配置变更挂淡入淡出、把滑动选中拖慢。
+  @discardableResult
+  private func highlightHoldOption(at index: Int) -> Bool {
+    guard holdOptionButtons.indices.contains(index) else { return false }
+    let changed = index != holdOptionHighlight
+    holdOptionHighlight = index
+    let skin = KeyboardTheme.current
+    UIView.performWithoutAnimation {
+      for (offset, item) in holdOptionButtons.enumerated() {
+        let selected = offset == index
+        item.configuration?.background.backgroundColor = selected ? skin.actionBackground : skin.keyBackground
+        item.configuration?.baseForegroundColor = selected ? skin.actionForeground : skin.keyForeground
+        item.accessibilityTraits = selected ? [.button, .selected] : [.button]
+      }
+    }
+    return changed
+  }
+
+  /// 松手上屏当前高亮的选项：走与点气泡按钮相同的提交路径（字母键的 `commit` 处理角标与统计），
+  /// 提交后收起气泡。数组与回调在 `showKeyHoldOptions` 里同步存好，气泡关掉时清空。
+  private func commitHoldOption() {
+    guard holdOptionTexts.indices.contains(holdOptionHighlight) else { return }
+    let option = holdOptionTexts[holdOptionHighlight]
+    let commit = holdOptionCommit
+    dismissNineKeyHoldOptions()
+    if let commit { commit(option) } else { commitNineKeyHoldOption(option) }
+  }
+
   @objc private func dismissNineKeyHoldOptionsGesture() {
     dismissNineKeyHoldOptions()
   }
@@ -2753,6 +2925,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func dismissNineKeyHoldOptions() {
     nineKeyHoldPopup?.removeFromSuperview()
     nineKeyHoldPopup = nil
+    holdOptionButtons = []
+    holdOptionTexts = []
+    holdOptionCommit = nil
+    holdOptionHighlight = 0
+    holdOptionCoordinateView = nil
+    pendingHoldOptionPoint = nil
+    holdOptionFeedbackArmed = false
   }
 
   private func makeCandidateStrip() -> UIView {
@@ -3029,6 +3208,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       hold.name = "toolbarEditorHold"
       hold.minimumPressDuration = Self.nineKeyHoldDuration
       hold.cancelsTouchesInView = true
+      // 长按靠按住时长判定，不依赖抬手；关掉 UIKit 默认的抬手延迟，快速点按才能立刻响应，
+      // 不必等长按判失败（品牌键上还叠着双击识别器，两个都扣抬手时单击会明显变慢）。
+      hold.delaysTouchesEnded = false
       button.addGestureRecognizer(hold)
       button.accessibilityCustomActions = [
         UIAccessibilityCustomAction(name: "编辑工具栏") { [weak self] _ in
@@ -3037,6 +3219,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
       ]
     }
+
+    // 双击品牌键看内存读数（`presentMemoryBubble`）：键盘里没有 Xcode 的内存仪表，诊断日志又写在未签名
+    // 测试包拿不到的 App Group 里，这个气泡是唯一能在设备上直接读到占用、余量和峰值的地方。单击仍是功能菜单，
+    // 长按仍是编辑工具栏；三者靠「点按次数 / 按住时长」区分，**不靠延时**——单击和长按都不该为等双击判定而变慢。
+    let brandDoubleTap = UITapGestureRecognizer(target: self, action: #selector(handleBrandDoubleTap))
+    brandDoubleTap.numberOfTapsRequired = 2
+    brandDoubleTap.name = "brandDoubleTap"
+    // 关键：UIGestureRecognizer.delaysTouchesEnded 默认是 true，双击识别器会扣住品牌键的抬手
+    // （touchUpInside / primaryActionTriggered）直到双击窗口判定完，单击菜单因此慢两百多毫秒。
+    // 双击靠两次点按的间隔就能判定，不需要扣抬手；关掉后第一下立即开菜单，第二下由
+    // handleBrandDoubleTap 收掉菜单换气泡（cancelsTouchesInView 保证第二下不再触发按钮动作）。
+    brandDoubleTap.delaysTouchesEnded = false
+    brandDoubleTap.delaysTouchesBegan = false
+    moreShortcut.addGestureRecognizer(brandDoubleTap)
     container.addSubview(shortcutBar)
     // 与候选行相同：顶栏收起时由隐藏的工具栏让步。
     let shortcutBarBottom = shortcutBar.bottomAnchor.constraint(equalTo: container.bottomAnchor)
@@ -3091,7 +3287,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       setChinesePunctuation(!chinesePunctuation)
       updateShortcutButtons()
     }, for: .primaryActionTriggered)
-    moreShortcut.addAction(UIAction { [weak self] _ in self?.toggleMorePicker() }, for: .primaryActionTriggered)
+    // 单击立即开功能菜单，不为双击判定留延时；双击是内存读数气泡（`handleBrandDoubleTap`）。
+    moreShortcut.addAction(UIAction { [weak self] _ in self?.handleBrandTap() }, for: .primaryActionTriggered)
     symbolsShortcut.addAction(UIAction { [weak self] _ in
       guard let self else { return }
       if symbolPanel != nil { closeKeyboardPicker(); return }
@@ -3182,6 +3379,54 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard gesture.state == .began else { return }
     playInputClick()
     openApp(KeyboardAppLauncher.toolbarSettingsURL)
+  }
+
+  /// 品牌键被点了一下。单击开/关功能菜单，和改动前一样**不做延时**：菜单是高频操作，为了等双击判定把它
+  /// 拖慢两百多毫秒不值得；代价是双击时菜单会先闪一下（第一下已经把它打开，第二下才收掉换成气泡）。
+  private func handleBrandTap() {
+    // 双击的第二下由 `handleBrandDoubleTap` 处理（它已把菜单收掉并弹出气泡）。手势先认出双击、
+    // 按钮动作后到的那种顺序里，这一次动作要吞掉，否则菜单又在气泡底下打开了。
+    if brandDoubleTapConsumedTap {
+      brandDoubleTapConsumedTap = false
+      return
+    }
+    toggleMorePicker()
+  }
+
+  /// 双击品牌键：弹出内存读数气泡（`KeyboardMemoryBubble`）。第一下已经把功能菜单打开了，这里先收掉它。
+  /// 读数只在弹出这一刻取一次；再双击一次会先收掉旧气泡，屏幕上始终只有一个。
+  @objc private func handleBrandDoubleTap() {
+    brandDoubleTapConsumedTap = true
+    DispatchQueue.main.async { [weak self] in self?.brandDoubleTapConsumedTap = false }
+    closeKeyboardPicker()
+    playInputClick()
+    presentMemoryBubble()
+  }
+
+  /// 把读数气泡盖在整块键盘上，位置贴着品牌键下方；已经有气泡时先收掉旧的（连点两下以上只留一个）。
+  private func presentMemoryBubble() {
+    memoryBubble?.dismiss()
+    let bubble = KeyboardMemoryBubble(sample: DiagnosticLog.MemorySample.current())
+    bubble.onDismiss = { [weak self, weak bubble] in
+      guard let self, let bubble, memoryBubble === bubble else { return }
+      memoryBubble = nil
+    }
+    bubble.frame = view.bounds
+    bubble.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    if !moreShortcut.isHidden, moreShortcut.window != nil {
+      bubble.pillTop = moreShortcut.convert(moreShortcut.bounds, to: view).maxY + 10
+    }
+    view.addSubview(bubble)
+    memoryBubble = bubble
+    bubble.layoutIfNeeded()
+    // 读屏用户听得到同样的三个数：气泡只停 3 秒，等他们自己摸过去就没了。
+    UIAccessibility.post(notification: .announcement, argument: bubble.text)
+  }
+
+  /// 收掉读数气泡：键盘收起时调用（气泡自己到点或被点一下也会走同一条路，并清掉这里的引用）。
+  private func dismissMemoryBubble() {
+    memoryBubble?.dismiss()
+    memoryBubble = nil
   }
 
   /// 工具栏上可以在「键盘工具栏」设置里打开或关掉的按钮，即品牌键和收起键之外的全部按钮。
@@ -3830,6 +4075,24 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       (button as? KeyboardKeyButton)?.onSwipeAction = { [weak self] action, direction in
         self?.performLetterSwipeAction(action, letter: text, direction: direction)
       }
+      // 长按半秒弹出这个键能输入的字符（角标、大小写、音调、上下标），点一项上屏；组字中长按仍当点按，
+      // 免得选个字符把拼音组字结束掉。总开关关掉或这个键被设成空列表时，回到「长按直接输入角标」。
+      (button as? KeyboardKeyButton)?.holdOptions = { [weak self] in
+        self?.letterHoldOptions(for: text) ?? []
+      }
+      (button as? KeyboardKeyButton)?.holdSuppressed = { [weak self] in self?.hasComposition ?? false }
+      (button as? KeyboardKeyButton)?.onHoldOptions = { [weak self, weak button] _ in
+        guard let self, let button else { return }
+        self.showLetterHoldOptions(from: button, letter: text)
+      }
+      // 读屏没有「长按」这一下，给它一个自定义动作打开同一份选项。
+      button.accessibilityCustomActions = [
+        UIAccessibilityCustomAction(name: "显示长按选项") { [weak self, weak button] _ in
+          guard let self, let button, self.hasLetterHoldOptions(letter: text) else { return false }
+          self.showLetterHoldOptions(from: button, letter: text)
+          return true
+        },
+      ]
       applyLetterFont(to: button)
       letterButtons.append((button: button, lowercase: text, hint: attachHintLabel(to: button),
                             corner: attachCornerHintLabel(to: button)))
@@ -3930,6 +4193,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       enter.titleLabel?.adjustsFontSizeToFitWidth = true
       enter.titleLabel?.minimumScaleFactor = 0.65
       enter.isHidden = true
+      installBottomKeySwipe(enter, as: .enter)
       tabletReturnKey = enter
       row.addArrangedSubview(enter)
       row.distribution = .fill
@@ -3998,6 +4262,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           let sent = Self.symbolRowKey(symbol, tibetan: typesTibetan)
           countKeyPress(TypingKeyID.character(sent))
           handleSymbol(sent)
+          returnToLettersAfterSymbol(faces: symbolRowFaces(sent))
         }
       (key as? KeyboardKeyButton)?.showsPressPreview = true
       if let chinese = Self.chineseSymbolFaces[symbol] {
@@ -4224,6 +4489,45 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       countKeyPress(TypingKeyID.character(text))
       insertSymbolLayerLiteral(text)
     }
+    returnToLettersAfterSymbol(face: face)
+  }
+
+  /// 符号页上写出了「返回主键盘符号」清单里的符号就回到字母键盘。
+  /// 「符」面板自己会在插入后收起（用户锁定面板连续输入时不收），这里只管键盘页：面板开在 123 或 #+= 页上时，收起后露出的就是字母页。
+  private func returnToLettersAfterSymbol(faces: Set<String>) {
+    guard showsSymbols, isChineseMode,
+          SymbolReturnPolicy.shouldReturn(faces: faces,
+                                          configured: KeyboardLayoutPreference.cachedReturnToLettersSymbols)
+    else { return }
+    showsSymbols = false
+    updateKeyboardLayout()
+    // 与点底行回到字母的键同一条路径：数字页上的输入会把这个键按符号层重画，回到字母层要按字母层再画一次。
+    updateLetterCaseControls()
+  }
+
+  private func returnToLettersAfterSymbol(face: String) {
+    returnToLettersAfterSymbol(faces: [face])
+  }
+
+  /// 「符」页的键面此刻画不画中文标点：中文模式、不在本地模式、方案不写 ASCII 标点，注音还要看它自己的标点开关。
+  /// 键面按它画（`updateSymbolKeyFaces`），「返回主键盘符号」也按它决定要不要把中文键面算进命中。
+  private var symbolFacesUseChinesePunctuation: Bool {
+    isChineseMode && !isInLocalMode && !inputScheme.writesAsciiPunctuation
+      && (!typesZhuyin || zhuyinWritesChinesePunctuation)
+  }
+
+  /// 「符」面板的键面是画上去的：中文标点开着时画 `，`、送出的却是 `,`，所以两边都算，清单里填哪个都能命中；
+  /// 中文标点关着时键面就是 `,`，这时只认 `,`，免得用户明明打的是半角符号却被切走。
+  private func symbolRowFaces(_ symbol: String) -> Set<String> {
+    guard symbolFacesUseChinesePunctuation else { return [symbol] }
+    let drawn = writesJapaneseComma
+      ? Self.japaneseSymbolFace(symbol)
+      : (Self.chineseSymbolFace(symbol, cornerQuotes: currentCornerQuotes,
+                                hollowBrackets: currentHollowBrackets,
+                                enumerationCommaBackslash: currentEnumerationCommaBackslash,
+                                enumerationCommaSlash: currentEnumerationCommaSlash)
+          ?? Self.chineseSymbolFaces[symbol] ?? symbol)
+    return SymbolReturnPolicy.faces(symbol: symbol, drawnFace: drawn)
   }
 
   /// Engine 此刻是否把中文层送出的 ASCII 键写成中文标点：中文标点开关与标点锁定共同决定，规则与注音符号面板相同。
@@ -4262,16 +4566,81 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return swipeSymbolsDirection.covers(direction) ? .symbol : .none
   }
 
-  /// 26 键字母键上下滑的动作。角标沿用原来的路径，其余动作在这里执行；都先结束组字再动正文。
+  /// 这个字母键下滑会做什么的短名，写进键面底部那一行（`KeyboardLayoutPreference.letterSwipeHint`）。
+  /// 「无」、角标和没填好的自定义文本都不写：角标已经画在右上角，再写一次只会挤掉字母。
+  private func swipeHintTitle(for letter: String) -> String? {
+    guard letterSwipeHintEnabled, swipeSymbolsEnabled else { return nil }
+    let binding = letterSwipeBinding(for: letter, direction: .down)
+    guard binding.isActive, binding.action != .symbol else { return nil }
+    return binding.action.shortTitle()
+  }
+
+  /// 26 键字母键上下滑的动作。角标沿用原来的路径，其余动作交给 `performSwipeAction`。
   private func performLetterSwipeAction(_ action: LetterSwipeAction, letter: String,
                                         direction: KeyboardLayoutPreference.SwipeDirection) {
     switch action {
-    case .none:
-      return
     case .symbol:
       guard let hint = LetterHintTable.hint(for: letter) else { return }
       countKeyPress(TypingKeyID.character(letter))
       insertSymbolLayerLiteral(hint)
+    case .text:
+      let text = letterSwipeBinding(for: letter, direction: direction).trimmedText
+      guard !text.isEmpty else { return }
+      insertSwipeText(text)
+    default:
+      performSwipeAction(action)
+    }
+  }
+
+  /// 底行按键沿 `direction` 滑动要做什么（`BottomKeySwipePreference`）。没配或配成「无」时返回 nil，这个方向不接。
+  /// 底行键没有角标，选中「角标符号」时也当作不接。
+  private func bottomKeySwipeAction(for key: BottomKeySwipeKey,
+                                    direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeAction? {
+    let binding = bottomKeySwipeBinding(for: key, direction: direction)
+    guard binding.isActive, binding.action != .symbol else { return nil }
+    return binding.action
+  }
+
+  /// 从键盘出现时读下的表里取底行按键的配置；没存过的方向按出厂默认（只有空格上滑是「译文」）。
+  private func bottomKeySwipeBinding(for key: BottomKeySwipeKey,
+                                     direction: KeyboardLayoutPreference.SwipeDirection) -> LetterSwipeBinding {
+    BottomKeySwipePreference.binding(in: bottomKeySwipeBindings, key: key, direction: direction)
+  }
+
+  /// 给底行按键挂上下滑。判定与字母键同一条（`LetterSwipePolicy`），并要求纵向占优：
+  /// 空格左右滑是移光标、标点键上横滑也会移光标，斜着滑不该被当成上下滑。
+  private func installBottomKeySwipe(_ button: UIButton, as key: BottomKeySwipeKey) {
+    guard let button = button as? KeyboardKeyButton else { return }
+    button.cornerHintRequiresVerticalDominance = true
+    button.swipeActions = { [weak self] direction in
+      self?.bottomKeySwipeAction(for: key, direction: direction)
+    }
+    button.onSwipeAction = { [weak self] action, direction in
+      self?.performBottomSwipeAction(action, key: key, direction: direction)
+    }
+  }
+
+  /// 底行按键上下滑的动作：没有角标，其余与字母键走同一条路径。
+  private func performBottomSwipeAction(_ action: LetterSwipeAction, key: BottomKeySwipeKey,
+                                        direction: KeyboardLayoutPreference.SwipeDirection) {
+    switch action {
+    case .none, .symbol:
+      return
+    case .text:
+      let text = bottomKeySwipeBinding(for: key, direction: direction).trimmedText
+      guard !text.isEmpty else { return }
+      insertSwipeText(text)
+    default:
+      performSwipeAction(action)
+    }
+  }
+
+  /// 与具体按键无关的滑动动作：粘贴、复制、切键盘、切模式、打开面板，以及上屏候选译文。
+  /// 都先结束组字再动正文。
+  private func performSwipeAction(_ action: LetterSwipeAction) {
+    switch action {
+    case .none, .symbol, .text:
+      return
     case .paste:
       pasteClipboardText()
     case .copy:
@@ -4284,10 +4653,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       performHistoryAction(redoing: true)
     case .selectAll:
       selectAllDocumentText()
-    case .text:
-      let text = letterSwipeBinding(for: letter, direction: direction).trimmedText
-      guard !text.isEmpty else { return }
-      insertSwipeText(text)
     case .clipboard:
       showClipboardHistory()
     case .language:
@@ -4297,6 +4662,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       moveCursorForSwipe(by: -1)
     case .cursorRight:
       moveCursorForSwipe(by: 1)
+    case .commitTranslation:
+      commitHighlightedCandidateTranslation()
+    // 切到别的键盘：与点对应的键同一条路径，只是不必先回到那一层。
+    case .numberPad:
+      countKeyPress(TypingKeyID.layer)
+      showKeyboardLayer(numberPad: true)
+    case .moreSymbols:
+      countKeyPress(TypingKeyID.layer)
+      showKeyboardLayer(numberPad: false)
+    case .symbolPanel:
+      countKeyPress(TypingKeyID.symbol)
+      showSymbolPanel()
+    case .phrases:
+      showPhrasesPanel()
     // 水杉图标菜单（更多菜单）里的快捷操作：切换类取反当前状态，调用类打开对应面板。
     case .fullWidth:
       setFullWidthInput(!fullWidthInput)
@@ -4324,6 +4703,40 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .voiceInput:
       startVoiceFromSpace(held: false)
     }
+  }
+
+  /// 上屏当前高亮候选下的译文：第一目标语言的第一条义项，取值与释义卡片的「上屏译文」相同。
+  /// 没有组字、没有候选或还没有译文时什么也不做——这个动作只写译文，不拿候选原文顶替（那是点候选和点空格做的事）。
+  private func commitHighlightedCandidateTranslation() {
+    guard hasComposition, let index = highlightedCandidateIndex(),
+          let text = candidateTranslationForCommit(at: index) else { return }
+    session.flushPendingCharacters()
+    playInputClick()
+    insertOwnText(text, source: .local)
+    render(session.cancel())
+    UIAccessibility.post(notification: .announcement, argument: "已输入 \(text)")
+  }
+
+  /// 候选条上当前高亮的那一个；没有高亮标记（例如英文联想被换成邮箱后缀）时取第一个。
+  private func highlightedCandidateIndex() -> Int? {
+    guard !visibleCandidates.isEmpty else { return nil }
+    return visibleCandidateHighlighted.firstIndex(of: true) ?? 0
+  }
+
+  /// 一个候选用在上屏译文里的文字。与 `glossCardContent` 同一条取值：第一目标语言、第一条义项。
+  private func candidateTranslationForCommit(at index: Int) -> String? {
+    guard visibleCandidates.indices.contains(index), CandidateGlossPreference.enabled,
+          CandidateTranslationStore.allowsGloss(sources: visibleCandidateSources, at: index) else { return nil }
+    let word = visibleCandidates[index]
+    let source = visibleCandidateSources.indices.contains(index) ? visibleCandidateSources[index] : 0
+    guard !CandidateTranslationStore.sourceGetsNoGloss(source) else { return nil }
+    let offline = visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : ""
+    let language = CandidateTranslationPreference.primary
+    let content = CandidateGlossCardContent(
+      candidate: chineseOutput(word, source: source),
+      languages: [(language.title, glossEntry(word: word, language: language, offline: offline, translated: true))],
+      route: translationRoute)
+    return content.primaryTranslation
   }
 
   /// 切换隐私模式，与更多菜单里的「隐私模式」磁贴同一套：翻转状态、存偏好、关掉不允许的剪贴板采集、刷新学习与候选。
@@ -4361,10 +4774,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     insertSwipeText(text)
   }
 
-  /// 复制或剪切当前选中的文字。剪切要删掉选区，组字中不做（先把字选上屏），免得引擎的组字和宿主正文错位。
+  /// 复制或剪切当前选中的文字。宿主给不出选区时，用「全选」记下的全文顶替：先把输入框里现在的文字和缓存
+  /// 比一遍，改过就不算数。剪切要删掉选区，组字中不做（先把字选上屏），免得引擎的组字和宿主正文错位。
   private func copySelectedText(cutting: Bool) {
     let selected = textDocumentProxy.selectedText ?? ""
-    guard !selected.isEmpty else {
+    let buffered = fullSelectionBuffer == documentTextAroundCursor() ? (fullSelectionBuffer ?? "") : ""
+    let target = selected.isEmpty ? buffered : selected
+    guard !target.isEmpty else {
       showDiagnostic("请先选中要\(cutting ? "剪切" : "复制")的文字。")
       return
     }
@@ -4379,14 +4795,22 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     session.flushPendingCharacters()
     flushDeferredInputSnapshot()
     playInputClick()
-    UIPasteboard.general.string = selected
+    UIPasteboard.general.string = target
     if cutting {
-      textDocumentProxy.deleteBackward()
+      if selected.isEmpty {
+        guard deleteWholeDocument() else {
+          showDiagnostic("整段文字没删干净，已经放进剪贴板。")
+          return
+        }
+      } else {
+        textDocumentProxy.deleteBackward()
+      }
+      fullSelectionBuffer = nil
       noteOwnEdit()
       if !isChineseMode { refreshEnglishSuggestions() }
     }
     UIAccessibility.post(notification: .announcement,
-                         argument: cutting ? "已剪切" : "已复制 \(selected.count) 个字")
+                         argument: cutting ? "已剪切" : "已复制 \(target.count) 个字")
   }
 
   /// 撤销、重做交给宿主的 undoManager；键盘扩展自己拿不到系统的编辑菜单，宿主不提供时只能提示。
@@ -4417,15 +4841,97 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !isChineseMode { refreshEnglishSuggestions() }
   }
 
-  /// 全选走宿主输入框的标准编辑动作；不是所有宿主都实现，没实现时提示而不是静默。
+  /// 全选。`UITextDocumentProxy` 没有设置选区的公开接口，Apple 的自定义键盘指南也写明选择文字归宿主 App，
+  /// 所以按四档走，哪一档真成了就停：代理对象实际实现了 `UITextInput` 时直接写选区；否则把 `selectAll:`
+  /// 转给宿主；再不行把正文改成组字状态重绘出高亮；都不成时只把全文记进缓存，让紧接着的复制、剪切仍然可用。
   private func selectAllDocumentText() {
-    let selector = Selector(("selectAll:"))
-    guard let proxy = textDocumentProxy as? NSObject, proxy.responds(to: selector) else {
-      showDiagnostic("当前输入框不支持全选。")
+    session.flushPendingCharacters()
+    flushDeferredInputSnapshot()
+    if hasComposition { render(session.finishComposition()) }
+    let text = documentTextAroundCursor()
+    guard !text.isEmpty else {
+      fullSelectionBuffer = nil
+      showDiagnostic("输入框里没有可全选的文字。")
       return
     }
+    if selectWholeDocumentViaTextInput() { return }
+    if forwardSelectAllAction() { return }
+    fullSelectionBuffer = text
+    if remarkDocumentAsSelection(text) { return }
     playInputClick()
-    _ = proxy.perform(selector, with: nil)
+    showDiagnostic("已选中全文 \(text.count) 字，可接着滑动复制或剪切。")
+  }
+
+  /// 光标前后的整段文字。宿主只给插入点附近的上下文，长文可能被截断，这里拿到的是「能看到的全部」。
+  private func documentTextAroundCursor() -> String {
+    (textDocumentProxy.documentContextBeforeInput ?? "")
+      + (textDocumentProxy.selectedText ?? "")
+      + (textDocumentProxy.documentContextAfterInput ?? "")
+  }
+
+  /// 部分编辑器把代理对象做成真的 `UITextInput`（iOS 18 的富文本那一层），这时可以像普通输入框一样写选区。
+  /// 写完读一次 `selectedText` 验证，读不回来就当没选上，不假装成功。
+  private func selectWholeDocumentViaTextInput() -> Bool {
+    guard let input = textDocumentProxy as? UITextInput,
+          input.responds(to: NSSelectorFromString("setSelectedTextRange:")),
+          let range = input.textRange(from: input.beginningOfDocument, to: input.endOfDocument),
+          !range.isEmpty else { return false }
+    input.selectedTextRange = range
+    let selected = textDocumentProxy.selectedText ?? ""
+    guard !selected.isEmpty else { return false }
+    playInputClick()
+    UIAccessibility.post(notification: .announcement, argument: "已全选 \(selected.count) 个字")
+    return true
+  }
+
+  /// 把宿主的 `selectAll:` 标准编辑动作转过去。宿主自己的编辑菜单实现了才有反应，多数 App 不实现。
+  private func forwardSelectAllAction() -> Bool {
+    let selector = Selector(("selectAll:"))
+    if let object = textDocumentProxy as? NSObject, object.responds(to: selector) {
+      playInputClick()
+      _ = object.perform(selector, with: nil)
+      return !(textDocumentProxy.selectedText ?? "").isEmpty
+    }
+    if let responder = textDocumentProxy as? UIResponder, responder.canPerformAction(selector, withSender: nil) {
+      playInputClick()
+      _ = responder.perform(selector, with: nil)
+      return !(textDocumentProxy.selectedText ?? "").isEmpty
+    }
+    return false
+  }
+
+  /// 组字重绘：删掉正文，再以组字状态把全文写回去并全选组字区。宿主把组字区画成选中态，于是真能看到整段高亮，
+  /// 接着输入会替换掉它。代价是正文变成组字、宿主的撤销记录断在这里，而且逐字删除只适合短文本，
+  /// 所以范围由 `SelectAllPolicy` 卡住；写回去之后读一遍确认文字还在，没写成就补回原文，不留空白。
+  private func remarkDocumentAsSelection(_ text: String) -> Bool {
+    let caretAtEnd = (textDocumentProxy.documentContextAfterInput ?? "").isEmpty
+    guard SelectAllPolicy.canRemark(documentLength: text.count, caretAtEnd: caretAtEnd) else { return false }
+    guard deleteWholeDocument() else { return false }
+    textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: 0, length: (text as NSString).length))
+    let restored = documentTextAroundCursor()
+    guard restored == text else {
+      // 宿主不吃组字：取消标记，把手上这份正文原样写回去。
+      textDocumentProxy.unmarkText()
+      if restored.isEmpty { textDocumentProxy.insertText(text) }
+      return false
+    }
+    noteOwnEdit()
+    playInputClick()
+    UIAccessibility.post(notification: .announcement, argument: "已全选 \(text.count) 个字")
+    return true
+  }
+
+  /// 删掉整段正文：先把插入点挪到光标后内容的末尾（`adjustTextPosition` 一次挪不完时也够用），再逐字删除。
+  /// 删完还读得到文字就算失败，由调用方退回缓存方案，不静默吞掉半段。循环上限只是防宿主不理会删除时空转。
+  private func deleteWholeDocument() -> Bool {
+    let after = (textDocumentProxy.documentContextAfterInput ?? "").count
+    if after > 0 { textDocumentProxy.adjustTextPosition(byCharacterOffset: after) }
+    var deleted = 0
+    while let before = textDocumentProxy.documentContextBeforeInput, !before.isEmpty, deleted < 20_000 {
+      textDocumentProxy.deleteBackward()
+      deleted += 1
+    }
+    return documentTextAroundCursor().isEmpty
   }
 
   /// 光标按一个字符左右移，与剪贴板面板里插完成对符号后的移动一致。
@@ -4492,6 +4998,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     playInputClick()
     showsMoreSymbols.toggle()
     updateKeyboardLayout()
+  }
+
+  /// 字母键滑动切键面：直接落到目标层，不像 123 键那样取反——滑到 123 就是数字九宫格，滑到 #+= 就是符号页（大千注音是共享符号行）。
+  private func showKeyboardLayer(numberPad: Bool) {
+    playInputClick()
+    showsSymbols = true
+    showsMoreSymbols = !numberPad
+    updateKeyboardLayout()
+    // 全拼的分词键只在字母层成立；数字页和符号层上的输入会把它按符号层重画成 ⇧，换层时一并重画。
+    updateLetterCaseControls()
   }
 
   private func updateSymbolLayerFaces() {
@@ -4564,6 +5080,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     nineKeySymbolsButton.configuration?.contentInsets = .zero
     nineKeySymbolsButton.accessibilityIdentifier = "symbolPanelKey"
+    installBottomKeySwipe(nineKeySymbolsButton, as: .symbols)
     row.addArrangedSubview(nineKeySymbolsButton)
     row.addArrangedSubview(layoutToggle)
 
@@ -4574,6 +5091,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     emoji.configuration?.image = KeyboardIcon.emoji.image(pointSize: Self.layerEmojiIconSide)
     emoji.accessibilityIdentifier = "layerEmojiKey"
     emoji.isHidden = true
+    installBottomKeySwipe(emoji, as: .emoji)
     layerEmojiButton = emoji
     row.addArrangedSubview(emoji)
     // 26 键「长空格」时 123 / #+= 层用它代替表情或符号入口（`updateKeyboardLayout`）：轻点输入逗号，上滑、下滑或长按输入句号，与 Android 那两层的逗号键相同。键面和角标随层的中英文更新。
@@ -4617,6 +5135,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     quickPunctuationWidth = punctuation.widthAnchor.constraint(equalToConstant: 44)
     symbolKeyFaces.append((punctuation, ",", Self.chineseSymbolFaces[","] ?? ","))
     row.addArrangedSubview(punctuation)
+    installBottomKeySwipe(punctuation, as: .punctuation)
 
     let space = makeSpaceKey()
     space.accessibilityIdentifier = "spaceKey"
@@ -4642,6 +5161,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     periodKey = period
     symbolKeyFaces.append((period, ".", Self.chineseSymbolFaces["."] ?? "."))
     row.addArrangedSubview(period)
+    installBottomKeySwipe(period, as: .period)
     let language = makeKey(title: "中/英", accessibilityLabel: "切换中英文", function: true) { [weak self] in
       guard let self else { return }
       // 数字九宫格上这个键是句点键（`languageKeyTypesPeriod`）：单切中英文在数字页上看不出变化，句点却常用。
@@ -4660,6 +5180,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     language.titleLabel?.lineBreakMode = .byClipping
     language.accessibilityIdentifier = "bottomLanguageKey"
     language.isHidden = false
+    installBottomKeySwipe(language, as: .language)
     bottomLanguageButton = language
     bottomLanguageWidth = language.widthAnchor.constraint(equalToConstant: 34)
     fullSymbolsWidth = nineKeySymbolsButton.widthAnchor.constraint(equalToConstant: 34)
@@ -4713,6 +5234,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     enter.titleLabel?.adjustsFontSizeToFitWidth = true
     enter.titleLabel?.minimumScaleFactor = 0.65
     enterButton = enter
+    installBottomKeySwipe(enter, as: .enter)
     row.addArrangedSubview(enter)
 
     // iPad 的 26 键底行：空格键之后是第二个 123 和收起键盘的 ⌄，占据原本回车的位置；回车移到第二排字母。
@@ -4936,6 +5458,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     hold.cancelsTouchesInView = true
     hold.delegate = self
     space.addGestureRecognizer(hold)
+    // 上滑、下滑（`BottomKeySwipePreference`）：默认上滑上屏候选译文，下滑不接。
+    // 空格自己的拖动只在横向占优时开始（`gestureRecognizerShouldBegin`），所以竖直滑动仍归按键判定。
+    installBottomKeySwipe(space, as: .space)
     return space
   }
 
@@ -5735,7 +6260,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       localMode: currentLocalMode, entersHelpcode: entersHelpcode,
       casedLetters: typesCasedLetters, korean: typesKorean,
       swipeSymbols: swipeSymbolsEnabled, shuangpinHints: shuangpinKeyHintsEnabled,
-      cornerHints: letterCornerHintsEnabled, landscape: isLandscape)
+      cornerHints: letterCornerHintsEnabled, swipeHint: letterSwipeHintEnabled,
+      swipeRevision: letterSwipeRevision, landscape: isLandscape)
     guard appliedLetterCaseInputs != inputs else { return }
     appliedLetterCaseInputs = inputs
     // 中文模式的字母键面画大写（与搜狗、微信、百度、豆包的拼音 26 键一致），输入的仍是小写拼写；英文模式画小写，只有下一键真的会输入大写时键面才变大写：英文的 Shift 或大写锁定，组字中的辅助码 Shift（无障碍标签里也会体现，并以大写辅助码交给 Engine），以及越南语和藏文区分大小写的字母（它们按 Shift 画大小写，不跟中文模式画大写）。日语罗马字照日文键盘的惯例画小写；本地输入模式（英文补全、Unicode、快捷短语等）按字面输入，也画小写。
@@ -5773,18 +6299,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       // 用户在设置里关掉「双拼键位提示」时也不画；下边距和读屏的 accessibilityValue 都跟着 `hint == nil` 收回。
       let hint = isChineseMode && !inLocalMode && shuangpinKeyHintsEnabled
         ? shuangpinKeyHints[lowercase.uppercased()] : nil
-      // 底部的双拼提示和右上角的上滑符号各占一条。只让下边距时字母会整个上移半个提示行（44pt 键上
+      // 底部那一行先给双拼键位提示；它不画时（全拼、关掉提示或英文模式）再写这个键下滑动作的短名。
+      // 两者占同一个位置，双拼提示在时下滑提示让位，不叠字。
+      let bottomHint = hint ?? swipeHintTitle(for: lowercase)
+      // 底部的提示行和右上角的上滑符号各占一条。只让下边距时字母会整个上移半个提示行（44pt 键上
       // 5.5pt），22pt 字母的字顶从 14.2 抬到 8.7，正好压进 10pt 角标里（角标距上边 3pt、字底约 12.5）。
-      // 上、下各让出一样的 11pt，字母仍落在按键中心，角标和声母韵母都碰不到它；角标不画时不占位。
-      let cornerBand: CGFloat = hint == nil || cornerLabel.isHidden || !letterKeyFitsTwoHintBands ? 0 : 11
+      // 上、下各让出一样的 11pt，字母仍落在按键中心，角标和底部提示都碰不到它；角标不画时不占位。
+      let cornerBand: CGFloat = bottomHint == nil || cornerLabel.isHidden || !letterKeyFitsTwoHintBands ? 0 : 11
       if var configuration = button.configuration {
         configuration.title = usesUppercase ? lowercase.uppercased() : lowercase
         configuration.contentInsets = NSDirectionalEdgeInsets(
-          top: cornerBand, leading: 0, bottom: hint == nil ? 0 : 11, trailing: 0)
+          top: cornerBand, leading: 0, bottom: bottomHint == nil ? 0 : 11, trailing: 0)
         button.configuration = configuration
       }
-      hintLabel.text = hint
-      hintLabel.isHidden = hint == nil
+      hintLabel.text = bottomHint
+      hintLabel.isHidden = bottomHint == nil
       // `;` 键的标签已经说出它在当前方案里的韵母，不再按字母读，也不重复读键位提示。
       if lowercase == ";" {
         button.accessibilityLabel = semicolonKeyAccessibilityLabel
@@ -6787,13 +7316,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         FrequencyAdjustmentPreference.linearStep = linearStep
       }
     }
-    if let glossEnabled = preferences["candidate_english_gloss"] as? Bool,
-       glossEnabled != CandidateGlossPreference.enabled {
-      CandidateGlossPreference.enabled = glossEnabled
-      candidateGlossEpoch &+= 1
-      candidateGlossRequestedGeneration = nil
-      visibleCandidateGlosses = []
-      candidateTargetGlosses = [:]
+    if let glossEnabled = preferences["candidate_english_gloss"] as? Bool {
+      if glossEnabled != CandidateGlossPreference.enabled {
+        CandidateGlossPreference.enabled = glossEnabled
+        candidateGlossEpoch &+= 1
+        candidateGlossRequestedGeneration = nil
+        visibleCandidateGlosses = []
+        candidateTargetGlosses = [:]
+      }
     }
     if let translationsEnabled = preferences["candidate_translations"] as? Bool {
       CandidateTranslationPreference.onlineEnabled = translationsEnabled
@@ -7550,6 +8080,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let swipeSymbols: Bool
     let shuangpinHints: Bool
     let cornerHints: Bool
+    /// 「显示下滑动作提示」与每键配置的版本号：换过配置就要按新的下滑动作重画底部那行。
+    let swipeHint: Bool
+    let swipeRevision: Int
     /// 手机横屏的键只有 34pt，双拼提示那条上边距要收回（`letterKeyFitsTwoHintBands`）。
     let landscape: Bool
   }
@@ -7627,8 +8160,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func updateSymbolKeyFaces() {
     // Chinese punctuation only appears in Chinese mode. Local utilities and dedicated English input send the literal ASCII key value, so their labels must follow their insertion path. Korean and Vietnamese write ASCII marks too. Zhuyin's panel writes its marks itself, by the punctuation switch, so its faces follow that switch too.
-    let sendsChinesePunctuation = isChineseMode && !isInLocalMode && !inputScheme.writesAsciiPunctuation
-      && (!typesZhuyin || zhuyinWritesChinesePunctuation)
+    let sendsChinesePunctuation = symbolFacesUseChinesePunctuation
     // 不在手机 26 键底行时，， 键是快捷标点键，键面是第一个快捷标点（`updateKeyboardLayout`）。
     // 日语的逗号写作 、，手机底行的逗号键就画 、，按下也发 、。
     let japaneseComma = writesJapaneseComma
@@ -7814,7 +8346,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let style: ActionRowStyle = symbolLayer ? .symbolLayer : nineKeyFrame ? .nineKey : tabletRow ? .tablet : phoneRow ? .phone : .standard
       phoneBottomRowShown = style == .phone
       nineKeyHeight.isActive = nineKeyFrame
-      let showsLanguage = KeyboardLayoutPreference.geometry.showsBottomLanguage
+      // 「隐藏中/英键」的生效范围（用户确认）：
+      //   受影响 —— 全拼 26 键、双拼 26 键（含自然码/微软/搜狗等双拼方案）、14 键、18 键等全键盘字母层；
+      //   不受影响 —— 「123」数字键盘（任何方案借来的数字九宫格）和「全拼 9 键」（含九键双拼、笔画的九键外框）。
+      // nineKeyFrame = 九键字母层 || 笔画 || 数字页，恰好是要豁免的两类，双拼 26 键不在其中照常隐藏。
+      // 数字页的中/英键本就改作句点键，藏掉它会丢掉小数点输入、把它的份额并给空格让空格占两列、
+      // 右列中间键退回「.」；九键字母层藏掉它同样只会被空格吃掉份额、没有收益。
+      let hidesLanguage = !KeyboardLayoutPreference.geometry.showsBottomLanguage && !nineKeyFrame
+      let showsLanguage = !hidesLanguage
       let styledRow = styledBottomRow(style: style, letterRows: letterRowsShown, letterGrid: fourteenKeyRows,
                                       numberPad: numberPad, nineKeyDigits: numberPad && (nineKey || strokes || symbolFirstSource),
                                       tallReturn: tallReturn, language: showsLanguage)
@@ -7883,7 +8422,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         key.cornerHint = layerComma ? (symbolLayerIsChinese ? "。" : ".") : nil
       }
       nineKeyZeroButton.isHidden = style != .nineKey || (!showsSymbols && inputScheme != .nineKeyShuangpin)
-      let hidesLanguage = !layout.showsBottomLanguage
       bottomLanguageButton?.isHidden = style == .symbolLayer || hidesLanguage
       // 中/英 键的显隐定下来之后，再定它在数字九宫格上是不是句点键，以及右列中间键是 . 还是 =。
       applyLanguageKeyFace()
@@ -9544,8 +10082,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         refreshGlossCard(panelSnapshot: snapshot)
         return
       }
-      // 九键面板里选拼音、退格和筛选都会换一代候选，面板留着、按新的一代重建，组字结束才收起。面板里刚选了候选时普通网格也一样（`selectPanelCandidate`）；其他换代照旧收起普通网格。
-      guard nineKeyPanelColumns != nil || candidatePanelFollowsSelection, hasComposition else {
+      // 九键面板里选拼音、退格和筛选都会换一代候选，面板留着、按新的一代重建，组字结束才收起。面板里刚选了候选时普通网格也一样（`selectPanelCandidate`）。
+      // 组字一个字都没变、只是换了代时，普通网格也原地换新一代：云候选与 AI 行到达、引擎放出暂扣的尾部、词库同步都会这么换代，用户刚展开的列表不该因此整个收掉——收掉会把键区闪一下再复原，看起来就是「点了展开没展开」。组字真的变了（上屏、退格、换方案）才收起。
+      let followsComposition = nineKeyPanelColumns != nil || candidatePanelFollowsSelection
+      let generationOnly = snapshot.preedit == current.preedit && !snapshot.entries.isEmpty
+      let keepsPanel = followsComposition ? hasComposition : generationOnly
+      guard keepsPanel else {
         closeKeyboardPicker()
         return
       }
@@ -9553,7 +10095,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       panel.reload(candidates: candidatePanelTexts(snapshot), annotations: candidatePanelAnnotations(snapshot),
                    markers: candidatePanelMarkers(snapshot), aiPlaceholders: candidatePanelAIPlaceholders(snapshot),
                    confidentCorrections: candidatePanelConfidentCorrections(snapshot),
-                   corrections: candidatePanelCorrections(snapshot))
+                   corrections: candidatePanelCorrections(snapshot),
+                   keepingScrollPosition: !followsComposition)
       updateNineKeyPanelColumns()
       return
     }
@@ -11079,6 +11622,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self?.playInputClick()
       self?.insertOwnText(symbol, source: .local)
       KeyboardSymbolRecents.record(symbol)
+      self?.returnToLettersAfterSymbol(face: symbol)
     }, onDelete: { [weak self] in
       self?.countKeyPress(TypingKeyID.backspace)
       self?.deleteOwnBackward()

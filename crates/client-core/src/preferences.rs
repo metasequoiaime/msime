@@ -2212,6 +2212,9 @@ pub struct Preferences {
     /// 中文触屏键盘的快捷符号，单个字素、去重，最多十二项；宿主只负责显示与提交。
     #[serde(default = "default_touch_quick_symbols")]
     pub touch_quick_punctuation_symbols: Vec<String>,
+    /// 「输入后返回主键盘符号」：在「符」「#+=」等符号键盘上写出这些符号后自动回到字母键盘。单个字素、去重，最多十二项；空列表（缺省）表示关闭。宿主只负责显示与提交。
+    #[serde(default = "default_return_to_letters_symbols", skip_serializing_if = "Vec::is_empty")]
+    pub touch_return_to_letters_symbols: Vec<String>,
     /// The optional buttons on the touch keyboard's toolbar, the counterpart of the floating toolbar's component switches. The voice entry stays under `touch_voice_shortcut`.
     #[serde(default)]
     pub touch_toolbar: TouchToolbarPreferences,
@@ -4648,8 +4651,13 @@ pub fn default_touch_quick_symbols() -> Vec<String> {
         .to_vec()
 }
 
+/// 「输入后返回主键盘符号」的默认清单：空列表，没配置过的人行为不变。
+pub fn default_return_to_letters_symbols() -> Vec<String> {
+    Vec::new()
+}
+
 /// 规范化原生设置提交的单字素列表；保留组合 emoji，过滤控制字符与空白。
-pub fn normalize_touch_quick_symbols(symbols: &[String]) -> Vec<String> {
+fn normalize_single_grapheme_symbols(symbols: &[String]) -> Vec<String> {
     let mut normalized = Vec::new();
     for symbol in symbols {
         let value = symbol.trim();
@@ -4664,11 +4672,22 @@ pub fn normalize_touch_quick_symbols(symbols: &[String]) -> Vec<String> {
             break;
         }
     }
+    normalized
+}
+
+/// 快捷符号的规范形式：规则见 [`normalize_single_grapheme_symbols`]，没有有效项时换成出厂列表。
+pub fn normalize_touch_quick_symbols(symbols: &[String]) -> Vec<String> {
+    let normalized = normalize_single_grapheme_symbols(symbols);
     if normalized.is_empty() {
         default_touch_quick_symbols()
     } else {
         normalized
     }
+}
+
+/// 「输入后返回主键盘」的符号列表：规则与快捷符号相同，但没有有效项时保持为空——空列表就是关闭，不能换成某端的默认表，否则这项功能会对没设置过的人默默打开。
+pub fn normalize_return_to_letters_symbols(symbols: &[String]) -> Vec<String> {
+    normalize_single_grapheme_symbols(symbols)
 }
 
 /// 九键左侧符号栏一张表最多几项，与 Android `NineKeySidebarPolicy.MAX_SYMBOLS` 相同。
@@ -4920,6 +4939,7 @@ impl Default for Preferences {
             touch_nine_key_flick_threshold: TOUCH_NINE_KEY_FLICK_THRESHOLD_DEFAULT,
             touch_nine_key_precise: false,
             touch_quick_punctuation_symbols: default_touch_quick_symbols(),
+            touch_return_to_letters_symbols: default_return_to_letters_symbols(),
             touch_toolbar: TouchToolbarPreferences::default(),
             harmony_toolbar: HarmonyToolbarPreferences::default(),
             last_chinese_scheme: None,
@@ -5949,6 +5969,11 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidTouchQuickSymbols);
         }
+        if self.touch_return_to_letters_symbols
+            != normalize_return_to_letters_symbols(&self.touch_return_to_letters_symbols)
+        {
+            return Err(PreferencesError::InvalidTouchReturnToLettersSymbols);
+        }
         if [
             &self.touch_nine_key_sidebar_symbols,
             &self.touch_nine_key_digit_sidebar_symbols,
@@ -6153,6 +6178,8 @@ pub enum PreferencesError {
     InvalidTextTrackpad,
     #[error("快捷符号必须是去重的单字素列表，最多十二项且不含空白或控制字符")]
     InvalidTouchQuickSymbols,
+    #[error("返回主键盘的符号必须是去重的单字素列表，最多十二项且不含空白或控制字符")]
+    InvalidTouchReturnToLettersSymbols,
     #[error("九键左侧符号栏必须是去重的列表，最多三十项、用空格连起来不超过 200 个 UTF-16 单元，每项最多四个码位且不含空白或控制字符")]
     InvalidTouchNineKeySidebarSymbols,
     #[error(
@@ -7821,5 +7848,66 @@ mod quick_symbols_tests {
         assert!(invalid.validate().is_err());
         let many: Vec<_> = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬".graphemes(true).map(str::to_owned).collect();
         assert_eq!(normalize_touch_quick_symbols(&many).len(), 12);
+    }
+
+    /// 「输入后返回主键盘符号」与快捷符号共用单字素规则；缺省是空列表（关闭）。
+    #[test]
+    fn return_to_letters_symbols_are_validated_and_default_to_empty() {
+        assert!(Preferences::default().touch_return_to_letters_symbols.is_empty());
+        // 缺键（这一版之前写的文档）补成缺省的空列表。
+        let mut legacy = serde_json::to_value(Preferences::default()).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("touch_return_to_letters_symbols");
+        let parsed = serde_json::from_value::<Preferences>(legacy).unwrap();
+        assert!(parsed.touch_return_to_letters_symbols.is_empty());
+        // 空列表不写进文档：没配置过与显式关闭都是「不跳转」。
+        let off = serde_json::to_value(Preferences {
+            touch_return_to_letters_symbols: Vec::new(),
+            ..Preferences::default()
+        })
+        .unwrap();
+        assert!(off.get("touch_return_to_letters_symbols").is_none());
+        let parsed = serde_json::from_value::<Preferences>(off).unwrap();
+        assert!(parsed.touch_return_to_letters_symbols.is_empty());
+        assert!(parsed.validate().is_ok());
+        assert_eq!(
+            normalize_return_to_letters_symbols(&[]),
+            Vec::<String>::new()
+        );
+        let symbols = vec![
+            "，".to_owned(),
+            "，".to_owned(),
+            "。".to_owned(),
+            "ab".to_owned(),
+            " \n".to_owned(),
+            "😀".to_owned(),
+        ];
+        let normalized = normalize_return_to_letters_symbols(&symbols);
+        assert_eq!(normalized, ["，", "。", "😀"]);
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(directory.path());
+        let mut snapshot = store.load().unwrap();
+        snapshot.preferences.touch_return_to_letters_symbols = normalized.clone();
+        store.save(snapshot.revision, snapshot.preferences).unwrap();
+        assert_eq!(
+            store
+                .load()
+                .unwrap()
+                .preferences
+                .touch_return_to_letters_symbols,
+            normalized
+        );
+        let invalid = Preferences {
+            touch_return_to_letters_symbols: symbols,
+            ..Preferences::default()
+        };
+        assert!(matches!(
+            invalid.validate(),
+            Err(PreferencesError::InvalidTouchReturnToLettersSymbols)
+        ));
+        let many: Vec<_> = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬".graphemes(true).map(str::to_owned).collect();
+        assert_eq!(normalize_return_to_letters_symbols(&many).len(), 12);
     }
 }
