@@ -3276,7 +3276,6 @@ Note
 | `futures-core` | 0.3.34 | MIT OR Apache-2.0 | L24、L25 |
 | `futures-task` | 0.3.34 | MIT OR Apache-2.0 | L24、L25 |
 | `futures-util` | 0.3.34 | MIT OR Apache-2.0 | L24、L25 |
-| `hashbrown` | 0.16.1 | MIT OR Apache-2.0 | L04、L26 |
 | `hashbrown` | 0.17.1 | MIT OR Apache-2.0 | L04、L26 |
 | `hashlink` | 0.12.2 | MIT OR Apache-2.0 | L27、L28 |
 | `hex` | 0.4.3 | MIT OR Apache-2.0 | L19、L29 |
@@ -3312,8 +3311,8 @@ Note
 | `regex-automata` | 0.4.18 | MIT OR Apache-2.0 | L04、L05 |
 | `regex-syntax` | 0.8.11 | MIT OR Apache-2.0 | L04、L05 |
 | `rink-core` | 0.9.0 | MPL-2.0 | L44 |
-| `rsqlite-vfs` | 0.1.1 | MIT | 未附带 |
-| `rusqlite` | 0.41.1 | MIT | L45 |
+| `rsqlite-vfs` | 0.2.0 | MIT | 未附带 |
+| `rusqlite` | 0.43.0 | MIT | L45 |
 | `serde` | 1.0.229 | MIT OR Apache-2.0 | L32、L22 |
 | `serde_core` | 1.0.229 | MIT OR Apache-2.0 | L32、L22 |
 | `serde_json` | 1.0.154 | MIT OR Apache-2.0 | L32、L22 |
@@ -3321,7 +3320,7 @@ Note
 | `siphasher` | 1.0.3 | MIT/Apache-2.0 | L47 |
 | `slab` | 0.4.12 | MIT | L48 |
 | `smallvec` | 1.16.0 | MIT OR Apache-2.0 | L04、L49 |
-| `sqlite-wasm-rs` | 0.5.5 | MIT | L50 |
+| `sqlite-wasm-rs` | 0.6.3 | MIT | L50 |
 | `strsim` | 0.10.0 | MIT | L51 |
 | `tempfile` | 3.27.0 | MIT OR Apache-2.0 | L04、L52 |
 | `thiserror` | 2.0.21 | MIT OR Apache-2.0 | L32、L22 |
@@ -3338,7 +3337,7 @@ Note
 下列 crate 的发布包里没有许可证文件，按它们声明的许可证表达式使用；对应许可证的标准条款见下面同名许可证的文本：
 
 - `exmex` 0.21.0（MIT OR Apache-2.0）
-- `rsqlite-vfs` 0.1.1（MIT）
+- `rsqlite-vfs` 0.2.0（MIT）
 
 ### L01（COPYING）
 
@@ -3411,7 +3410,7 @@ For more information, please refer to <http://unlicense.org/>
 
 ### L04（LICENSE-APACHE）
 
-用于：`bitflags` 2.13.1、`cfg-if` 1.0.4、`equivalent` 1.0.2、`fastrand` 2.5.0、`hashbrown` 0.16.1、`hashbrown` 0.17.1、`indexmap` 2.14.2、`js-sys` 0.3.105、`log` 0.4.34、`num-bigint` 0.4.8、`num-integer` 0.1.47、`num-rational` 0.4.2、`num-traits` 0.2.19、`once_cell` 1.21.4、`regex` 1.13.1、`regex-automata` 0.4.18、`regex-syntax` 0.8.11、`smallvec` 1.16.0、`tempfile` 3.27.0、`unicode-segmentation` 1.13.3、`wasm-bindgen` 0.2.128、`wasm-bindgen-shared` 0.2.128
+用于：`bitflags` 2.13.1、`cfg-if` 1.0.4、`equivalent` 1.0.2、`fastrand` 2.5.0、`hashbrown` 0.17.1、`indexmap` 2.14.2、`js-sys` 0.3.105、`log` 0.4.34、`num-bigint` 0.4.8、`num-integer` 0.1.47、`num-rational` 0.4.2、`num-traits` 0.2.19、`once_cell` 1.21.4、`regex` 1.13.1、`regex-automata` 0.4.18、`regex-syntax` 0.8.11、`smallvec` 1.16.0、`tempfile` 3.27.0、`unicode-segmentation` 1.13.3、`wasm-bindgen` 0.2.128、`wasm-bindgen-shared` 0.2.128
 
 ````text
                               Apache License
@@ -5336,7 +5335,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### L26（LICENSE-MIT）
 
-用于：`hashbrown` 0.16.1、`hashbrown` 0.17.1
+用于：`hashbrown` 0.17.1
 
 ````text
 Copyright (c) 2016 Amanieu d'Antras
@@ -7091,7 +7090,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 
 ### L45（LICENSE）
 
-用于：`rusqlite` 0.41.1
+用于：`rusqlite` 0.43.0
 
 ````text
 Copyright (c) 2014 The rusqlite developers
@@ -7230,7 +7229,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### L50（LICENSE）
 
-用于：`sqlite-wasm-rs` 0.5.5
+用于：`sqlite-wasm-rs` 0.6.3
 
 ````text
 MIT License
