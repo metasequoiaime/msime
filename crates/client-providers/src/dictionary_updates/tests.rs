@@ -17,6 +17,8 @@ struct Fixture {
     switch_off_while_stalled: std::cell::Cell<bool>,
     /// 这些地址不支持 Range，总是整份返回。
     ignore_range: RefCell<Vec<String>>,
+    /// 每次请求词库文件时 `generations/resources.lock` 是否没人持着。
+    resources_lock_free: RefCell<Vec<bool>>,
 }
 
 impl Transport for Fixture {
@@ -39,6 +41,17 @@ impl Fetcher for Fixture {
     fn fetch<'a>(&'a self, url: &str, offset: u64) -> Result<Fetched<'a>, LocalModelError> {
         self.requests.borrow_mut().push(url.to_owned());
         self.ranges.borrow_mut().push((url.to_owned(), offset));
+        let lock = root(&self.context.state_root)
+            .join("generations")
+            .join("resources.lock");
+        self.resources_lock_free.borrow_mut().push(
+            !lock.exists()
+                || file_lock::ScopedFileLock::try_exclusive(
+                    file_lock::open_private_lock_file(&lock).unwrap(),
+                )
+                .unwrap()
+                .is_some(),
+        );
         let bytes = self
             .files
             .borrow()
@@ -130,6 +143,7 @@ impl Fixture {
             switch_off_on: RefCell::default(),
             switch_off_while_stalled: std::cell::Cell::default(),
             ignore_range: RefCell::default(),
+            resources_lock_free: RefCell::default(),
         }
     }
 
@@ -1182,6 +1196,31 @@ fn an_interrupted_download_resumes_on_the_next_check_and_stale_parts_are_dropped
     assert!(check_with(&fixture.context, false, &fixture).is_err());
     assert!(!partial.exists());
     assert_eq!(std::fs::read_dir(fixture.partials()).unwrap().count(), 1);
+}
+
+#[test]
+fn downloads_never_wait_on_the_network_while_holding_the_resource_store_lock() {
+    // #11973：iOS 上状态目录在 App Group 里，挂起时还持着 `resources.lock` 会被系统杀掉。第二次检查时代次目录和锁文件都已经在了，下载新版本时锁也必须空着。
+    let fixture = Fixture::new();
+    fixture.release("dict-v2.0.10", b"first synthetic dictionary", 1);
+    assert_eq!(
+        check_with(&fixture.context, false, &fixture).unwrap().phase,
+        "ready"
+    );
+    fixture.release("dict-v2.0.11", b"second synthetic dictionary", 1);
+    assert_eq!(
+        check_with(&fixture.context, false, &fixture)
+            .unwrap()
+            .version,
+        "dict-v2.0.11"
+    );
+    assert!(root(&fixture.context.state_root)
+        .join("generations")
+        .join("resources.lock")
+        .exists());
+    let free = fixture.resources_lock_free.borrow();
+    assert!(!free.is_empty());
+    assert!(free.iter().all(|free| *free));
 }
 
 #[test]
