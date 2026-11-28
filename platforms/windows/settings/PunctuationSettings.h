@@ -1,7 +1,9 @@
 #pragma once
 #include <array>
 #include <optional>
+#include <string>
 #include <string_view>
+#include <vector>
 
 // 「标点与翻译」页「标点」组的规则，与共享设置页相同：「标点」选择怎样由 `chinese_punctuation` 和 `punctuation_lock` 两个键合起来表达（`packages/ui/src/settings/punctuation-preferences.ts` 的 punctuationMode、punctuationModePatch，选项文字见 `punctuation-options.ts`），智能标点总开关连同两半一起写（smartPunctuationPatch），以及「总开关开、两半都关」时说明里多出的那一句（`punctuation-section.tsx` 的 SmartPunctuationRow）。不依赖 Windows 和 WinRT 头文件，方便单独测试。
 namespace msime::settings::punctuation {
@@ -74,5 +76,43 @@ inline bool smart_punctuation_inert(bool smart, bool direct_digit, bool direct_l
 
 inline constexpr std::wstring_view smart_punctuation_inert_description =
     L"中文标点模式下，字母或数字后的 , . : 自动使用英文标点。数字后直出和字母后直出都已关闭，这一条暂不生效，打开下面其中一项，或关掉再打开智能标点";
+
+// 「保留英文的标点」（#11890）：共享偏好 `preserve_english_punctuation` 记一组键，这些键在中文标点下照样输出英文标点。可选的键是标点契约第 7 版 `preserveEnglish` 段的 21 个，按契约顺序；每个复选框画出这个键和它在中文标点下原本出的字。与 iOS、Android 原生设置相同。
+inline constexpr std::wstring_view preserve_english_key = L"preserve_english_punctuation";
+inline constexpr std::wstring_view preserve_english_description =
+    L"选中的键在中文标点下照样输出英文标点，其余键不变";
+
+struct PreservableKey {
+  std::wstring_view ascii;
+  std::wstring_view chinese;
+};
+
+inline constexpr std::array<PreservableKey, 21> preservable_keys{{
+    {L",", L"，"}, {L".", L"。"}, {L"?", L"？"}, {L"!", L"！"}, {L";", L"；"}, {L":", L"："},
+    {L"(", L"（"}, {L")", L"）"}, {L"[", L"【"}, {L"]", L"】"}, {L"\\", L"、"}, {L"`", L"·"},
+    {L"$", L"￥"}, {L"^", L"……"}, {L"_", L"——"}, {L"{", L"「"}, {L"}", L"」"},
+    {L"\"", L"“ ”"}, {L"'", L"‘ ’"}, {L"<", L"《"}, {L">", L"》"},
+}};
+
+// 复选框文字：键本身和它原本出的字。
+inline std::wstring preserve_english_label(PreservableKey const &key) {
+  return std::wstring(key.ascii) + L"  " + std::wstring(key.chinese);
+}
+
+// 勾上或取消一个键之后要写的集合：只留认识的键，按契约顺序，不重复。空集合时调用方删掉这个键，与缺省相同。
+inline std::vector<std::wstring> preserve_english_toggled(std::vector<std::wstring> const &stored,
+                                                          std::wstring_view key, bool on) {
+  std::vector<std::wstring> keys;
+  for (auto const &candidate : preservable_keys) {
+    bool selected = false;
+    for (auto const &value : stored)
+      selected = selected || value == candidate.ascii;
+    if (candidate.ascii == key)
+      selected = on;
+    if (selected)
+      keys.emplace_back(candidate.ascii);
+  }
+  return keys;
+}
 
 } // namespace msime::settings::punctuation

@@ -1,3 +1,4 @@
+#include "../../../../shared/contracts/punctuation/policy.h"
 #include "../../settings/PunctuationSettings.h"
 #include <cstdio>
 #include <string>
@@ -76,6 +77,25 @@ int main() {
   check(std::wstring(smart_punctuation_inert_description)
                 .rfind(std::wstring(smart_punctuation_description), 0) == 0,
         "the inert description extends the normal one");
+
+  // 保留英文的标点（#11890）：21 个键与标点契约逐个对上，切换按契约顺序写，不认识的键丢掉。
+  {
+    namespace contract = metasequoia::punctuation_contract;
+    check(preservable_keys.size() == contract::preserve_english.size(), "21 preservable keys");
+    for (std::size_t i = 0; i < preservable_keys.size(); ++i)
+      check(preservable_keys[i].ascii.size() == 1 &&
+                preservable_keys[i].ascii[0] == static_cast<wchar_t>(contract::preserve_english[i]),
+            "the keys follow the contract order");
+    const auto one = preserve_english_toggled({}, L"`", true);
+    check(one == std::vector<std::wstring>{L"`"}, "a check adds the key");
+    const auto two = preserve_english_toggled(one, L"\\", true);
+    check(two == (std::vector<std::wstring>{L"\\", L"`"}), "the set keeps contract order");
+    check(preserve_english_toggled(two, L"`", false) == std::vector<std::wstring>{L"\\"},
+          "an uncheck removes the key");
+    check(preserve_english_toggled({L"/", L"`", L"`"}, L"a", true) == std::vector<std::wstring>{L"`"},
+          "unknown and repeated keys are dropped");
+    check(preserve_english_label(preservable_keys[11]) == L"`  ·", "the label shows the key and its mark");
+  }
 
   if (failures == 0)
     std::puts("punctuation settings: ok");
