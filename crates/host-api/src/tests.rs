@@ -9575,9 +9575,14 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
         Some(bundle.path())
     );
 
-    // 只装了大的时不换档，换档的预算再小、内存再少也用它；只查它打一页在上限之内，整句池也按这一页定。
+    // 只装了大的时不换档，换档的预算再小、内存再少（只要不低于两档都不加载的门槛）也用它；只查它打一页在上限之内，整句池也按这一页定。
     let large_only = widest()
-        .attach(bundle.path(), 0.0, f64::MAX, Some(0))
+        .attach(
+            bundle.path(),
+            0.0,
+            f64::MAX,
+            Some(ffi::RERANK_MODEL_MIN_AVAILABLE),
+        )
         .attached()
         .unwrap();
     assert_eq!(context(&large_only), LARGE);
@@ -9749,7 +9754,12 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     );
     // 内存不够、只能用小的时同样要过上限。
     assert!(matches!(
-        ffi::OnnxRerankers::default().attach(bundle.path(), f64::MAX, 0.0, Some(0)),
+        ffi::OnnxRerankers::default().attach(
+            bundle.path(),
+            f64::MAX,
+            0.0,
+            Some(ffi::RERANK_MODEL_MIN_AVAILABLE)
+        ),
         ffi::OnnxAttach::OverLimit(_)
     ));
 
@@ -9777,6 +9787,76 @@ fn keyboard_reranker_prefers_the_onnx_model_when_one_is_installed() {
     assert_eq!(fallback.context_length(), bundled.context_length());
     assert_ne!(fallback.context_length(), LARGE);
     assert_ne!(fallback.context_length(), SMALL);
+}
+
+/// 可用内存少于 `RERANK_MODEL_MIN_AVAILABLE` 时两档都不加载（#11852：iPad 的键盘扩展上限只有 89 MiB，偏好应用完只剩 26 MiB，还去加载小模型，键盘被系统结束）。不留结论，内存回来后照常挂；已经加载、可以共用的那一份照常共用。
+#[cfg(feature = "onnx-rerank")]
+#[test]
+fn keyboard_reranker_skips_loading_when_memory_is_too_low() {
+    let fixtures =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../onnx-rerank/tests/fixtures");
+    let install = |directory: &std::path::Path| {
+        std::fs::create_dir(directory).unwrap();
+        for name in ["lm_step.ort", "model.json", "vocab.json"] {
+            std::fs::copy(fixtures.join(name), directory.join(name)).unwrap();
+        }
+    };
+    let short = Some(ffi::RERANK_MODEL_MIN_AVAILABLE - 1);
+    let low_memory = |attach: ffi::OnnxAttach| match attach {
+        ffi::OnnxAttach::LowMemory(detail) => detail,
+        _ => panic!("nothing loads below the memory floor"),
+    };
+
+    // 一个模型都没装时不是内存的事，照旧交给随包的句子模型。
+    let empty = tempfile::tempdir().unwrap();
+    let mut rerankers = ffi::OnnxRerankers::default();
+    assert!(matches!(
+        rerankers.attach(empty.path(), f64::MAX, f64::MAX, Some(0)),
+        ffi::OnnxAttach::Unavailable
+    ));
+
+    // 只装了小的，或者两个都装了：门槛以下都不加载，诊断细节写出可用内存和门槛。
+    let bundle = tempfile::tempdir().unwrap();
+    install(&bundle.path().join(ffi::SMALL_RERANK_MODEL_DIRECTORY));
+    let detail = low_memory(rerankers.attach(bundle.path(), f64::MAX, f64::MAX, short));
+    assert!(detail.contains("needs 40 MiB"), "{detail}");
+    install(&bundle.path().join(ffi::RERANK_MODEL_DIRECTORY));
+    low_memory(rerankers.attach(bundle.path(), f64::MAX, f64::MAX, Some(0)));
+    // 不起后台线程的那条路同样当场回答，不留给后台去加载。
+    low_memory(
+        rerankers
+            .attach_cached(bundle.path(), f64::MAX, f64::MAX, short)
+            .expect("answered without loading"),
+    );
+
+    // 内存回来了照常定档位：门槛之上、大模型的门槛之下用小的。
+    let attached = rerankers
+        .attach(
+            bundle.path(),
+            f64::MAX,
+            f64::MAX,
+            Some(ffi::RERANK_MODEL_MIN_AVAILABLE),
+        )
+        .attached()
+        .unwrap();
+    assert_eq!(
+        attached.category,
+        "keyboard reranker onnx small (low memory)"
+    );
+    // 已经加载的那一份共用不多占内存，内存再少也照常共用。
+    let shared = rerankers
+        .attach(bundle.path(), f64::MAX, f64::MAX, Some(0))
+        .attached()
+        .unwrap();
+    assert!(Arc::ptr_eq(&attached.scorer, &shared.scorer));
+    assert!(shared.detail.ends_with("(shared)"), "{}", shared.detail);
+    assert!(matches!(
+        rerankers.attach_cached(bundle.path(), f64::MAX, f64::MAX, Some(0)),
+        Some(ffi::OnnxAttach::Attached(_))
+    ));
+    // 放开之后再碰到内存不够，又是一个都不加载。
+    rerankers.release(bundle.path());
+    low_memory(rerankers.attach(bundle.path(), f64::MAX, f64::MAX, short));
 }
 
 /// 整句池按自测速度定：表里的系数是 Mac 上量的，几个真机的自测值落在哪一档要与实测相符。

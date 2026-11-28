@@ -25,6 +25,7 @@ iOS 键盘扩展有硬上限，2026-11-02 的 iPhone 17（iOS 27.2）上是 176 
 - **底部双拼提示按按键的最终尺寸直接排版。** `KeyboardBottomHintLabel` 仍是单行 `UILabel`，保留 9pt 常规字体、原皮肤强调色的 0.8 透明度、居中、最小缩放 0.6、左右各 2pt 和底部 2pt。`KeyboardKeyButton.layoutSubviews` 取得最终键面尺寸后安排它的 frame；自然高度由 `sizeThatFits` 读取，零尺寸或放不下边距时收为零，恢复尺寸后重新布局。文本改变会让父按键重排，缩字与绘制继续交给系统标签。控制器只创建并注册标签，不再为这组装饰性提示安装三条边约束；角标、主键面、配置和用户默认值保持原行为。
 - **重排器进程里只加载一份，自测只做一次。** `ffi::OnnxRerankers`（host-api）是进程级缓存，各平台的宿主都经它挂重排器：同一时刻只加载一个模型，各会话经 `Arc<Mutex<OnnxScorer>>` 共用；档位在第一次挂上时定下，之后的会话沿用，不因为某一刻的内存多少在大小模型之间来回换；大模型的自测结果按根目录和 `lm_step.ort` 的长度、修改时间记下，放开再挂不重测，重新加载的那一份经 `OnnxScorer::accept_calibration` 带上之前的结论（过了预算的大模型同时排上屏后联想）。「增强」关掉时放开，模型文件换了重新定。要换模型时先放开缓存里旧的那个再加载新的。
 - **可用内存不够时不加载大模型。** iOS 上 `os_proc_available_memory()` 少于 `LARGE_RERANK_MODEL_MIN_AVAILABLE`（120 MiB）且两档都装着时，直接用小的，不先加载大的去自测；类别写成 `keyboard reranker onnx small (low memory)`。门槛是大模型的加载峰值 74 MiB 再留 46 MiB：会话建立之后键盘界面才画出来，iPhone 17 上那一段是 20 MB 左右，打字时词库页面和候选缓存还会涨。拿不到余量（模拟器、其他平台，函数返回 0）时不按内存挑。
+- **可用内存少于 40 MiB 时两档都不加载（2026-11-28，[#11852](https://github.com/metasequoiaime/msime/issues/11852)）。** iPad 的键盘扩展上限比 iPhone 低得多：iPad Air 5（iPadOS 17.0）的诊断日志里 `keyboard_loaded mem=8 avail=81`，上限约 89 MiB；`focus_in mem=45 avail=44`、`preferences_applied mem=63 avail=26` 之后仍写了 `keyboard reranker onnx small (low memory)`，键盘几秒后换了进程号重新加载，周而复始，表现为键盘弹不出来。120 MiB 的门槛只决定「大的还是小的」，低到小模型的加载峰值（17 MiB）都放不下时也照样加载小的。现在 `ffi::RERANK_MODEL_MIN_AVAILABLE`（40 MiB，小模型峰值再留 23 MiB）以下 `OnnxRerankers::attach` 和 `attach_cached` 都返回 `OnnxAttach::LowMemory`，一个都不加载，也不退到随包的句子模型（它更大），诊断类别 `keyboard reranker skipped (low memory)`，这次会话与「标准」相同。不记下结论：下一个会话按那时的可用内存重新判断，所以不会因为一次内存紧就整个进程都不挂。已经加载、可共用的那一份照常共用，共用不再多占内存。拿不到余量（模拟器、其他平台）时不受影响。
 - **iOS 上关掉 ONNX Runtime 的 CPU 内存池。** `OnnxScorer::load` / `load_file` 多一个 `memory_arena` 参数，host-api 的 `RERANK_MEMORY_ARENA` 只在 `target_os = "ios"` 时为假。其他平台没有扩展这样的硬上限，留着内存池省下每次运行重新向系统要内存的时间。
 - **让 ONNX Runtime 自己读模型文件。** 宿主用 `OnnxScorer::load_file`（`commit_from_file`），不先把 31 MB 的文件读进 `Vec` 再交过去，加载那一刻少一份文件内容。
 
@@ -55,6 +56,9 @@ iOS 键盘扩展有硬上限，2026-11-02 的 iPhone 17（iOS 27.2）上是 176 
 - **从叶端逐个拆开 `UIStackView.arrangedSubviews` 后再摘根视图** — 每次迁移的视图较少，而且可以跳过按钮内部的 UIKit 层次；iOS 26.5 的 155 项相关测试通过。但 iOS 27 的既有临时英文切换回归仍在 `removeArrangedSubview` 时触发同一断言，因此不能只缩小每次拆除的范围，改为先批量停用约束。
 - **清理前先 `layoutIfNeeded`** — 布局刷新有机会先把尺寸和引擎状态对齐，26.5 的九键和内存类也通过。但原 155 项仍在短语测试中触发 `_engineVar_rawRemove` 后中止，只有 153 项通过、一项既有跳过，不能作为修复。
 - **只停应用跨根约束，再摘应用自己的两个直接子根** — 归属边界清楚，不去碰 UIKit 生成的内部约束；原 hint 子图还在时，这个诊断版本十轮内存回归有四轮失败、十轮临时英文回归有一轮失败，首次异常仍发生在应用根 `removeFromSuperview` 触发的引擎迁移。缩小清理所有权不是该子图故障的充分修复，本次先隔离提示布局的影响。
+- **把 40 MiB 的判断记成进程级结论，内存回来也不再挂（#11852）** — 能少读几次 `os_proc_available_memory`，但第一次弹出键盘时的余量最低（界面和词库正在建），记下来等于这台 iPad 永远没有「增强」。每次挂之前读一次余量只是一次系统调用，不值得省。
+- **低于 40 MiB 时退到随包的句子模型** — 它约 25 MB，比 6x256 还大，只会更快碰到上限。
+- **按 iPad 机型关掉「增强」** — 上限随机型和系统版本变，和下面按机型名单选模型是同一个问题。
 - **按机型名单决定 iOS 用大模型还是小模型** — 上限因机型和系统版本而异，名单跟不上；自测加可用内存是在每台机器上量要决定的那件事。
 
 ## Consequences
@@ -74,5 +78,6 @@ iOS 键盘扩展有硬上限，2026-11-02 的 iPhone 17（iOS 27.2）上是 176 
 - 同一批量停约束版本的首轮 iOS 27 完整相关类中，`testCommitReplacesSelectionOrCompositionAndImmediatelyContinuesBeforeUnicodeSuffix` 在两轮短语提交后编辑器仍是原文，共有 10 条断言失败；当时控制器还活着，没有布局引擎异常。同一模拟器上，该用例单独复跑通过；恢复原生产销毁逻辑并重新编译后，完整短语类 5 项也通过，尚未确认这次丢提交与销毁改动的因果关系，保留失败日志，不改输入、等待或前置条件。
 - 最终代码进一步让已展示键盘的既有释放测试也检查所有后代视图。在 iOS 27.0 上重新运行 `NineKeyKeyboardTests`、`QuickPhraseCursorKeyboardTests`、`GlideTypingTests`、`KeyboardMemoryTests`，共 155 项、1 项缺笔画词库跳过、0 失败；短语类完整 5 项通过，十次重载读数 `[43, 43, 44, 44, 44, 44, 45, 45, 45, 45]` MiB。两版系统均沿用仓库 `run_ui_tests.sh` 对 `testKeyLayoutsKeepNineKeyHeight` 的既有排除，不新增跳过。最终日志为 `target/ios27-final-related.log`，之前的失败和对照保留在 `target/ios27-batched-related.log`、`target/ios27-batched-quickphrase-isolated.log`、`target/ios27-original-teardown-quickphrase-control.log`。
 - `crates/host-api/src/tests.rs` 的 `keyboard_reranker_prefers_the_onnx_model_when_one_is_installed`：同一个模型连挂十一次都是同一份、细节标 `(shared)`，放开后重新加载，别的根目录挂不上也不放开已加载的；自测只做一次（放开后换预算再挂，沿用那次的毫秒数，换成小的、是另一份；再按原预算挂回大的，仍不重测、照样排上屏后联想）；可用内存少于门槛时用小的且不自测，定下后内存再多也沿用，刚好够时用大的。
+- `crates/host-api/src/tests.rs` 的 `keyboard_reranker_skips_loading_when_memory_is_too_low`（#11852）：一个模型都没装时仍是 `Unavailable`；只装小的、两个都装，可用内存低于门槛时 `attach` 和 `attach_cached` 都返回 `LowMemory`，细节写着 `needs 40 MiB`；内存回到门槛时挂上 `onnx small (low memory)`；已加载的那一份在 0 字节余量下照常共用；放开后再低于门槛又不加载。iPad 真机上没有复验，等报告者的下一份诊断日志看 `keyboard reranker skipped (low memory)` 之后键盘是否还被结束。
 - `crates/onnx-rerank/tests/golden.rs` 的 `reading_the_file_without_a_memory_arena_scores_the_same`：运行时读文件、关内存池时分数与参考运行时一致。
 - 量内存：`ORT_LIB_LOCATION=$(python3 scripts/fetch_onnxruntime.py --target aarch64-apple-ios-sim) CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER=$(xcrun --sdk iphonesimulator --find clang) cargo build --release -p msime-onnx-rerank --features runtime --example footprint --target aarch64-apple-ios-sim`，再 `xcrun simctl spawn <设备> target/aarch64-apple-ios-sim/release/examples/footprint <模型目录> [arena|no-arena] [file|bytes]`。

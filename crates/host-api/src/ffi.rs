@@ -399,6 +399,10 @@ pub(crate) fn keyboard_reranker_for(
                 report_keyboard_reranker(resources, KEYBOARD_RERANKER_OVER_BUDGET, &detail);
                 return None;
             }
+            OnnxAttach::LowMemory(detail) => {
+                report_keyboard_reranker(resources, KEYBOARD_RERANKER_LOW_MEMORY, &detail);
+                return None;
+            }
             OnnxAttach::Unavailable => {}
         }
     }
@@ -454,6 +458,10 @@ pub(crate) fn cached_keyboard_reranker_for(
                 report_keyboard_reranker(resources, KEYBOARD_RERANKER_OVER_BUDGET, &detail);
                 return Some(None);
             }
+            OnnxAttach::LowMemory(detail) => {
+                report_keyboard_reranker(resources, KEYBOARD_RERANKER_LOW_MEMORY, &detail);
+                return Some(None);
+            }
             OnnxAttach::Unavailable => {}
         }
     }
@@ -465,6 +473,10 @@ pub(crate) fn cached_keyboard_reranker_for(
 
 /// 诊断类别：这台设备上模型打一页重负载超过 [`KEYSTROKE_RERANK_LIMIT_MS`]，没挂逐键重排。
 pub(crate) const KEYBOARD_RERANKER_OVER_BUDGET: &str = "keyboard reranker over budget";
+
+/// 诊断类别：进程可用内存少于 [`RERANK_MODEL_MIN_AVAILABLE`]，这个会话没加载模型、没挂逐键重排。
+#[cfg(feature = "onnx-rerank")]
+pub(crate) const KEYBOARD_RERANKER_LOW_MEMORY: &str = "keyboard reranker skipped (low memory)";
 
 /// 诊断类别：模型挂上了，但这台设备跑不进逐键预算，延后到宿主停顿时才用（[`RerankerMount::KeystrokeOrPause`]）。细节是原来那一档的类别和细节。
 #[cfg(feature = "onnx-rerank")]
@@ -605,7 +617,7 @@ pub(crate) fn bundled_keyboard_reranker(
     Some(Box::new(Reranker::new(model)))
 }
 
-/// 「增强」开着时逐键重排挂的是哪一个，写一行诊断。类别本身就说明了档位（`keyboard reranker onnx large`、`keyboard reranker onnx small`、可用内存不够加载大的时的 `keyboard reranker onnx small (low memory)`、`keyboard reranker bundled model`、`keyboard reranker missing`，以及这台设备跑不进逐键预算、没挂的 `keyboard reranker over budget`，和跑不进逐键预算、延后到宿主停顿时才用的 `keyboard reranker at pause`），只留类别的宿主（macOS、iOS）也看得出来；细节是模型目录、大模型的自测毫秒数、挂上的那一档打一页的毫秒数和上限（`page … ms, limit … ms`）、给它的整句池（`sentence pool …`）、可用内存，以及是不是与之前的会话共用（`(shared)`）。只在会话建立和开关打开时写，不在按键路径上写；同一个资源目录下连续相同的 `(category, detail)`（比较时去掉末尾的 `" (shared)"`）只报一次，直到开关关闭（[`RerankerMount::Off`]）或状态改变。
+/// 「增强」开着时逐键重排挂的是哪一个，写一行诊断。类别本身就说明了档位（`keyboard reranker onnx large`、`keyboard reranker onnx small`、可用内存不够加载大的时的 `keyboard reranker onnx small (low memory)`、`keyboard reranker bundled model`、`keyboard reranker missing`，以及这台设备跑不进逐键预算、没挂的 `keyboard reranker over budget`，可用内存太少、两档都没加载的 `keyboard reranker skipped (low memory)`，和跑不进逐键预算、延后到宿主停顿时才用的 `keyboard reranker at pause`），只留类别的宿主（macOS、iOS）也看得出来；细节是模型目录、大模型的自测毫秒数、挂上的那一档打一页的毫秒数和上限（`page … ms, limit … ms`）、给它的整句池（`sentence pool …`）、可用内存，以及是不是与之前的会话共用（`(shared)`）。只在会话建立和开关打开时写，不在按键路径上写；同一个资源目录下连续相同的 `(category, detail)`（比较时去掉末尾的 `" (shared)"`）只报一次，直到开关关闭（[`RerankerMount::Off`]）或状态改变。
 fn report_keyboard_reranker(resources: &str, category: &'static str, detail: &str) {
     if crate::should_report_keyboard_reranker_diagnostic(resources, category, detail) {
         crate::diagnostics::report(category, detail);
@@ -732,6 +744,12 @@ pub(crate) fn sentence_pool_for(page_ms: f64) -> Option<usize> {
 #[cfg(feature = "onnx-rerank")]
 pub(crate) const LARGE_RERANK_MODEL_MIN_AVAILABLE: u64 = 120 << 20;
 
+/// 进程可用内存少于这么多时两档都不加载，这个会话不挂逐键重排，诊断写 [`KEYBOARD_RERANKER_LOW_MEMORY`]；不退到随包的句子模型，它更大。
+///
+/// iPad 的键盘扩展上限比 iPhone 低得多：#11852 的 iPad Air 5（iPadOS 17.0）上 `mem` + `avail` 只有 89 MiB，会话建立、偏好应用完已经 `mem=63 avail=26`，这时仍按 [`LARGE_RERANK_MODEL_MIN_AVAILABLE`] 加载了小模型，键盘随后被系统结束，几秒后又重新加载，周而复始。小模型的加载峰值 17 MiB、打字时 11 到 12 MiB（数字见上），门槛是峰值再留 23 MiB 给之后才画出来的键盘界面和打字时涨起来的词库页面。没加载就没有档位要沿用：下一个会话按那时的可用内存重新判断。
+#[cfg(feature = "onnx-rerank")]
+pub(crate) const RERANK_MODEL_MIN_AVAILABLE: u64 = 40 << 20;
+
 /// 一次图运行用几个线程。安卓手机多是四个大核加四个小核：Pixel 3 XL 上用 `rerank_latency` 在真实运行时里量，手机模型每键整键 p95 两线程 10.8 ms、三线程 10.0 ms、四线程 9.3 ms，所以安卓用四线程。苹果的 A 系列芯片只有两个大核，四线程在 iPhone XR 和 iPhone 17 上都比两线程慢；桌面两线程已在预算之内，不多占核。
 #[cfg(all(feature = "onnx-rerank", target_os = "android"))]
 const RERANK_MODEL_THREADS: usize = 4;
@@ -806,11 +824,12 @@ pub(crate) struct OnnxRerankers {
     pool_rule: Option<PoolRule>,
 }
 
-/// [`OnnxRerankers::attach`] 的结果：挂上了哪一个；装着 ONNX 模型、但挂得上的那一档在这台设备上打一页超过上限（[`KEYSTROKE_RERANK_LIMIT_MS`]），于是什么都不挂（带诊断细节）；或者一个 ONNX 模型都读不了，交给随包的句子模型。
+/// [`OnnxRerankers::attach`] 的结果：挂上了哪一个；装着 ONNX 模型、但挂得上的那一档在这台设备上打一页超过上限（[`KEYSTROKE_RERANK_LIMIT_MS`]），于是什么都不挂（带诊断细节）；进程可用内存少于 [`RERANK_MODEL_MIN_AVAILABLE`]，一个都不加载、什么都不挂（带诊断细节）；或者一个 ONNX 模型都读不了，交给随包的句子模型。
 #[cfg(feature = "onnx-rerank")]
 pub(crate) enum OnnxAttach {
     Attached(AttachedOnnxReranker),
     OverLimit(String),
+    LowMemory(String),
     Unavailable,
 }
 
@@ -820,7 +839,7 @@ impl OnnxAttach {
     pub(crate) fn attached(self) -> Option<AttachedOnnxReranker> {
         match self {
             Self::Attached(attached) => Some(attached),
-            Self::OverLimit(_) | Self::Unavailable => None,
+            Self::OverLimit(_) | Self::LowMemory(_) | Self::Unavailable => None,
         }
     }
 }
@@ -883,6 +902,7 @@ impl OnnxRerankers {
 
     /// 给一个新会话挂重排器。已经为 `root` 加载过、两个模型文件都没换时直接共用（细节标 `(shared)`）；否则定档位并加载：
     ///
+    /// - `available`（字节）少于 [`RERANK_MODEL_MIN_AVAILABLE`] 时一个都不加载，返回 [`OnnxAttach::LowMemory`]，也不退到随包的句子模型；不记下任何结论，下一次挂按那时的可用内存重新判断。
     /// - 两个都装了：`available`（字节）少于 [`LARGE_RERANK_MODEL_MIN_AVAILABLE`] 时直接用小的，不先加载大的去自测；否则加载大的、量它打一页重负载要多久，超过 `budget_ms` 就换小的。没超过、但它在按键预算里只比较得了九条而小模型比较得了整池时，也换小的（[`Self::small_for_pool`]，桌面的情形）。按量出来的速度选，不按机型名单选。
     /// - 只装了一个就用那一个；大的读不了就用小的。
     /// - 挂上的那一档还要过 `limit_ms`：过了 `budget_ms` 留用的大模型自然在内；小模型和只装了一个的那一个各量一次同一页（`OnnxScorer::calibrate`，不改它排不排上屏后联想），超过就不挂，返回 [`OnnxAttach::OverLimit`]，也不退到随包的句子模型——那个在同一台设备上只会更慢。换下来的大模型超过换档线、却没有小的可换时，同样按 `limit_ms` 决定还挂不挂它。
@@ -920,6 +940,9 @@ impl OnnxRerankers {
                 detail: format!("{} (shared)", loaded.detail),
                 page_ms: loaded.page_ms,
             });
+        }
+        if let Some(detail) = too_little_memory(root, stamps, available) {
+            return OnnxAttach::LowMemory(detail);
         }
         if large_stamp.is_none() || small_stamp.is_none() {
             return match self.load_within(&large, stamps, LARGE, String::new(), limit_ms) {
@@ -1145,6 +1168,9 @@ impl OnnxRerankers {
                 page_ms: loaded.page_ms,
             }));
         }
+        if let Some(detail) = too_little_memory(root, stamps, available) {
+            return Some(OnnxAttach::LowMemory(detail));
+        }
         match (large_stamp, small_stamp) {
             (None, None) => Some(OnnxAttach::Unavailable),
             (Some(_), None) => self
@@ -1249,6 +1275,25 @@ impl OnnxRerankers {
             page_ms,
         }
     }
+}
+
+/// 装着 ONNX 模型、而 `available`（字节）少于 [`RERANK_MODEL_MIN_AVAILABLE`] 时，`OnnxAttach::LowMemory` 的诊断细节；不知道可用内存或一个模型都没装时是 `None`。已经加载、可以共用的那一份不经过这里：共用不再多占内存。
+#[cfg(feature = "onnx-rerank")]
+fn too_little_memory(
+    root: &Path,
+    stamps: [ModelStamp; 2],
+    available: Option<u64>,
+) -> Option<String> {
+    if stamps.iter().all(Option::is_none) {
+        return None;
+    }
+    let available = available.filter(|&bytes| bytes < RERANK_MODEL_MIN_AVAILABLE)?;
+    Some(format!(
+        "{} (available {} MiB, needs {} MiB)",
+        root.display(),
+        available >> 20,
+        RERANK_MODEL_MIN_AVAILABLE >> 20
+    ))
 }
 
 #[cfg(feature = "onnx-rerank")]

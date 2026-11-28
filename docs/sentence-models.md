@@ -74,7 +74,7 @@ Android、HarmonyOS 手机和 iOS 在原生宿主的「表达 → 智能 → 整
 
 「增强」默认开，挂不挂、挂哪一个由输入法在每台设备上自己量：先看能不能用 ONNX Runtime 跑重排模型（大的 8x448 一页重负载在 10 ms 以内用大的，否则用小的 6x256），没有 ONNX 模型的构建（HarmonyOS、32 位安卓、Win7）用随包的 `model-v1`；挂上的那一个打一页重负载超过 15 ms 时什么都不挂。每个模型在进程里只量一次。2026-11-02 量过的设备：Mac 与 iPhone 17 用大模型，iPhone XR 与 Pixel 3 XL 用小模型，Pixel 3 XL 这类老安卓手机在没有 ONNX 模型时不挂 `model-v1`（一页约 60 ms），Mac 在没有 ONNX 模型时挂 `model-v1`（一页约 6 ms）。
 
-打开诊断日志后，会话建立和选回「增强」时写一行 `keyboard reranker ...`：`onnx large`、`onnx small`、`onnx small (low memory)`、`bundled model` 说明挂上了哪一个，细节里的 `page … ms, limit … ms` 是这台设备上量出的一页耗时和上限；`over budget` 是量过之后没挂，这台设备上「增强」与「标准」打字相同；`missing` 是版本没带模型。
+打开诊断日志后，会话建立和选回「增强」时写一行 `keyboard reranker ...`：`onnx large`、`onnx small`、`onnx small (low memory)`、`bundled model` 说明挂上了哪一个，细节里的 `page … ms, limit … ms` 是这台设备上量出的一页耗时和上限；`over budget` 是量过之后没挂，这台设备上「增强」与「标准」打字相同；`skipped (low memory)` 是这一次键盘离系统给的内存上限已经不到 40 MiB，两档都没加载，这一次打字与「标准」相同，下次弹出键盘时按那时的余量重新判断；`missing` 是版本没带模型。
 
 ## 模型如何更新
 
