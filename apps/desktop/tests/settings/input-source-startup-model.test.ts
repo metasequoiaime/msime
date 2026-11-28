@@ -11,6 +11,7 @@ const actions: InputSourceStartupStatus["action"][] = [
   "installed",
   "updated",
   "up_to_date",
+  "migration_recommended",
   "not_installed",
   "login_required",
   "authorization_required",
@@ -34,7 +35,9 @@ test.each(outcomes)(
       installed_version: "1.0.0",
       system_bundles: duplicate ? ["/synthetic/input-source.app"] : [],
     });
-    const adding = ["installed", "updated", "up_to_date"].includes(action) && enabled === false;
+    const adding =
+      ["installed", "updated", "up_to_date", "migration_recommended"].includes(action) &&
+      enabled === false;
     expect(inputSourceNeedsAdding(status)).toBe(adding);
     expect(inputSourceNeedsRecheck(status)).toBe(adding || duplicate);
     expect(inputSourceNoticeVisible(status)).toBe(
@@ -69,6 +72,11 @@ test("只有装好且范围为当前用户时才算用户目录安装，旧宿�
     ...overrides,
   });
   expect(inputSourceInstalledForUserOnly(status({ installation_scope: "user" }))).toBe(true);
+  expect(
+    inputSourceInstalledForUserOnly(
+      status({ action: "migration_recommended", installation_scope: "user" }),
+    ),
+  ).toBe(true);
   expect(inputSourceInstalledForUserOnly(status({ installation_scope: "system" }))).toBe(false);
   expect(inputSourceInstalledForUserOnly(status({}))).toBe(false);
   expect(

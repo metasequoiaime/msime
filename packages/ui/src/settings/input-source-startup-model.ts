@@ -4,6 +4,7 @@ export type InputSourceStartupStatus = {
     | "installed"
     | "updated"
     | "up_to_date"
+    | "migration_recommended"
     | "not_installed"
     | "login_required"
     | "authorization_required"
@@ -19,18 +20,19 @@ export type InputSourceStartupStatus = {
   system_bundles?: string[];
 };
 
-/** 用户仍需在系统设置中添加输入源；安装失败、未安装和等待重新登录时不要求添加。 */
+/** 用户仍需在系统设置中添加输入源；安装失败、未安装和等待重新登录时不要求添加。建议迁移的用户目录安装也要能直接加回列表：没有管理员权限的用户迁移不了，只能这样恢复使用。 */
 export function inputSourceNeedsAdding(status: InputSourceStartupStatus | null): boolean {
   return (
-    status?.enabled === false && ["installed", "updated", "up_to_date"].includes(status.action)
+    status?.enabled === false &&
+    ["installed", "updated", "up_to_date", "migration_recommended"].includes(status.action)
   );
 }
 
-/** 生效的那份装在用户目录：安全输入期间 macOS 会停用它（见 platforms/macos/README.md）。旧宿主不报范围时不下结论。 */
+/** 生效的那份装在用户目录：安全输入期间 macOS 会停用它（见 platforms/macos/README.md）。启动检查对它报 `migration_recommended`，修复后的结果仍报安装、更新或当前版本。旧宿主不报范围时不下结论。 */
 export function inputSourceInstalledForUserOnly(status: InputSourceStartupStatus | null): boolean {
   return (
     status?.installation_scope === "user" &&
-    ["installed", "updated", "up_to_date"].includes(status.action)
+    ["installed", "updated", "up_to_date", "migration_recommended"].includes(status.action)
   );
 }
 
