@@ -2432,6 +2432,10 @@ pub struct Preferences {
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub enumeration_comma_slash: bool,
+    /// 中文标点下保留英文的键（#11890）：集合里的键原样输出 ASCII，其余键照旧出中文标点。每项是标点契约 `preserveEnglish` 段里的一个键（`crate::punctuation::PRESERVABLE_ENGLISH_PUNCTUATION`），不重复，校验在 `validate`。`\` 在集合里时不再参与「至少留一个顿号键」的归一，见 `crate::punctuation::punctuation_marks`。只作用于中文标点表，日文方案不受影响。缺省为空，与没有这个字段时逐字相同，为空时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preserve_english_punctuation: Vec<String>,
     #[serde(default)]
     pub navigation: NavigationPreferences,
     #[serde(default)]
@@ -4981,6 +4985,7 @@ impl Default for Preferences {
             bracket_style: BracketStyle::Solid,
             enumeration_comma_backslash: true,
             enumeration_comma_slash: false,
+            preserve_english_punctuation: Vec::new(),
             navigation: NavigationPreferences::default(),
             keybindings: KeybindingPreferences::default(),
             word_character: WordCharacterPreferences::default(),
@@ -5949,6 +5954,9 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidTouchQuickSymbols);
         }
+        if !crate::punctuation::preserve_english_keys_valid(&self.preserve_english_punctuation) {
+            return Err(PreferencesError::InvalidPreserveEnglishPunctuation);
+        }
         if [
             &self.touch_nine_key_sidebar_symbols,
             &self.touch_nine_key_digit_sidebar_symbols,
@@ -6153,6 +6161,8 @@ pub enum PreferencesError {
     InvalidTextTrackpad,
     #[error("快捷符号必须是去重的单字素列表，最多十二项且不含空白或控制字符")]
     InvalidTouchQuickSymbols,
+    #[error("保留英文的标点键必须是中文标点会改写的单个 ASCII 键，且不能重复")]
+    InvalidPreserveEnglishPunctuation,
     #[error("九键左侧符号栏必须是去重的列表，最多三十项、用空格连起来不超过 200 个 UTF-16 单元，每项最多四个码位且不含空白或控制字符")]
     InvalidTouchNineKeySidebarSymbols,
     #[error(
