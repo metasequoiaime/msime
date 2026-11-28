@@ -22,6 +22,7 @@
 #include "FanyLog.h"
 #include "../../common/SecondThirdCandidatePolicy.h"
 #include "../../common/WubiCandidateSelectionPolicy.h"
+#include "../../common/PreservedEnglishPunctuation.h"
 
 //////////////////////////////////////////////////////////////////////
 //
@@ -768,6 +769,10 @@ bool IsManualPinyinSeparatorInComposition(WCHAR wch, BOOL fComposing, CANDIDATE_
 const WCHAR *CCompositionProcessorEngine::GetPunctuation(WCHAR wch)
 {
     // 所有调用点（空闲标点、候选带标点、英文模式、智能标点重复）都经过这里，所以样式只在这一处换字。
+    // 保留英文的键（#11890）出键本身，不查表，也就不推进引号交替和书名号嵌套。
+    if (const WCHAR *preserved = msime::windows::preserved_english_text(
+            wch, Global::PreservedEnglishPunctuation.load(std::memory_order_relaxed)))
+        return preserved;
     return Global::StyledPunctuation(_GetContractPunctuation(wch),
                                      Global::CornerQuotes.load(std::memory_order_relaxed),
                                      Global::HollowBrackets.load(std::memory_order_relaxed));

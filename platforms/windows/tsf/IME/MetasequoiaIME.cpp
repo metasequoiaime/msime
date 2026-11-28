@@ -2,6 +2,7 @@
 #include "../../common/RegistryString.h"
 #include "../../common/HostOnlineCandidateSync.h"
 #include "../../common/WubiCandidateSelectionPolicy.h"
+#include "../../common/PreservedEnglishPunctuation.h"
 #include "Private.h"
 #include "Globals.h"
 #include "MetasequoiaIME.h"
@@ -2179,6 +2180,11 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
             validFrame = buf.data[0] == L'q' && (buf.data[1] == L'0' || buf.data[1] == L'1') && buf.data[2] == L'b' &&
                          (buf.data[3] == L'0' || buf.data[3] == L'1') && buf.data[4] == L'\0';
         }
+        if (validFrame && buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PreserveEnglishPunctuationChanged)
+        {
+            std::uint32_t preserved = 0;
+            validFrame = msime::windows::parse_preserved_english(buf.data, std::size(buf.data), preserved);
+        }
         if (validFrame && buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PunctuationLockChanged)
         {
             bool hasTerminator = false;
@@ -2253,6 +2259,7 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::DedicatedEnglishChanged ||
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PunctuationLockChanged ||
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PunctuationMarksChanged ||
+                buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PreserveEnglishPunctuationChanged ||
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::WubiCandidateSelectionChanged ||
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PipeReady ||
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::FocusSessionReady ||
@@ -2364,6 +2371,13 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
             // 上面已校验为 "q<0|1>b<0|1>"。
             Global::CornerQuotes.store(buf.data[1] == L'1', std::memory_order_relaxed);
             Global::HollowBrackets.store(buf.data[3] == L'1', std::memory_order_relaxed);
+        }
+        else if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PreserveEnglishPunctuationChanged)
+        {
+            // 上面已校验为 "p" 加契约里的键。
+            std::uint32_t preserved = 0;
+            msime::windows::parse_preserved_english(buf.data, std::size(buf.data), preserved);
+            Global::PreservedEnglishPunctuation.store(preserved, std::memory_order_relaxed);
         }
         else if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::LocalModeTriggersChanged)
         {

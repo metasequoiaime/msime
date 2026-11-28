@@ -195,6 +195,8 @@ inline std::atomic_uint32_t WubiCandidateKeys{0};
 // 引号与方头括号样式，Server 用 PunctuationMarksChanged 推送之前是弯引号、实心括号。GetPunctuation 按它们换字（PairedPunctuationHostPolicy.h 的 StyledPunctuation）。
 inline std::atomic_bool CornerQuotes{false};
 inline std::atomic_bool HollowBrackets{false};
+// 中文标点下保留英文的键（位集按标点契约 `preserve_english` 顺序，common/PreservedEnglishPunctuation.h）。Server 用 PreserveEnglishPunctuationChanged 推送之前为空。GetPunctuation 对这些键出键本身。
+inline std::atomic_uint32_t PreservedEnglishPunctuation{0};
 // The scheme the TIP keys before its host session answers a key: scheme::mode_scheme of the mode the Server last announced in InputModeChanged, or of the scheme the preferences run before it has (common/InputSchemeTraits.h). The pinyin and shape schemes all read as quanpin, which they key alike.
 inline std::atomic_int InputModeScheme{0};
 // 任务栏模式图标显示的模式：Server 上次在 InputModeChanged 里给的码（scheme::input_mode_code），双拼和五笔也各有自己的码；Server 还没给时是偏好里正在运行的方案。只有语言栏读它，键入看上面的 InputModeScheme。

@@ -3,6 +3,7 @@
 #include "preference_transition.h"
 #include <cstring>
 #include "candidate_continuation_pipe.h"
+#include "PreservedEnglishPunctuation.h"
 #include <algorithm>
 #include <charconv>
 
@@ -324,6 +325,9 @@ std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config
   frames.push_back(worker_text_frame(
       FanyImeWorkerReplyType::WubiCandidateSelectionChanged,
       std::wstring{config.wubi_candidate_selection ? L'1' : L'0', config.wubi_second_key, config.wubi_third_key}));
+  // 追加在最后；旧 TIP 丢掉这个帧，这些键照旧出中文标点。
+  frames.push_back(worker_text_frame(FanyImeWorkerReplyType::PreserveEnglishPunctuationChanged,
+                                     preserved_english_payload(config.preserve_english)));
   return frames;
 }
 
