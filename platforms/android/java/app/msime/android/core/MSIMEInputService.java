@@ -6234,7 +6234,7 @@ public final class MSIMEInputService extends InputMethodService {
         return QuickPunctuationPolicy.entries(dedicatedEnglish,
             view == null ? -1 : InputViewValuePolicy.scheme(view, -1),
             view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"),
-            uriPeriodPrimary());
+            uriPeriodPrimary(), punctuationMarks().preserveEnglish());
     }
 
     private boolean quickPunctuationVisible() {

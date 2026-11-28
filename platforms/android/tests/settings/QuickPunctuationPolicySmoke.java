@@ -55,6 +55,17 @@ public final class QuickPunctuationPolicySmoke {
             "the URL key and secondary punctuation have matching faces and inputs");
         check(QuickPunctuationPolicy.entries(false, 0, "emoji").get(0).face().equals(","),
             "Local mode uses ASCII faces");
+        // 保留英文的键（#11890）在中文表里画 ASCII，键面与 Engine 原样写出的字一致；其余项、注音和日文表不变，空集合原样返回。
+        var preserved = QuickPunctuationPolicy.entries(false, 0, "none", false, ",\\");
+        check(preserved.get(0).face().equals(",") && preserved.get(0).input() == ','
+                && preserved.get(4).face().equals("\\") && preserved.get(4).input() == '\\'
+                && preserved.get(1).face().equals("。"),
+            "a preserved key shows the ASCII it types in the Chinese set");
+        check(QuickPunctuationPolicy.entries(false, 0, "none", false, "").equals(chinese),
+            "an empty preserved set leaves the Chinese set alone");
+        check(QuickPunctuationPolicy.entries(false, 6, "none", false, ",<>").equals(zhuyin)
+                && QuickPunctuationPolicy.entries(false, 3, "none", false, "\\[").equals(japanese),
+            "Zhuyin and Japanese sets ignore the preserved keys");
         System.out.println("Android quick punctuation: Chinese, Japanese, Korean, Zhuyin, Vietnamese, Tibetan and ASCII modes passed");
     }
 }

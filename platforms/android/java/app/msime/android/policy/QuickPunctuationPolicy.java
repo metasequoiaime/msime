@@ -50,4 +50,15 @@ public final class QuickPunctuationPolicy {
         if (scheme == InputSchemeTraits.JAPANESE) return JAPANESE;
         return scheme == InputSchemeTraits.ZHUYIN ? ZHUYIN : CHINESE;
     }
+
+    /** 同上，再按 View 的 `preserve_english_punctuation`（#11890）换中文表的键面：设成保留英文的键 Engine 原样写出 ASCII，这一项就画这个键，键面与上屏一致（与 {@link ChineseSymbolFaces#face} 同一条规则）。注音经 Shift 键走自己的表、日文表不看这个集合，都不换。 */
+    public static List<Entry> entries(boolean dedicatedEnglish, int scheme, String localMode,
+                                      boolean uriPeriodPrimary, String preserveEnglish) {
+        List<Entry> entries = entries(dedicatedEnglish, scheme, localMode, uriPeriodPrimary);
+        if (entries != CHINESE || preserveEnglish == null || preserveEnglish.isEmpty()) return entries;
+        return entries.stream()
+            .map(entry -> preserveEnglish.indexOf(entry.input()) >= 0
+                ? new Entry(String.valueOf(entry.input()), entry.input()) : entry)
+            .toList();
+    }
 }
