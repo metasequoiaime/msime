@@ -228,7 +228,8 @@ def check_installer_package() -> None:
                 check(source_name in conclusion, f"{edition}: the {locale} conclusion does not name the input source as Input Sources lists it, {source_name}")
                 if locale == "en":
                     check(any(mode in conclusion for mode in modes), f"{edition}: the en conclusion names none of the input menu's modes {modes}")
-                check(("退出登录" if locale == "zh-Hans" else "Log Out") in conclusion, f"{edition}: the {locale} conclusion does not tell a first install to log out and back in")
+                # 首次安装同一次登录里就能添加（.agents/notes/implemented/bug-fix/2026-11-28-macos-first-install-without-logout.md），结束页不能再叫用户注销重登。
+                check(("重新登录" if locale == "zh-Hans" else "log back in") not in conclusion, f"{edition}: the {locale} conclusion still tells a first install to log out and back in")
                 title = (expanded / "Resources" / f"{locale}.lproj/Localizable.strings").read_text(encoding="utf-8")
                 check(title.startswith(f'"SU_TITLE" = "{app_name}') and title.endswith('";\n'), f"{edition}: the {locale} title is {title!r}, it must start with {app_name}")
             check_postinstall(edition, ids["app_bundle"], postinstall)

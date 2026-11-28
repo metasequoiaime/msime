@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> 2026-11-28：这篇的前提「新 identifier 要到下次登录才进注册表」在 macOS 27.2.1 上复测不成立，见 [首次安装不需要注销重登](2026-11-28-macos-first-install-without-logout.md)。下面的探针和 `login_required` 流程仍在用，只在登记确实失败时出现。
+
 ## Problem
 
 #6280：用户在 Mac 上第一次安装，从 DMG 把设置应用拖进「应用程序」，打开后点「立即安装」。bundle 已经在 `~/Library/Input Methods` 里，系统设置「添加」对话框里却找不到水杉输入法。用户没有附日志，报的系统版本「macOS 16」并不存在。

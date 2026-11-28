@@ -28,7 +28,7 @@ Status: implemented
 - [macOS 从别的输入源切回时报告「中」不改双拼](2026-10-29-macos-keep-shuangpin-on-return.md)：部分重叠，补上它没覆盖的顺序。那篇让「第一次按下的键」结束刚切进，只考虑了报告先到和校准先到两种顺序，没有考虑报告排在按键之后；本篇保留按键的作用，只给切进报告留一个短窗口。
 - [macOS 从别的输入源直接选「水杉全拼」时照它改方案](2026-11-12-macos-switch-in-honors-picked-mode.md)：不改。`left` 的判断照旧，只是喂给它的「是否刚切进」改由新函数给出。
 - [macOS 英文按 Shift 回中文时保留双拼](2026-11-10-macos-shift-keeps-shuangpin.md)：不改，回执判断继续看原始标记。
-- [调查 macOS 方案选择后显示与实际方案不一致](../../proposed/bug-fix/2026-11-26-issue-11911-macos-scheme-selection.md)：同一原则。#11911 里维护者定下以设置里保存的方案为准，本篇是它在模式报告时序上的一处落实，不改那篇。
+- [只加了一个水杉中文入口时以设置里的方案为准](2026-11-27-macos-saved-scheme-beats-only-listed-entry.md)：同一原则。#11911 里维护者定下以设置里保存的方案为准，本篇是它在模式报告时序上的一处落实，不改那篇。
 
 ## Alternatives considered
 
