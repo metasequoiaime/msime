@@ -76,7 +76,9 @@ pub use lattice::offensive::{
 pub use nine_key::{GridHelpcodeOp, KeyGrid};
 pub use paths::RuntimePaths;
 pub use pinyin::glide::{GlideKeyboard, GlidePoint};
-pub use punctuation::{BracketMarks, PunctuationMarks, QuoteMarks};
+pub use punctuation::{
+    BracketMarks, PreservedEnglish, PunctuationMarks, QuoteMarks, PRESERVABLE_ENGLISH,
+};
 pub use session::{Clock, HelpcodeTrigger, Session, SessionOptions, SessionSnapshot};
 pub use types::{
     autocorrect_type, fuzzy_rule, request_autocorrect_mask, CandidateEdge, CandidateSource,

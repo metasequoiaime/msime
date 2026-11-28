@@ -2753,6 +2753,7 @@ impl HostOptions {
             hollow_brackets: false,
             enumeration_comma_backslash: true,
             enumeration_comma_slash: false,
+            preserve_english_punctuation: msime_engine::PreservedEnglish::NONE,
         };
         apply_punctuation_marks(&mut options, &self.preferences);
         // 建会话没有地方带原因，表不能用时按小鹤建起来就够了；之后的偏好变更会在诊断里报告原因。

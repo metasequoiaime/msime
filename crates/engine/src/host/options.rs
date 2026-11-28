@@ -9,7 +9,7 @@ use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::helpcode::SharedKeymap;
 use crate::paths::RuntimePaths;
-use crate::punctuation::{BracketMarks, PunctuationMarks, QuoteMarks};
+use crate::punctuation::{BracketMarks, PreservedEnglish, PunctuationMarks, QuoteMarks};
 use crate::session::SessionOptions;
 use crate::types::{
     autocorrect_type, fuzzy_rule, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentMode,
@@ -125,6 +125,8 @@ pub struct EngineOptions {
     pub enumeration_comma_backslash: bool,
     /// 中文标点下 `/` 键出顿号「、」。默认关：词首的 `/` 是命令模式触发键，命令模式优先。
     pub enumeration_comma_slash: bool,
+    /// 中文标点下原样交回 ASCII 的键（契约 `preserveEnglish` 段，宿主已按偏好解析）。默认为空。
+    pub preserve_english_punctuation: PreservedEnglish,
     pub frequency_mode: String,
     pub frequency_trigger_count: u8,
     pub frequency_linear_step: u8,
@@ -328,6 +330,7 @@ fn options_for_paths(paths: &RuntimePaths, enabled_schemes: SchemeSet) -> Engine
         hollow_brackets: false,
         enumeration_comma_backslash: true,
         enumeration_comma_slash: false,
+        preserve_english_punctuation: PreservedEnglish::default(),
         frequency_mode: FrequencyAdjustmentMode::Promote.name().to_owned(),
         frequency_trigger_count: 1,
         frequency_linear_step: 1,
@@ -477,6 +480,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
             },
             enumeration_comma_backslash: options.enumeration_comma_backslash,
             enumeration_comma_slash: options.enumeration_comma_slash,
+            preserve_english: options.preserve_english_punctuation,
         },
         learning: options.learning,
         learn_english_on_enter: options.learn_english_on_enter,
