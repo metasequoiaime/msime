@@ -78,6 +78,36 @@ final class PunctuationSettingsTests: XCTestCase {
     XCTAssertEqual(bridge.handlePunctuationWithContext("[", preceding: 0).commitText, "〖")
   }
 
+  /// 设置页写下的「保留英文的标点」（#11890）在键盘下次出现时生效：快照报告这些键，它们不再出中文标点，键面画 ASCII；其余键照旧。缺键时为空。
+  func testPreservedEnglishKeysReachTheLiveSession() async throws {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let before = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertNil(before["preserve_english_punctuation"], "the empty default is left out of the document")
+    XCTAssertEqual(bridge.handlePunctuationWithContext("`", preceding: 0).commitText, "·")
+
+    XCTAssertTrue(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      $0["preserve_english_punctuation"] = ["`", "\\"]
+    })
+    await reload(bridge)
+
+    let backtick = bridge.handlePunctuationWithContext("`", preceding: 0)
+    XCTAssertFalse(backtick.isHandled)
+    XCTAssertNil(backtick.commitText)
+    XCTAssertEqual(backtick.preserveEnglishPunctuation, "`\\")
+    XCTAssertFalse(bridge.handlePunctuationWithContext("\\", preceding: 0).isHandled)
+    XCTAssertEqual(bridge.handlePunctuationWithContext("$", preceding: 0).commitText, "￥")
+    XCTAssertEqual(KeyboardViewController.chineseSymbolFace(
+      "\\", cornerQuotes: false, hollowBrackets: false, preserveEnglish: "`\\"), "\\")
+    XCTAssertEqual(KeyboardViewController.chineseSymbolFace(
+      ",", cornerQuotes: false, hollowBrackets: false, preserveEnglish: "`\\"), "，")
+    // 不在契约里的键，保存会被拒绝，文档不变。
+    XCTAssertFalse(MetasequoiaInputSessionBridge.updateSharedPreferences(stateRoot: state) {
+      $0["preserve_english_punctuation"] = ["/"]
+    })
+    let after = try XCTUnwrap(MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: state))
+    XCTAssertEqual(after["preserve_english_punctuation"] as? [String], ["`", "\\"])
+  }
+
   private func reload(_ bridge: MetasequoiaInputSessionBridge) async {
     let reloaded = expectation(description: "reload")
     var accepted = false

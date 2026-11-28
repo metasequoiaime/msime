@@ -457,6 +457,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   /// View 的 `punctuation_marks`：顿号 `\` 键与 `/` 键各自开着与否（契约 `enumerationComma` 段，host-api 已归一「至少一个开」），符号面板选顿号时按它挑发给 Engine 的键。
   let enumerationCommaBackslash: Bool
   let enumerationCommaSlash: Bool
+  /// View 的 `punctuation_marks.preserve_english_punctuation`：设成保留英文的键（契约第 7 版 `preserveEnglish` 段），每个字符是一个 ASCII 键。这些键在中文标点下原样上屏，键面画 ASCII，不补全、不跨过；缺字段按空读。
+  let preserveEnglishPunctuation: String
   /// View 的 `prediction`：上屏后的空闲联想（`next_word_prediction`），这时没有组字，`preedit`、`reading` 和 `editingText` 都为空。联想和普通候选一样选：点选、数字键选本页对应的一条、空格选高亮的一条；回车和标点照常输入，关闭键送取消；普通状态没有这个字段，按 false 读。
   let isPrediction: Bool
   /// 引擎持有的混合滑行确认状态；旧运行时缺字段时按 false 读。
@@ -485,6 +487,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
        nineKeyStrokes: String = "", editingText: String = "", caretPosition: Int = 0, gridComposing: Bool = false,
        cornerQuotes: Bool = false, hollowBrackets: Bool = false,
        enumerationCommaBackslash: Bool = true, enumerationCommaSlash: Bool = false,
+       preserveEnglishPunctuation: String = "",
        isPrediction: Bool = false, requiresCandidateSelection: Bool = false) {
     self.isHandled = isHandled
     self.commitText = commitText
@@ -519,6 +522,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.hollowBrackets = hollowBrackets
     self.enumerationCommaBackslash = enumerationCommaBackslash
     self.enumerationCommaSlash = enumerationCommaSlash
+    self.preserveEnglishPunctuation = preserveEnglishPunctuation
     self.isPrediction = isPrediction
     self.requiresCandidateSelection = requiresCandidateSelection
   }
@@ -2494,6 +2498,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       hollowBrackets: marks["brackets"] as? String == "hollow",
       enumerationCommaBackslash: marks["enumeration_comma_backslash"] as? Bool ?? true,
       enumerationCommaSlash: marks["enumeration_comma_slash"] as? Bool ?? false,
+      preserveEnglishPunctuation: (marks["preserve_english_punctuation"] as? [String] ?? [])
+        .filter { $0.utf8.count == 1 }.joined(),
       isPrediction: try strictBool(view["prediction"], fallback: false),
       requiresCandidateSelection: try strictBool(view["requires_candidate_selection"], fallback: false))
   }
