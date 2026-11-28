@@ -1,15 +1,17 @@
 import UIKit
 import SwiftUI
 
+// A solid colour is only `backgroundColor`: the view itself has no `draw(_:)`, so it holds no keyboard-sized bitmap (#11830). Gradients, photos and patterns are drawn by an artwork subview that exists only while the skin has one.
 final class KeyboardSkinBackgroundView: UIView {
   private var photoData: Data?
   private var photoImage: UIImage?
+  private var artwork: ArtworkView?
   var skin: KeyboardTheme = .system {
     didSet {
       backgroundColor = skin.background
       let data = skin.design?.photo
       if data != photoData { photoData = data; photoImage = data.flatMap { SkinPhotoData.image(from: $0) } }
-      setNeedsDisplay()
+      updateArtwork()
     }
   }
 
@@ -17,15 +19,37 @@ final class KeyboardSkinBackgroundView: UIView {
     super.init(frame: frame)
     isUserInteractionEnabled = false
     isAccessibilityElement = false
-    contentMode = .redraw
     backgroundColor = skin.background
     registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) {
-      (view: KeyboardSkinBackgroundView, _: UITraitCollection) in view.setNeedsDisplay()
+      (view: KeyboardSkinBackgroundView, _: UITraitCollection) in view.artwork?.setNeedsDisplay()
     }
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-  override func draw(_ rect: CGRect) {
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    artwork?.frame = bounds
+  }
+
+  private var hasArtwork: Bool {
+    let design = skin.design
+    return design?.gradientEnd != nil || photoImage != nil || (design?.pattern ?? skin.pattern) != 0
+  }
+
+  private func updateArtwork() {
+    guard hasArtwork else {
+      artwork?.removeFromSuperview()
+      artwork = nil
+      return
+    }
+    let view = artwork ?? ArtworkView(owner: self)
+    if artwork == nil { artwork = view; addSubview(view) }
+    view.frame = bounds
+    view.setNeedsDisplay()
+  }
+
+  /// Draws the gradient, photo and pattern (not the solid colour) into the current context, in this view's bounds.
+  func drawArtwork() {
     guard let context = UIGraphicsGetCurrentContext() else { return }
     let design = skin.design
     if let end = design?.gradientEnd,
@@ -74,6 +98,20 @@ final class KeyboardSkinBackgroundView: UIView {
     }
   }
 
+  private final class ArtworkView: UIView {
+    private weak var owner: KeyboardSkinBackgroundView?
+    init(owner: KeyboardSkinBackgroundView) {
+      self.owner = owner
+      super.init(frame: owner.bounds)
+      isOpaque = false
+      backgroundColor = .clear
+      isUserInteractionEnabled = false
+      isAccessibilityElement = false
+      contentMode = .redraw
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func draw(_ rect: CGRect) { owner?.drawArtwork() }
+  }
 }
 
 struct KeyboardSkinBackdrop: UIViewRepresentable {

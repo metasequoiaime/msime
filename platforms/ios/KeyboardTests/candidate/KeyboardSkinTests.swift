@@ -1065,4 +1065,91 @@ final class KeyboardSkinTests: XCTestCase {
                                   "\(style) 下选中态文字对比度不足")
     }
   }
+
+  /// RGBA bytes of one pixel of the view rendered at 1×, through `layer.render`, the same path the skin miniature uses.
+  private func skinPixels(_ view: UIView) -> (Int, Int) -> [Int] {
+    view.layoutIfNeeded()
+    let width = Int(view.bounds.width), height = Int(view.bounds.height)
+    var bytes = [UInt8](repeating: 0, count: width * height * 4)
+    bytes.withUnsafeMutableBytes { buffer in
+      let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+      context.translateBy(x: 0, y: CGFloat(height)); context.scaleBy(x: 1, y: -1)
+      view.layer.render(in: context)
+    }
+    return { x, y in (0..<4).map { Int(bytes[(y * width + x) * 4 + $0]) } }
+  }
+
+  private func overridesDraw(_ type: UIView.Type) -> Bool {
+    class_getMethodImplementation(type, #selector(UIView.draw(_:))) != class_getMethodImplementation(UIView.self, #selector(UIView.draw(_:)))
+  }
+
+  /// #11830: a `draw(_:)` override gives every key a CPU bitmap, and a full custom-skin keyboard of them got the extension killed on iPad. The key face is composed from layers instead, and must still paint the fill, the border, the raised base and the clipped finish.
+  @MainActor
+  func testSkinKeySurfaceIsLayerBackedAndPaintsItsParts() throws {
+    XCTAssertFalse(overridesDraw(SkinKeySurfaceView.self), "按键表面不能有自己的位图")
+    let surface = SkinKeySurfaceView(frame: CGRect(x: 0, y: 0, width: 60, height: 60))
+    var design = CustomKeyboardSkin()
+    design.cornerRadius = 8
+    design.borderWidth = 2
+    design.customBorderColor = 0x0000FF
+    surface.design = design
+    surface.fillColor = .red
+    var pixel = skinPixels(surface)
+    XCTAssertNil(surface.layer.contents)
+    XCTAssertEqual(pixel(30, 30), [255, 0, 0, 255], "键面填充")
+    XCTAssertEqual(pixel(1, 30), [0, 0, 255, 255], "边框沿键面外沿描")
+    XCTAssertEqual(pixel(0, 0)[3], 0, "圆角外不画")
+
+    design.borderWidth = 0
+    design.keyMaterial = .raised
+    surface.design = design
+    pixel = skinPixels(surface)
+    // Face 1...56, base 3 points lower: the strip below the face is the fill darkened by black .28.
+    let base = pixel(30, 58)
+    XCTAssertEqual(base[0], 184, accuracy: 3, "凸起的底座：底色压暗 .28")
+    XCTAssertEqual(Array(base[1...]), [0, 0, 255])
+    let face = pixel(30, 30)
+    XCTAssertGreaterThan(face[0], 240); XCTAssertLessThan(face[1], 20)
+    let top = pixel(30, 3)
+    XCTAssertGreaterThan(top[1], 20, "凸起的高光在键面上半部")
+
+    design.keyMaterial = .glass
+    surface.design = design
+    pixel = skinPixels(surface)
+    XCTAssertEqual(pixel(1, 1)[3], 0, "玻璃的高光裁在键形里")
+    XCTAssertGreaterThan(pixel(10, 4)[1], 40, "玻璃的高光")
+
+    // Layer colours are resolved CGColors: a dynamic fill follows the appearance of the window it is in.
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 60, height: 60))
+    window.overrideUserInterfaceStyle = .light
+    window.isHidden = false
+    defer { window.isHidden = true }
+    window.addSubview(surface)
+    surface.design = CustomKeyboardSkin()
+    surface.fillColor = UIColor { $0.userInterfaceStyle == .dark ? .green : .red }
+    XCTAssertEqual(skinPixels(surface)(30, 30), [255, 0, 0, 255])
+    window.overrideUserInterfaceStyle = .dark
+    window.layoutIfNeeded()
+    XCTAssertEqual(skinPixels(surface)(30, 30), [0, 255, 0, 255], "换成深色后重新解析底色")
+  }
+
+  /// #11830: a solid skin background is only `backgroundColor`; the drawn artwork view exists only while there is a gradient, photo or pattern.
+  @MainActor
+  func testSolidSkinBackdropHasNoDrawnBitmap() throws {
+    XCTAssertFalse(overridesDraw(KeyboardSkinBackgroundView.self), "底板本身不画位图")
+    let backdrop = KeyboardSkinBackgroundView(frame: CGRect(x: 0, y: 0, width: 40, height: 40))
+    var design = CustomKeyboardSkin()
+    design.background = 0x336699
+    backdrop.skin = .designed(design)
+    XCTAssertTrue(backdrop.subviews.isEmpty, "纯色不需要画")
+    XCTAssertEqual(skinPixels(backdrop)(20, 20), [0x33, 0x66, 0x99, 255])
+    design.gradientEnd = 0x000000
+    backdrop.skin = .designed(design)
+    XCTAssertEqual(backdrop.subviews.count, 1)
+    XCTAssertLessThan(skinPixels(backdrop)(20, 38)[2], 20, "渐变画到底部接近终点色")
+    design.gradientEnd = nil
+    backdrop.skin = .designed(design)
+    XCTAssertTrue(backdrop.subviews.isEmpty, "换回纯色时去掉画出来的那层")
+  }
 }

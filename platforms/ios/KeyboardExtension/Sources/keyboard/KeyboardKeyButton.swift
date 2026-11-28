@@ -191,10 +191,9 @@ final class KeyboardKeyButton: UIButton {
     let insets = background?.backgroundInsets ?? .zero
     let rect = bounds.inset(by: UIEdgeInsets(top: insets.top, left: insets.leading, bottom: insets.bottom, right: insets.trailing))
     if let surface = background?.customView as? SkinKeySurfaceView {
-      // 与 `SkinKeySurfaceView.draw` 填充的键面相同：按它的缩放内缩，再按凸起材质的厚度上移。
+      // 与 `SkinKeySurfaceView` 填充的键面相同：按它的缩放内缩，再按凸起材质的厚度上移。
       let design = surface.design.normalized
-      let depth: CGFloat = design.keyMaterial == .raised ? 3 * surface.scale : 0
-      let face = rect.insetBy(dx: surface.scale, dy: surface.scale).inset(by: UIEdgeInsets(top: 0, left: 0, bottom: depth, right: 0))
+      let face = SkinKeySurfaceView.faceRect(in: rect, design: design, scale: surface.scale)
       shade.path = SkinKeySurfaceView.path(in: face, shape: design.keyShape ?? .rounded, radius: design.cornerRadius * surface.scale).cgPath
     } else {
       let radius = min(background?.cornerRadius ?? KeyboardTheme.current.cornerRadius, min(rect.width, rect.height) / 2)
