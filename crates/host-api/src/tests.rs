@@ -600,6 +600,33 @@ fn surface_route_boundary_resolves_panels_and_rejects_bad_buffers() {
     );
 }
 
+/// 设成保留英文的键（#11890）不武装连按转中文：它本来就该是 ASCII。其他键照旧。
+#[test]
+fn smart_punctuation_repeat_skips_preserved_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_preferences(
+        dir.path(),
+        Preferences {
+            smart_punctuation: true,
+            smart_punctuation_repeat: true,
+            preserve_english_punctuation: vec![",".into()],
+            ..chinese_preferences()
+        },
+    );
+    let arm = |ascii: u8| {
+        let text = json!({
+            "ascii": ascii, "commit": char::from(ascii).to_string(), "timestamp_ms": 1_000,
+            "editor_generation": 3, "auto_closed_pair": false
+        })
+        .to_string();
+        // SAFETY: the buffer outlives the call.
+        read(unsafe { msime_client_smart_punctuation_arm(handle, text.as_ptr(), text.len()) })
+    };
+    assert!(arm(b',')["value"]["repeat"].is_null());
+    assert_eq!(arm(b'.')["value"]["repeat"]["committed"], ".");
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn smart_punctuation_gesture_boundary_arms_and_decides_from_the_session() {
     let dir = tempfile::tempdir().unwrap();

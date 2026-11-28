@@ -529,6 +529,11 @@ pub unsafe extern "C" fn msime_client_smart_punctuation_arm(
                 .get(&handle)
                 .ok_or_else(|| "unknown session or wrong thread".to_owned())?;
             let smart = session.applied.smart_punctuation;
+            let marks = msime_client_core::punctuation::punctuation_marks(&session.applied);
+            // 设成保留英文的键（#11890）连按也不转成中文标点。
+            let preserved = marks
+                .preserve_english_punctuation
+                .contains(char::from(value.ascii));
             let repeat = msime_client_core::punctuation::arm_repeat(
                 value.ascii,
                 &value.commit,
@@ -537,6 +542,7 @@ pub unsafe extern "C" fn msime_client_smart_punctuation_arm(
             )
             .filter(|_| {
                 smart
+                    && !preserved
                     && session.applied.smart_punctuation_repeat
                     && scheme_allows_repeat_punctuation(session.runtime.scheme())
             });
@@ -547,7 +553,7 @@ pub unsafe extern "C" fn msime_client_smart_punctuation_arm(
                 session.applied.smart_punctuation_space_convert,
                 value.editor_generation,
                 value.ascii,
-                &msime_client_core::punctuation::punctuation_marks(&session.applied),
+                &marks,
             );
             Ok(json!({
                 "repeat": repeat.map(|armed| json!({
