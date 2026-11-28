@@ -1,6 +1,6 @@
 # Agent Note: 跟踪 macOS 快速双拼输入异常
 
-Status: proposed
+Status: rejected — 按代码找到了能解释现象的时序（切进报告排在第一次按键之后），已直接修复，不再等复现资料，见 [macOS 切进后立刻打字时，迟到的模式报告不改设置里的方案](../../implemented/bug-fix/2026-11-28-macos-late-switch-in-report-keeps-scheme.md)
 
 ## Problem
 
