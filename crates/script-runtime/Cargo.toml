@@ -11,7 +11,7 @@ publish = false
 # 只在桌面编译：macOS、Windows 和非 ohos 的 Linux。移动端（iOS、Android、HarmonyOS）和 wasm32 上这个 crate 是空的，解释器不进它们的产物。条件与 host-api、client-services 引用本 crate 的那段相同。
 [target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))'.dependencies]
 # 纯解释执行的 wasm 运行时：没有 JIT，不装信号处理器；fuel 计量和 `StoreLimits` 是沙箱的两道硬限制。不开默认特性：不要 memory64、simd 和 wat。
-wasmi = { version = "2.0.0", default-features = false, features = ["std", "stable", "validate", "auto-dispatch", "extra-checks"] }
+wasmi = { version = "2.0.3", default-features = false, features = ["std", "stable", "validate", "auto-dispatch", "extra-checks"] }
 
 [features]
 # 只给依赖本 crate 的测试用（host-api 的脚本插件测试）：打开 wasmi 的 `wat` 特性，`compile_text` 直接编译 WAT 文本。产品构建从不打开它，dev-dependencies 打开的特性不并进普通构建。
@@ -19,7 +19,7 @@ test-support = ["wasmi/wat"]
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))'.dev-dependencies]
 # 测试用 WAT 文本写模块，仓库不提交 `.wasm`。
-wasmi = { version = "2.0.0", default-features = false, features = ["std", "stable", "validate", "auto-dispatch", "extra-checks", "wat"] }
+wasmi = { version = "2.0.3", default-features = false, features = ["std", "stable", "validate", "auto-dispatch", "extra-checks", "wat"] }
 
 [lints]
 workspace = true
