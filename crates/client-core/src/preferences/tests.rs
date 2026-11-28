@@ -6211,6 +6211,7 @@ fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
                 show_in_candidate_window: true,
                 strict_filter: false,
                 grid: false,
+                component_filter_backtick: false,
                 modes: ShuangpinHelpcodeModes::default(),
             },
             ..Preferences::default()

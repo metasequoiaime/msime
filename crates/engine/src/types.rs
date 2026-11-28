@@ -1057,8 +1057,7 @@ pub struct QueryRequest {
     /// Lowercased, apostrophes kept.
     pub raw_input: String,
     pub raw_input_with_cases: String,
-    /// 输入串里带辅助码段（'`' 句中、'|' 末尾）时，`raw_input` / `raw_input_with_cases` 是每段换成
-    /// `'`（末尾的末尾段去掉）的去段串，原串（用户敲的原样）在这里。没有段时为空。
+    /// 输入串里带辅助码段（双拼 '`' 句中、'|' 末尾）时，`raw_input` / `raw_input_with_cases` 是每段换成 `'`（末尾的末尾段去掉）的去段串，原串（用户敲的原样）在这里。全拼的部件辅助段（反引号起到末尾）同样只留在这里，去段串是反引号前的拼音。没有段时为空。
     pub raw_input_with_helpcode_marks: String,
     /// 句中辅助码约束；段敲进串里就带着，是否参与筛查看 `shuangpin_helpcode_modes.mid_sentence`。
     pub syllable_helpcodes: Vec<SyllableHelpcode>,
@@ -1080,6 +1079,8 @@ pub struct QueryRequest {
     pub enable_quanpin_helpcode: bool,
     /// 一码辅助码是否严格排除未命中的候选；默认关闭以保持历史排序。
     pub strict_quanpin_helpcode: bool,
+    /// 全拼的部件辅助段：输入串里反引号后面的部件全拼（小写，`'` 原样保留），候选按 [`crate::local::chaizi::component_filter`] 筛。反引号和这一段不进 `raw_input` 及其派生字段，原串在 `raw_input_with_helpcode_marks`；会话没打开 `SessionOptions::component_filter_backtick` 时为空。
+    pub component_filter_parts: String,
     /// 会话的「拼音纠错」开关。名字带 quanpin 是历史原因：双拼也按它决定是否给纠错整句。
     pub enable_quanpin_autocorrect_transposition: bool,
     pub enable_quanpin_autocorrect_neighbor: bool,

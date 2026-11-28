@@ -10,6 +10,7 @@ use crate::helpcode::{
     reorder_candidates_with_single_helpcode_preserving_first, HelpcodeKeymap,
 };
 use crate::lattice::decode::PinnedSpan;
+use crate::local::chaizi::component_filter;
 use crate::paths::RuntimePaths;
 use crate::pinyin::active_helpcode::{detect_active_helpcode_length, strip_active_helpcodes};
 use crate::pinyin::segment::{cut_pinyin_by_mode, join_segments, split_segments, CutMode};
@@ -37,7 +38,7 @@ impl QuanpinEngine {
         self.dictionary.offensive_words()
     }
 
-    /// Double helpcode: query the base and keep matches; single: query the base and reorder; otherwise query the raw input with its segmentation, mask and fuzzy options (QE:39-81). Empty for an invalid request.
+    /// Double helpcode: query the base and keep matches; single: query the base and reorder; otherwise query the raw input with its segmentation, mask and fuzzy options (QE:39-81). Empty for an invalid request. 带部件辅助段（`QueryRequest::component_filter_parts`）时，再只留末字的部件对得上的行。
     ///
     /// Without a keymap every helpcode matches nothing: a double helpcode leaves no rows and a single one leaves the order alone. The reference fell back to a process-wide default table here, which the port does not keep; the session always passes the keymap it loaded.
     pub fn query(
@@ -60,6 +61,33 @@ impl QuanpinEngine {
         self.dictionary
             .set_rescoring_context(&request.rescoring_context);
 
+        let rows = self.query_rows(request, keymap);
+        if request.component_filter_parts.is_empty() {
+            return rows;
+        }
+        // 部件辅助段只筛选，不改顺序（#11804）；反引号前的拼音已经由 `query_rows` 查完。
+        let mut rows = rows;
+        if request.raw_input.len() == 1 {
+            // 单字母音节（`a`、`e`）的首屏只有 24 行，筛之前补全，要找的生僻字往往在后面。
+            self.dictionary.complete_initial_candidates(
+                &request.raw_input,
+                &request.segmentation,
+                request_autocorrect_mask(
+                    request.enable_quanpin_autocorrect_transposition,
+                    request.enable_quanpin_autocorrect_neighbor,
+                ),
+                &mut rows,
+            );
+        }
+        component_filter(rows, &request.component_filter_parts)
+    }
+
+    /// `query` 在部件辅助段筛选之前的那一步：辅助码筛选或重排，没有辅助码时按原文查。
+    fn query_rows(
+        &mut self,
+        request: &QueryRequest,
+        keymap: Option<&HelpcodeKeymap>,
+    ) -> Vec<WordItem> {
         let types = request_autocorrect_mask(
             request.enable_quanpin_autocorrect_transposition,
             request.enable_quanpin_autocorrect_neighbor,
@@ -115,6 +143,7 @@ impl QuanpinEngine {
         candidates: &mut Vec<WordItem>,
     ) -> bool {
         if request.scheme != SchemeType::Quanpin
+            || !request.component_filter_parts.is_empty()
             || (request.enable_quanpin_helpcode
                 && detect_active_helpcode_length(&request.raw_input, &request.raw_input_with_cases)
                     > 0)

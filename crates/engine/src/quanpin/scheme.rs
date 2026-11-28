@@ -13,6 +13,14 @@ fn replace_string(target: &mut String, source: String) {
     }
 }
 
+/// 全拼部件辅助段的引导键，记进输入串（#11804）。
+pub(crate) const COMPONENT_FILTER_MARKER: u8 = b'`';
+
+/// 把输入串在第一个反引号处分成拼音和部件辅助段（不含反引号）；没有反引号时为 `None`。
+pub(crate) fn split_component_filter(raw: &str) -> Option<(&str, &str)> {
+    raw.split_once(char::from(COMPONENT_FILTER_MARKER))
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct QuanpinScheme {
     raw: String,
@@ -43,6 +51,14 @@ impl QuanpinScheme {
                 }
             }
             SchemeKey::Backspace => self.raw.pop().is_some(),
+            // 部件辅助段的反引号：会话只在全拼完整、光标在末尾、选项打开时送来（`InputSession::component_filter_backtick_ready`）；一段组字里只有一个。
+            SchemeKey::Symbol(COMPONENT_FILTER_MARKER)
+                if !self.raw.is_empty()
+                    && !self.raw.contains(char::from(COMPONENT_FILTER_MARKER)) =>
+            {
+                self.raw.push(char::from(COMPONENT_FILTER_MARKER));
+                true
+            }
             SchemeKey::Letter(_)
             | SchemeKey::Semicolon
             | SchemeKey::Minus
@@ -70,18 +86,43 @@ impl QuanpinScheme {
         request: &mut QueryRequest,
     ) {
         request.scheme = SchemeType::Quanpin;
-        request.raw_input.clear();
-        request.raw_input.extend(
-            raw.bytes()
-                .map(|byte| char::from(byte.to_ascii_lowercase())),
-        );
         let raw_with_cases = if raw_with_cases.is_empty() {
             raw
         } else {
             raw_with_cases
         };
+        // 部件辅助段从反引号起到末尾：查询、切分、学词和云候选只看反引号前的拼音，原串留给预编辑和编辑光标。
+        let (pinyin, pinyin_with_cases) = match split_component_filter(raw_with_cases) {
+            Some((pinyin_with_cases, parts)) => {
+                request.raw_input_with_helpcode_marks.clear();
+                request
+                    .raw_input_with_helpcode_marks
+                    .push_str(raw_with_cases);
+                request.component_filter_parts.clear();
+                request.component_filter_parts.extend(
+                    parts
+                        .bytes()
+                        .map(|byte| char::from(byte.to_ascii_lowercase())),
+                );
+                (
+                    split_component_filter(raw).map_or(raw, |(pinyin, _)| pinyin),
+                    pinyin_with_cases,
+                )
+            }
+            None => {
+                request.raw_input_with_helpcode_marks.clear();
+                request.component_filter_parts.clear();
+                (raw, raw_with_cases)
+            }
+        };
+        request.raw_input.clear();
+        request.raw_input.extend(
+            pinyin
+                .bytes()
+                .map(|byte| char::from(byte.to_ascii_lowercase())),
+        );
         request.raw_input_with_cases.clear();
-        request.raw_input_with_cases.push_str(raw_with_cases);
+        request.raw_input_with_cases.push_str(pinyin_with_cases);
         Self::apply_segmentation(request, CutMode::Correction);
     }
 
@@ -154,6 +195,11 @@ impl QuanpinScheme {
         if helpcode_length > 0 {
             raw_segmentation.push('\'');
             raw_segmentation.push_str(&cased[cased.len() - helpcode_length..]);
+        }
+        // 部件辅助段原样接在切分后面显示，和大写辅助码一样不参与切分。
+        if let Some((_, parts)) = split_component_filter(&request.raw_input_with_helpcode_marks) {
+            raw_segmentation.push(char::from(COMPONENT_FILTER_MARKER));
+            raw_segmentation.push_str(parts);
         }
         request
             .segmentation
@@ -300,5 +346,39 @@ mod tests {
         let request = typed("'").build_request();
         assert!(!request.valid);
         assert!(!QuanpinScheme::new().build_request().valid);
+    }
+
+    #[test]
+    fn the_component_segment_stays_out_of_the_request_spelling() {
+        let mut scheme = typed("cheng");
+        assert!(scheme.handle_key(SchemeKey::Symbol(COMPONENT_FILTER_MARKER)));
+        // 一段组字只有一个反引号。
+        assert!(!scheme.handle_key(SchemeKey::Symbol(COMPONENT_FILTER_MARKER)));
+        for letter in *b"chong" {
+            assert!(scheme.handle_key(SchemeKey::Letter(letter)));
+        }
+        let request = scheme.build_request();
+        assert_eq!(scheme.preedit(), "cheng`chong");
+        assert_eq!(request.raw_input, "cheng");
+        assert_eq!(request.raw_input_with_cases, "cheng");
+        assert_eq!(request.normalized_input, "cheng");
+        assert_eq!(request.segmentation, "cheng");
+        assert_eq!(request.raw_input_with_helpcode_marks, "cheng`chong");
+        assert_eq!(request.component_filter_parts, "chong");
+        assert_eq!(request.raw_segmentation, "cheng`chong");
+        assert!(request.valid);
+
+        // 反引号刚打下时段是空的；没有反引号的请求把上一次的段清掉。
+        let mut reused = request.clone();
+        QuanpinScheme::build_request_from_raw_into("lu`", "lu`", &mut reused);
+        assert_eq!(reused.raw_input, "lu");
+        assert_eq!(reused.component_filter_parts, "");
+        assert_eq!(reused.raw_input_with_helpcode_marks, "lu`");
+        QuanpinScheme::build_request_from_raw_into("lu", "lu", &mut reused);
+        assert!(reused.raw_input_with_helpcode_marks.is_empty());
+        assert!(reused.component_filter_parts.is_empty());
+
+        // 空的组字不收反引号。
+        assert!(!QuanpinScheme::new().handle_key(SchemeKey::Symbol(COMPONENT_FILTER_MARKER)));
     }
 }

@@ -9,6 +9,7 @@ mod caret_edit;
 mod chain;
 mod clock;
 mod commit;
+mod component_filter;
 mod composition;
 mod conversion;
 mod editing;

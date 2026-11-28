@@ -338,6 +338,103 @@ pub fn query_chaizi(
         .collect()
 }
 
+/// `chaizi.tsv` 的反向索引：每个字和它出现的那一行（按字、再按行号排序）。一个字可能有好几种拆法或部件别名（撑 = `shou'zhang`、`ti'zhang` 等），每种各占一项。第一次筛选时从 `chaizi.tsv` 建，之后二分查找。
+fn reverse_index() -> &'static [(char, u32)] {
+    static REVERSE: OnceLock<Vec<(char, u32)>> = OnceLock::new();
+    REVERSE.get_or_init(|| {
+        let table = keys();
+        let mut entries = Vec::with_capacity(table.len() * 2);
+        for index in 0..table.len() {
+            let Some((_, characters)) = table.line(index).split_once('\t') else {
+                continue;
+            };
+            entries.extend(
+                characters
+                    .chars()
+                    .map(|character| (character, index as u32)),
+            );
+        }
+        entries.sort_unstable();
+        entries.dedup();
+        entries.shrink_to_fit();
+        entries
+    })
+}
+
+/// `character` 在 `chaizi.tsv` 里的全部部件键。
+fn component_keys(character: char) -> impl Iterator<Item = &'static str> {
+    let index = reverse_index();
+    let lower = index.partition_point(|&(entry, _)| entry < character);
+    let upper = index.partition_point(|&(entry, _)| entry <= character);
+    let table = keys();
+    index[lower..upper]
+        .iter()
+        .map(move |&(_, line)| table.field(line as usize))
+}
+
+/// 辅助段 `parts` 能否按顺序对上部件键 `key` 里的部件：把辅助段的字母切成若干段，每段都等于 `key` 的一个部件读音，这些部件在 `key` 里的位置严格递增；部件可以跳过，不能颠倒，也不能重复使用。用户写下的 `'` 必须落在两段之间。切分由键里实际的部件决定，所以 `xian` 既能对上部件 `xian`，也能对上 `xi'an`。
+fn key_matches(key: &str, parts: &Query) -> bool {
+    let mut syllables = [""; MAX_COMPONENTS];
+    let mut count = 0;
+    for syllable in key.split('\'') {
+        if count == MAX_COMPONENTS {
+            return false;
+        }
+        syllables[count] = syllable;
+        count += 1;
+    }
+    let syllables = &syllables[..count];
+    let typed = &parts.letters;
+    // `next[position]`：匹配完辅助段前 `position` 个字母后，下一段最早可以用第几个部件。越小越好，所以每个位置只记最小值。
+    let mut next = vec![usize::MAX; typed.len() + 1];
+    next[0] = 0;
+    for position in 0..typed.len() {
+        let first = next[position];
+        if first == usize::MAX {
+            continue;
+        }
+        for (component, syllable) in syllables.iter().enumerate().skip(first) {
+            let syllable = syllable.as_bytes();
+            let end = position + syllable.len();
+            if end > typed.len()
+                || &typed[position..end] != syllable
+                || parts
+                    .separators
+                    .iter()
+                    .any(|&separator| position < separator && separator < end)
+            {
+                continue;
+            }
+            next[end] = next[end].min(component + 1);
+        }
+    }
+    next[typed.len()] != usize::MAX
+}
+
+/// 用部件全拼筛选候选：`parts` 是拼音后面的辅助段（例如 `cheng` 后的 `chong`），按全拼书写，部件之间可以用 `'` 分隔。保留末字的某种拆法按顺序包含这些部件的候选（规则见 `key_matches`），其余丢掉，留下的行保持原来的顺序。多字词看末字；末字不在拆字表里的行（含非汉字）都被丢掉。`parts` 去掉 `'` 后为空时原样返回；含小写字母和 `'` 以外的字符时什么也不留。
+///
+/// 全拼组字后按反引号打开的部件辅助段经 `QuanpinEngine::query` 和会话的混排列表用到它（`SessionOptions::component_filter_backtick`），触发条件和默认值见 `.agents/notes/implemented/feature/2026-11-27-component-pinyin-helpcode.md`。
+pub fn component_filter(candidates: Vec<WordItem>, parts: &str) -> Vec<WordItem> {
+    if !parts
+        .bytes()
+        .all(|byte| byte.is_ascii_lowercase() || byte == b'\'')
+    {
+        return Vec::new();
+    }
+    let query = Query::new(parts);
+    if query.letters.is_empty() {
+        return candidates;
+    }
+    candidates
+        .into_iter()
+        .filter(|candidate| {
+            candidate.word.chars().last().is_some_and(|character| {
+                component_keys(character).any(|key| key_matches(key, &query))
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,6 +598,147 @@ mod tests {
         let rows = query_chaizi("sjq;", SchemeType::Shuangpin, microsoft, false);
         assert_eq!(rows.first().map(|item| item.word.as_str()), Some("清"));
         assert!(query_chaizi("sjq;", SchemeType::Quanpin, microsoft, false).is_empty());
+    }
+
+    fn rows(words: &[&str]) -> Vec<WordItem> {
+        words
+            .iter()
+            .enumerate()
+            .map(|(index, word)| {
+                WordItem::new(
+                    "x",
+                    *word,
+                    (words.len() - index) as i64,
+                    CandidateSource::Database,
+                    "",
+                )
+            })
+            .collect()
+    }
+
+    fn filtered(words: &[&str], parts: &str) -> Vec<String> {
+        component_filter(rows(words), parts)
+            .into_iter()
+            .map(|item| item.word.into_string())
+            .collect()
+    }
+
+    fn matches(key: &str, parts: &str) -> bool {
+        key_matches(key, &Query::new(parts))
+    }
+
+    #[test]
+    fn key_matching_keeps_component_order_on_synthetic_keys() {
+        // 合成的键：部件 a、bo、can，按这个顺序。
+        let key = "a'bo'can";
+        assert!(matches(key, "a"));
+        assert!(matches(key, "bo"));
+        assert!(matches(key, "can"));
+        assert!(matches(key, "acan"));
+        assert!(matches(key, "abocan"));
+        assert!(matches(key, "bo'can"));
+        // 顺序颠倒、同一个部件用两次、部件只打了一半都不算。
+        assert!(!matches(key, "boa"));
+        assert!(!matches(key, "canbo"));
+        assert!(!matches(key, "aa"));
+        assert!(!matches(key, "ca"));
+        assert!(!matches(key, "b"));
+        // `'` 切在部件中间时不算，打头和末尾的 `'` 不影响。
+        assert!(!matches(key, "b'o"));
+        assert!(matches(key, "'bo'"));
+        // 重复的部件可以各用一次。
+        assert!(matches("ma'ma'ma", "mama"));
+        assert!(matches("ma'ma'ma", "mamama"));
+        assert!(!matches("ma'ma'ma", "mamamama"));
+    }
+
+    #[test]
+    fn key_matching_splits_by_the_components_in_the_key() {
+        // 同一串字母按键里实际的部件来切：`xian` 能对上 `xian`，也能对上 `xi'an`。
+        assert!(matches("xian'mu", "xian"));
+        assert!(matches("xi'an'mu", "xian"));
+        assert!(matches("xi'an'mu", "xi'an"));
+        assert!(!matches("xian'mu", "xi'an"));
+        // 贪心先吃 `xi` 会走进死路时仍能找到另一种切法。
+        assert!(matches("xi'xian", "xian"));
+    }
+
+    #[test]
+    fn cheng_then_chong_keeps_only_the_insect_character() {
+        // 合成的 `cheng` 候选，里面有同音的 蛏（虫 + 圣）。
+        let cheng = ["成", "城", "程", "称", "撑", "蛏", "澄", "橙", "惩"];
+        assert_eq!(filtered(&cheng, "chong"), ["蛏"]);
+        assert_eq!(filtered(&cheng, "chongsheng"), ["蛏"]);
+        assert_eq!(filtered(&cheng, "tu"), ["城"]);
+        // 同一个部件出现在好几个同音字里：保留全部，顺序不变。
+        assert_eq!(filtered(&cheng, "deng"), ["澄", "橙"]);
+        // 部件别名：氵 写 san 或 shui 都行。
+        assert_eq!(filtered(&cheng, "san"), ["澄"]);
+        assert_eq!(filtered(&cheng, "shui"), ["澄"]);
+    }
+
+    #[test]
+    fn lu_then_niao_keeps_the_bird_characters() {
+        let lu = ["路", "鹭", "露", "炉", "鸬"];
+        // 鹭 和 鸬 的拆法都是 `lu'niao`，两个都留下。
+        assert_eq!(filtered(&lu, "niao"), ["鹭", "鸬"]);
+        assert_eq!(filtered(&lu, "luniao"), ["鹭", "鸬"]);
+        assert_eq!(filtered(&lu, "lu'niao"), ["鹭", "鸬"]);
+        // 部件顺序颠倒就不留。
+        assert!(filtered(&lu, "niaolu").is_empty());
+    }
+
+    #[test]
+    fn several_components_and_decompositions_are_all_tried() {
+        // 撑 有 `cai'zhang`、`shou'shang'shou`、`shou'zhang`、`ti'zhang` 几种拆法，任一种对上就留下。
+        let cheng = ["成", "撑"];
+        assert_eq!(filtered(&cheng, "shoushou"), ["撑"]);
+        assert_eq!(filtered(&cheng, "shangshou"), ["撑"]);
+        assert_eq!(filtered(&cheng, "shoushangshou"), ["撑"]);
+        assert_eq!(filtered(&cheng, "tizhang"), ["撑"]);
+        assert!(filtered(&cheng, "shoushoushou").is_empty());
+        assert!(filtered(&cheng, "zhangshou").is_empty());
+        // 三个相同部件：焱 = 火 火 火。
+        assert_eq!(filtered(&["炎", "焱"], "huohuohuo"), ["焱"]);
+    }
+
+    #[test]
+    fn multi_character_words_are_filtered_by_the_last_character() {
+        let words = ["白鹭", "鹭白", "道路", "鹭"];
+        assert_eq!(filtered(&words, "niao"), ["白鹭", "鹭"]);
+    }
+
+    #[test]
+    fn rows_survive_unchanged_and_edge_inputs_are_explicit() {
+        let kept = component_filter(rows(&["路", "鹭"]), "niao");
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].word.as_str(), "鹭");
+        assert_eq!(kept[0].weight, 1);
+        assert_eq!(kept[0].source, CandidateSource::Database);
+        // 空的辅助段不筛选。
+        assert_eq!(filtered(&["路", "鹭"], ""), ["路", "鹭"]);
+        assert_eq!(filtered(&["路", "鹭"], "'"), ["路", "鹭"]);
+        // 不在表里的字、非汉字、空词，以及辅助段里有大写或其他字符时什么也不留。
+        assert!(filtered(&["abc", "", "〇"], "niao").is_empty());
+        assert!(filtered(&["鹭"], "Niao").is_empty());
+        assert!(filtered(&["鹭"], "niao1").is_empty());
+        assert!(filtered(&["鹭"], "xyzzy").is_empty());
+    }
+
+    #[test]
+    fn reverse_index_covers_every_row_of_the_key_table() {
+        let table = keys();
+        for index in (0..table.len()).step_by(97) {
+            let (key, characters) = table.line(index).split_once('\t').expect("键和字串");
+            for character in characters.chars() {
+                assert!(
+                    component_keys(character).any(|found| found == key),
+                    "{character} 缺键 {key}"
+                );
+                assert!(matches(key, &key.replace('\'', "")), "{key}");
+            }
+        }
+        assert_eq!(component_keys('a').count(), 0);
     }
 
     #[test]

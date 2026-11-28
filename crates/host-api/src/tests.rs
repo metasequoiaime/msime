@@ -355,6 +355,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         wubi_profile: 0,
         helpcode: false,
         strict_quanpin_helpcode: false,
+        component_filter_backtick: false,
         show_helpcode: false,
         shuangpin_helpcode_modes: msime_engine::ShuangpinHelpcodeModes::default(),
         grid_helpcode: false,
@@ -5845,6 +5846,7 @@ fn helpcode_settings_switch_independently_after_composition() {
             show_in_candidate_window: false,
             strict_filter: false,
             grid: false,
+            component_filter_backtick: false,
             modes: msime_client_core::preferences::ShuangpinHelpcodeModes::default(),
         },
         shuangpin_helpcode: HelpcodePreferences {
@@ -5854,6 +5856,7 @@ fn helpcode_settings_switch_independently_after_composition() {
             show_in_candidate_window: true,
             strict_filter: false,
             grid: false,
+            component_filter_backtick: false,
             modes: msime_client_core::preferences::ShuangpinHelpcodeModes::default(),
         },
         ..Preferences::default()
