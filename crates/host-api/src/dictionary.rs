@@ -208,6 +208,9 @@ enum Operation {
     Updates {
         command: String,
         enabled: Option<bool>,
+        /// 本进程私有的目录（绝对路径），给了时检查的锁和下载暂存放在这里，见 client-providers 的 `UpdateContext::private_root`。iOS App 传自己容器里的 `Caches/dictionary-updates`，其余宿主不传。
+        #[serde(default)]
+        private_directory: Option<String>,
     },
     List {
         offset: usize,
@@ -815,8 +818,18 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
         .preferences
         .validate()
         .map_err(|_| "invalid dictionary options".to_owned())?;
-    if let Operation::Updates { command, enabled } = &request.action {
-        return crate::dictionary_updates::request(&request.options, command, *enabled);
+    if let Operation::Updates {
+        command,
+        enabled,
+        private_directory,
+    } = &request.action
+    {
+        return crate::dictionary_updates::request(
+            &request.options,
+            command,
+            *enabled,
+            private_directory.as_deref(),
+        );
     }
 
     // 只有 `queue_learning_merge` 和 `merge_pending_learning` 用到：待合并的输入记录放在它下面。
@@ -1269,8 +1282,18 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
         .preferences
         .validate()
         .map_err(|_| "invalid dictionary options".to_owned())?;
-    if let Operation::Updates { command, enabled } = &request.action {
-        return crate::dictionary_updates::request(&request.options, command, *enabled);
+    if let Operation::Updates {
+        command,
+        enabled,
+        private_directory,
+    } = &request.action
+    {
+        return crate::dictionary_updates::request(
+            &request.options,
+            command,
+            *enabled,
+            private_directory.as_deref(),
+        );
     }
 
     let directory = request
