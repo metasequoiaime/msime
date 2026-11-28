@@ -3359,6 +3359,35 @@ static void TestOnlyListedShuangpinKeepsSavedScheme() {
     [controller systemDidReportInputMode:MSIMEShuangpinInputModeID client:client];
     assert(!appearance.englishMode && [appearance.inputScheme isEqual:@"quanpin"]);
 
+    // #11963：在「双」上按 Shift 进英文再按 Shift 回中文。菜单栏选「英」，回中文时「水杉全拼」不在列表里，选唯一的中文入口「双」，不停在「英」上；方案仍是全拼。系统随后送来的「双」回执不改方案，也不再触发选择。
+    const NSUInteger beforeToggle = client.selectedModes.count;
+    [controller setEnglishInputMode:YES];
+    assert([client.selectedModes.lastObject isEqual:MSIMEEnglishInputModeID] && client.selectedModes.count == beforeToggle + 1);
+    [controller setEnglishInputMode:NO];
+    assert(!appearance.englishMode && [appearance.inputScheme isEqual:@"quanpin"]);
+    assert([client.selectedModes.lastObject isEqual:MSIMEShuangpinInputModeID] && client.selectedModes.count == beforeToggle + 2);
+    assert([MSIMESharedSystemInputModeState().current isEqualToString:MSIMEShuangpinInputModeID]);
+    [controller systemDidReportInputMode:MSIMEShuangpinInputModeID client:client];
+    assert(!appearance.englishMode && [appearance.inputScheme isEqual:@"quanpin"] && client.selectedModes.count == beforeToggle + 2);
+    assert([[defaults stringForKey:@"MSIMEClientInputScheme"] isEqual:@"quanpin"]);
+    // 同步发回回执的客户端也一样。
+    EchoModeSelectingClient *echoClient = [EchoModeSelectingClient new];
+    echoClient.controller = controller;
+    [controller setValue:echoClient forKey:@"activeClient"];
+    [controller setEnglishInputMode:YES];
+    [controller setEnglishInputMode:NO];
+    assert([echoClient.selectedModes isEqualToArray:(@[MSIMEEnglishInputModeID, MSIMEShuangpinInputModeID])]);
+    assert(!appearance.englishMode && [appearance.inputScheme isEqual:@"quanpin"]);
+    [controller systemDidReportInputMode:MSIMEShuangpinInputModeID client:echoClient];
+    assert([appearance.inputScheme isEqual:@"quanpin"] && echoClient.selectedModes.count == 2);
+    [controller setValue:client forKey:@"activeClient"];
+
+    // 列表里有「水杉全拼」时照旧选「中」。
+    ListedInputModes = [NSSet setWithArray:@[MSIMEChineseInputModeID, MSIMEShuangpinInputModeID, MSIMEEnglishInputModeID]];
+    [controller setEnglishInputMode:YES];
+    [controller setEnglishInputMode:NO];
+    assert([client.selectedModes.lastObject isEqual:MSIMEChineseInputModeID] && [appearance.inputScheme isEqual:@"quanpin"]);
+
     // 列表里只有「双」和「日」：切到「日」再选回「双」，「日」自己的入口在列表里，但看的是存的中文方案（全拼）的入口，方案回到全拼，不存成双拼。
     client = freshProcess(@[MSIMEShuangpinInputModeID, MSIMEJapaneseInputModeID, MSIMEEnglishInputModeID]);
     [controller systemDidReportInputMode:MSIMEShuangpinInputModeID client:client];

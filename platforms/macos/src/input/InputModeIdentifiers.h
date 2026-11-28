@@ -346,21 +346,28 @@ static inline BOOL MSIMESchemeIsLanguageScheme(NSString *scheme) {
     return [@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:scheme];
 }
 
+// 本 bundle 的中文入口（中、双、五、粤、注、笔）里系统列表中唯一可选的那一个；一个都没有、或者不止一个时返回 nil。日、한、越、藏 是换语言的入口，「英」不打中文，都不算。
+static inline NSString *MSIMEOnlyAvailableChineseInputMode(MSIMEInputModeAvailability available) {
+    if (!available) return nil;
+    NSString *only = nil;
+    for (NSString *mode in @[ MSIMEChineseInputModeID, MSIMEShuangpinInputModeID, MSIMEWubiInputModeID, MSIMECantoneseInputModeID,
+                              MSIMEZhuyinInputModeID, MSIMEStrokeInputModeID ]) {
+        if (!available(mode)) continue;
+        if (only) return nil;
+        only = mode;
+    }
+    return only;
+}
+
 // 设置里存的方案自己的入口不在系统的输入法列表里，而报告的入口是本 bundle 唯一一个可选的中文入口时，这份报告不是用户在入口之间做的选择：用户想用水杉就只能落在它上面。只加了「水杉双拼」、在设置里选了全拼的人，每次重新登录、更新后切进来系统都报告「双」，`left` 这时还不知道（MSIMEReportRepeatsLeftInputMode 管不到），以前这份报告把方案改成双拼（#11911）。这样的报告不改方案，以设置里存的方案为准。系统里还有别的中文入口可选（例如同时加了「五」），或者报告的是 日、한、越、藏 这类换语言的入口，报告仍是用户的选择。读不到列表、或列表里还没有被报告的那个入口时不算，照旧按报告走。`info` 是本版本 bundle 的 Info.plist，用来按 MSIMEInputModeIDForSchemeIn 找方案自己的入口。
 //
 // 当前方案是 japanese、korean、vietnamese 或 tibetan 时，设置里存的中文方案是 `lastChineseScheme`，按它的入口判断，和 MSIMESchemeForReportedInputMode 取 `chinese` 的方式一致：存了全拼、列表里只有「双」和「日」的人从 日 选回 双，看的是「水杉全拼」在不在列表里，而不是「日」在不在。这时返回 YES 的调用方要回到 `lastChineseScheme`，见 InputController 的 systemDidReportInputMode:client:。
 static inline BOOL MSIMEReportIsOnlyChineseEntryIn(NSDictionary *info, NSString *scheme, NSString *lastChineseScheme, NSString *reported,
                                                    MSIMEInputModeAvailability available) {
-    if (!available || !MSIMEIsInputModeID(reported)) return NO;
-    NSArray<NSString *> *chinese = @[ MSIMEChineseInputModeID, MSIMEShuangpinInputModeID, MSIMEWubiInputModeID,
-                                      MSIMECantoneseInputModeID, MSIMEZhuyinInputModeID, MSIMEStrokeInputModeID ];
-    if (![chinese containsObject:reported] || !available(reported)) return NO;
+    if (!MSIMEIsInputModeID(reported) || ![MSIMEOnlyAvailableChineseInputMode(available) isEqualToString:reported]) return NO;
     NSString *saved = MSIMESchemeIsLanguageScheme(scheme) ? lastChineseScheme : scheme;
     NSString *own = MSIMEInputModeIDForSchemeIn(info, saved);
-    if ([own isEqualToString:reported] || available(own)) return NO;
-    for (NSString *mode in chinese)
-        if (![mode isEqualToString:reported] && available(mode)) return NO;
-    return YES;
+    return ![own isEqualToString:reported] && !available(own);
 }
 
 // 用户选中某个模式后方案要切到哪里，返回 nil 表示不动方案。中 回到进入 japanese、korean、vietnamese 或 tibetan 之前的中文方案，或者保留已经在用的中文方案——除非那个方案有自己的、系统提供的模式：那说明用户是越过 双、五、粤、注 或 笔 选了 中，意思是本版本的默认方案（full 是全拼），保留方案会立刻又选回那个模式。
@@ -377,12 +384,16 @@ static inline NSString *MSIMESchemeForReportedInputMode(MSIMEInputMode mode, NSS
 }
 
 // Asks the client to show `mode`, unless it already does or the system does not offer it. Returns whether a switch was requested. A scheme whose own mode is not offered falls back to 中: the controller is still composing through the Engine, and 中 is closer to that than an 英 left over from before. A mode the system has just reported as shown is offered by definition, so it is kept rather than second-guessed.
+//
+// 中 也不在系统列表里时，退到唯一可选的中文入口（MSIMEOnlyAvailableChineseInputMode）：只加了「水杉双拼」和「水杉英文」、设置里是全拼的人从「英」切回中文，以前这里什么也不选，菜单栏停在「英」上，打出来的却是全拼（#11963）。这次选择的回执重复 `current`，不会被采纳；即使被当成报告处理，MSIMEReportIsOnlyChineseEntryIn 也不让它改方案。列表里有不止一个中文入口时不替用户在它们之间挑，照旧不选。
 static inline BOOL MSIMESelectSystemInputMode(MSIMESystemInputModeState &state, NSString *mode, id client,
                                               MSIMEInputModeAvailability available) {
     if (!available) return NO;
     if (![mode isEqualToString:MSIMEChineseInputModeID] && ![mode isEqualToString:MSIMEEnglishInputModeID] &&
         ![mode isEqualToString:state.current] && !available(mode))
         mode = MSIMEChineseInputModeID;
+    if (![mode isEqualToString:MSIMEEnglishInputModeID] && ![mode isEqualToString:state.current] && !available(mode))
+        mode = MSIMEOnlyAvailableChineseInputMode(available) ?: mode;
     if (state.selecting || [mode isEqualToString:state.current] || ![client respondsToSelector:@selector(selectInputMode:)] ||
         !available(mode))
         return NO;
