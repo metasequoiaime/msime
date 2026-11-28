@@ -1,5 +1,5 @@
 {
-  "contractVersion": 6,
+  "contractVersion": 7,
   "simple": [
     { "input": ",", "output": "，" },
     { "input": ".", "output": "。" },
@@ -51,6 +51,29 @@
   "enumerationComma": [
     { "input": "\\", "output": "、" },
     { "input": "/", "output": "、" }
+  ],
+  "preserveEnglish": [
+    ",",
+    ".",
+    "?",
+    "!",
+    ";",
+    ":",
+    "(",
+    ")",
+    "[",
+    "]",
+    "\\",
+    "`",
+    "$",
+    "^",
+    "_",
+    "{",
+    "}",
+    "\"",
+    "'",
+    "<",
+    ">"
   ],
   "styles": {
     "cornerQuotes": [

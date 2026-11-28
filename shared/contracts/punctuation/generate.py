@@ -15,7 +15,7 @@ hollow_brackets = styles["hollowBrackets"]
 enumeration_comma = SPEC["enumerationComma"]
 japanese = SPEC["japanese"]
 inputs = [entry["input"] for entry in simple + alternating] + [nested["openingInput"], nested["closingInput"]]
-if (SPEC["contractVersion"] != 6 or any(len(value) != 1 or not 32 <= ord(value) < 127 for value in inputs) or
+if (SPEC["contractVersion"] != 7 or any(len(value) != 1 or not 32 <= ord(value) < 127 for value in inputs) or
         len(set(inputs)) != len(inputs)):
     raise SystemExit("Invalid punctuation contract")
 # 日文表是给日语方案用的另一套键到字的映射，键可以和中文表重复；表内自身不能重复。
@@ -38,6 +38,10 @@ if (len(enumeration_comma) != 2 or len(set(enumeration_inputs)) != len(enumerati
         any(value in alternating_inputs or value in (nested["openingInput"], nested["closingInput"]) for value in enumeration_inputs) or
         any(entry["output"] != enumeration_comma[0]["output"] for entry in enumeration_comma)):
     raise SystemExit("Invalid punctuation contract enumerationComma")
+# preserveEnglish 是用户可以逐键设成「保留英文」的键：正好是中文表会改写的键（simple、交替引号、嵌套书名号），按这个顺序，不多不少。日文表和只在 enumerationComma 里的 `/` 不在其中。
+preserve_english = SPEC["preserveEnglish"]
+if preserve_english != inputs:
+    raise SystemExit("Invalid punctuation contract preserveEnglish")
 
 
 def char_literal(value):
@@ -99,6 +103,11 @@ lines += [
 lines += [f"    {{{char_literal(entry['input'])}, {json.dumps(entry['output'], ensure_ascii=False)}}}," for entry in enumeration_comma]
 lines += [
     "}};",
+    f"inline constexpr std::array<char, {len(preserve_english)}> preserve_english = {{{{",
+]
+lines += [f"    {char_literal(value)}," for value in preserve_english]
+lines += [
+    "}};",
     f"inline constexpr char nested_opening_input = {char_literal(nested['openingInput'])};",
     f"inline constexpr char nested_closing_input = {char_literal(nested['closingInput'])};",
     f"inline constexpr char nested_opening[] = {json.dumps(nested['opening'], ensure_ascii=False)};",
@@ -148,6 +157,12 @@ lines += [
     "    for (const auto &mapping : enumeration_comma)",
     "        if (mapping.input == input) return mapping.output;",
     "    return nullptr;",
+    "}",
+    "constexpr bool is_preservable(char input)",
+    "{",
+    "    for (const auto value : preserve_english)",
+    "        if (value == input) return true;",
+    "    return false;",
     "}",
     "} // namespace metasequoia::punctuation_contract",
     "",
