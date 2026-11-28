@@ -320,6 +320,42 @@ int main() {
             gListedModes = [NSSet setWithArray:@[MSIMEChineseInputModeID]];
             require(!MSIMEReportIsOnlyChineseEntryIn(wubiModes, @"wubi", @"quanpin", MSIMEChineseInputModeID, Listed),
                     "The wubi edition's own entry was taken as missing.");
+
+            // #11963：中 不在列表里时，从「英」切回中文选唯一可选的中文入口，不让菜单栏停在「英」上；它的回执不被采纳，也不再触发选择。列表里有 中，或者有不止一个中文入口时不变。
+            gListedModes = [NSSet setWithArray:@[MSIMEShuangpinInputModeID, MSIMEEnglishInputModeID, MSIMEJapaneseInputModeID]];
+            require([MSIMEOnlyAvailableChineseInputMode(Listed) isEqualToString:MSIMEShuangpinInputModeID] &&
+                        MSIMEOnlyAvailableChineseInputMode(nullptr) == nil,
+                    "The only listed Chinese entry was not found, or 日 or 英 counted as one.");
+            MSIMESystemInputModeState onlyShuangpin;
+            InputModeRecordingClient *onlyClient = [InputModeRecordingClient new];
+            onlyClient.state = &onlyShuangpin;
+            onlyClient.echoes = YES;
+            MSIMEAdoptReportedInputMode(onlyShuangpin, MSIMEEnglishInputModeID);
+            require(MSIMESelectSystemInputMode(onlyShuangpin, MSIMEChineseInputModeID, onlyClient, Listed) &&
+                        [onlyClient.selected isEqualToArray:@[MSIMEShuangpinInputModeID]] &&
+                        [onlyShuangpin.current isEqualToString:MSIMEShuangpinInputModeID] && !onlyClient.echoAdopted,
+                    "Back from 英 with 中 missing did not select the only listed Chinese entry, or its echo was adopted.");
+            require(!MSIMESelectSystemInputMode(onlyShuangpin, MSIMEChineseInputModeID, onlyClient, Listed) &&
+                        !MSIMEAdoptReportedInputMode(onlyShuangpin, MSIMEShuangpinInputModeID) && onlyClient.selected.count == 1,
+                    "The fallback to the only listed Chinese entry asked the client again.");
+            // 方案自己的入口和 中 都不在：五笔、日文同样落到「双」。
+            MSIMEAdoptReportedInputMode(onlyShuangpin, MSIMEEnglishInputModeID);
+            require(MSIMESelectSystemInputMode(onlyShuangpin, MSIMEWubiInputModeID, onlyClient, Listed) &&
+                        [onlyClient.selected.lastObject isEqualToString:MSIMEShuangpinInputModeID] && onlyClient.selected.count == 2,
+                    "A missing 五 with 中 also missing did not fall back to the only listed Chinese entry.");
+            MSIMEAdoptReportedInputMode(onlyShuangpin, MSIMEEnglishInputModeID);
+            require(MSIMESelectSystemInputMode(onlyShuangpin, MSIMEJapaneseInputModeID, onlyClient, Listed) &&
+                        [onlyClient.selected.lastObject isEqualToString:MSIMEJapaneseInputModeID] && onlyClient.selected.count == 3,
+                    "A listed 日 was replaced by the Chinese fallback.");
+            gListedModes = [NSSet setWithArray:@[MSIMEShuangpinInputModeID, MSIMEWubiInputModeID, MSIMEEnglishInputModeID]];
+            require(!MSIMESelectSystemInputMode(onlyShuangpin, MSIMEChineseInputModeID, onlyClient, Listed) && onlyClient.selected.count == 3 &&
+                        [onlyShuangpin.current isEqualToString:MSIMEJapaneseInputModeID] && MSIMEOnlyAvailableChineseInputMode(Listed) == nil,
+                    "With 双 and 五 both listed, the fallback picked one of them for the user.");
+            gListedModes = [NSSet setWithArray:@[MSIMEChineseInputModeID, MSIMEShuangpinInputModeID, MSIMEEnglishInputModeID]];
+            MSIMEAdoptReportedInputMode(onlyShuangpin, MSIMEEnglishInputModeID);
+            require(MSIMESelectSystemInputMode(onlyShuangpin, MSIMEChineseInputModeID, onlyClient, Listed) &&
+                        [onlyClient.selected.lastObject isEqualToString:MSIMEChineseInputModeID],
+                    "A listed 中 was not selected for quanpin.");
             gListedModes = nil;
         }
         {
