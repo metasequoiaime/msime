@@ -88,8 +88,11 @@ public:
            // 语音标点是 auto 时共享序列化不写这一项，第一次改成别的取值要能补上叶字段。
            change.path == std::vector<std::string>{"voice_input", "punctuation_mode"});
       const bool optional_font = change.value.is_string() && change.path == std::vector<std::string>{"candidate_english_font"};
+      // 圆角、候选行高与行距（#11939）缺省时共享序列化不写这一项，第一次选数值要能补上叶字段。
       const bool optional_radius = (change.value.is_number_integer() || change.value.is_null()) &&
-          change.path == std::vector<std::string>{"candidate_corner_radius"};
+          (change.path == std::vector<std::string>{"candidate_corner_radius"} ||
+           change.path == std::vector<std::string>{"candidate_item_padding_vertical"} ||
+           change.path == std::vector<std::string>{"candidate_item_spacing"});
       const bool optional_count = change.value.is_number_integer() &&
           change.path == std::vector<std::string>{"mixed_input", "first_page_count"};
       const bool optional_language = (change.value.is_string() || change.value.is_null()) &&

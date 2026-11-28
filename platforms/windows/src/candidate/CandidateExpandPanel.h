@@ -149,7 +149,7 @@ inline CandidateCardSize candidate_expand_card_size(const CandidateCardInput &in
       input.font_size, input.preedit_font_size, input.preedit_visible, input.logo_visible,
       input.page_width > 0.0, input.skin,
       std::isfinite(input.number_width) ? input.number_width : 0.0, input.line_height,
-      input.hint_width > 0.0);
+      input.hint_width > 0.0, input.rows);
   if (!shape.expand_panel || !input.horizontal)
     return collapsed;
   const double reserved = candidate_reserved_row_height(

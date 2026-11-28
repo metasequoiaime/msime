@@ -1543,6 +1543,13 @@ int main() {
   assert(!store.load().snapshot->preferences().contains("candidate_corner_radius"));
   select_value(appearance_radius, 9);
   assert(store.load().snapshot->preferences().at("candidate_corner_radius") == 8);
+  // 行高与行距（#11939）：可选字段，选数值写进共享偏好、选第一项「跟随皮肤」清掉。
+  select_value(appearance_item_padding_vertical, 3);
+  assert(store.load().snapshot->preferences().at("candidate_item_padding_vertical") == 2);
+  select_value(appearance_item_spacing, 5);
+  assert(store.load().snapshot->preferences().at("candidate_item_spacing") == 4);
+  select_value(appearance_item_spacing, 0);
+  assert(!store.load().snapshot->preferences().contains("candidate_item_spacing"));
   select_value(appearance_preedit, 1);
   select_value(appearance_inline, 1);
   assert(store.load().snapshot->preferences().at("candidate_preedit_style") == "empty");

@@ -6,7 +6,7 @@
 #include <optional>
 
 namespace msime::windows {
-// Projects the three style fields out of the preferences document, as candidate_font_settings does for the fonts. An absent field is its default; a field of the wrong type or out of range rejects the whole projection, which leaves the card as it is.
+// 从偏好文档里取出样式字段，和 candidate_font_settings 取字体一样：缺字段就是它的缺省值，类型不对或超出范围则整份投影被拒，卡片保留原来的样式。
 inline std::optional<CandidateWindowStyle>
 candidate_window_style(const nlohmann::json &preferences) {
   try {
@@ -22,6 +22,19 @@ candidate_window_style(const nlohmann::json &preferences) {
         return std::nullopt;
       const auto value = preferences.at(key).get<int64_t>();
       if (value < 0 || value > 1000)
+        return std::nullopt;
+      *target = static_cast<unsigned>(value);
+    }
+    // 行高与行距：null 和缺字段一样表示跟随皮肤与窗口布局（设置页的「跟随皮肤」写 null），整数 0–16 才是用户的值。
+    for (const auto &[key, target] :
+         {std::pair{"candidate_item_padding_vertical", &result.item_padding_vertical},
+          std::pair{"candidate_item_spacing", &result.item_spacing}}) {
+      if (!preferences.contains(key) || preferences.at(key).is_null())
+        continue;
+      if (!preferences.at(key).is_number_integer())
+        return std::nullopt;
+      const auto value = preferences.at(key).get<int64_t>();
+      if (value < 0 || value > 16)
         return std::nullopt;
       *target = static_cast<unsigned>(value);
     }

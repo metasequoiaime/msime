@@ -29,6 +29,21 @@ inline bool candidate_translation_beside(const CandidateItemWidths &item) {
   return item.translation_lines <= 1 || (item.translation_lines == 2 && item.reading_lines == 1);
 }
 enum class CandidateRun { text, annotation, translation };
+// 用户在设置里显式给的候选行高与行距（`candidate_item_padding_vertical`、`candidate_item_spacing`，0–16 DIP）：空表示跟随皮肤与窗口布局。行高是候选文字上下各留的空白，行距是行与行、横排时列与列之间那段谁也不属于的空。
+struct CandidateRowStyle {
+  std::optional<double> padding_vertical;
+  std::optional<double> spacing;
+};
+// 设置里的两个 0–16 整数值变成布局参数：非整数或越界已经被候选窗的投影拒掉，这里只做单位换算。0 是一个有意义的值（贴边、行挨着行），只有空才表示跟随。
+inline CandidateRowStyle candidate_row_layout(std::optional<unsigned> padding_vertical,
+                                               std::optional<unsigned> spacing) {
+  CandidateRowStyle layout;
+  if (padding_vertical)
+    layout.padding_vertical = static_cast<double>(*padding_vertical);
+  if (spacing)
+    layout.spacing = static_cast<double>(*spacing);
+  return layout;
+}
 // Height of candidate `index`'s run once wrapped to `width` DIPs. The text run is the candidate text with its badge, at the candidate size. The window answers with DirectWrite; without one the layout estimates from the single-line width.
 using CandidateWrapMeasure =
     std::function<double(size_t index, CandidateRun run, double width)>;
@@ -62,6 +77,8 @@ struct CandidateCardInput {
   double reserved_secondary_height = 0.0;
   // 皮肤包按当前排列和字号解析好的版式（candidate_skin_metrics），空的键用宿主自己的值。
   CandidateSkinMetrics skin;
+  // 用户在设置里显式给的候选行高与行距；空的键仍按上面这份皮肤与缺省版式。
+  CandidateRowStyle rows;
   // 这一页最宽的序号按序号字号量出的宽度。缺省版式里候选文字从最宽的序号之后 1.5 DIP 处开始；皮肤写了 number_inset 时不窄于 msime-windows 的下限 9 DIP。0 时按序号字号估算一个数字的宽。
   double number_width = 0.0;
   // canvas 皮肤的面板比这张卡片左右多出的宽度（candidate_canvas_content_offset 的左右之和，DIP，可以是负数）。最小宽度量的是整块面板（msime-windows 把最小宽度设在带着内容内边距的卡片上），所以比最小宽度时先加上它；0 时与以前相同。
@@ -159,7 +176,8 @@ inline CandidateCardMetrics candidate_card_metrics(double font_size,
                                                    const CandidateSkinMetrics &skin = {},
                                                    double number_width = 0.0,
                                                    double line_height = 0.0,
-                                                   bool header_hint = false) {
+                                                   bool header_hint = false,
+                                                   const CandidateRowStyle &rows = {}) {
   if (!std::isfinite(font_size) || font_size < 12.0 || font_size > 32.0 ||
       !std::isfinite(preedit_font_size) || preedit_font_size < 12.0 ||
       preedit_font_size > 32.0)
@@ -250,6 +268,18 @@ inline CandidateCardMetrics candidate_card_metrics(double font_size,
     metrics.row_padding = 0.0;
   metrics.candidate_row = skin.item_extra_height ? font_size * 1.35 + *skin.item_extra_height
                                                  : line + metrics.row_padding;
+  // 用户设的行高压过皮肤与缺省版式：上下各留这段空白，行高就是实测行高加两倍。和 macOS 的 itemPaddingVertical 一样，0 时行高就是文字本身的高度。皮肤写了 item_extra_height 时用户的值仍然生效，设置页的预览和候选窗都走这一份。
+  if (rows.padding_vertical && std::isfinite(*rows.padding_vertical)) {
+    metrics.row_padding = *rows.padding_vertical * 2.0;
+    metrics.candidate_row = line + metrics.row_padding;
+  }
+  // 用户设的间距同理，压过皮肤的 item_gap：竖排是行与行之间，横排是两列之间多出来的空（皮肤按 msime-windows 版式原本的 6 DIP 仍保留，皮肤没写列距时从 0 起，fit_content 收紧宽度时列距原本就是行距）。行间距由用户给出时高亮铺满整行（selection_inset 为 0），和皮肤的 item_gap 一样。
+  if (rows.spacing && std::isfinite(*rows.spacing)) {
+    metrics.item_gap = *rows.spacing;
+    metrics.column_gap =
+        (skin.fit_content ? 0.0 : skin.item_gap ? 6.0 : 0.0) + *rows.spacing;
+    metrics.selection_inset = metrics.item_gap > 0.0 ? 0.0 : metrics.selection_inset;
+  }
   metrics.annotation_line = font_size * 1.25;
   // 释义固定 12 DIP，和 macOS 的 MSIMECandidateTranslationPointSize 一样：候选字号调大，扫一眼的释义不跟着变大。用户的整体缩放（candidate_scale_percent）照样作用在它上面，和别的 DIP 一样。带着共享层出厂版式的皮肤仍是 msime-windows 的 0.78 倍候选字号。
   metrics.translation_font = skin.shared_layout ? font_size * 0.78 : 12.0;
@@ -780,7 +810,7 @@ inline CandidateCardSize candidate_card_size(const CandidateCardInput &input) {
       input.font_size, input.preedit_font_size, input.preedit_visible,
       input.logo_visible, input.page_width > 0.0, input.skin,
       std::isfinite(input.number_width) ? input.number_width : 0.0, input.line_height,
-      input.hint_width > 0.0);
+      input.hint_width > 0.0, input.rows);
   // 皮肤把翻页画在列表里时，横排在候选右侧加一窄列，竖排在最后一行下方加一矮行；卷轴展开的按钮也是候选右侧的一窄列。
   const double arrow_column = candidate_list_arrow_column(shape);
   const double arrow_row = shape.list_arrows ? shape.list_arrows->row : 0.0;

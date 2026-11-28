@@ -16,6 +16,19 @@ int main() {
   assert(configured && configured->scale_percent == 150 &&
          configured->opacity_percent == 80 && configured->corner_radius == 12u);
   assert(configured->scale() == 1.5);
+  // 行高与行距是可选字段：缺字段与 null 都表示跟随皮肤与窗口布局，0 是一个真实的值（贴边、行挨着行）。
+  auto rows = candidate_window_style(
+      {{"candidate_item_padding_vertical", 3}, {"candidate_item_spacing", 0}});
+  assert(rows && rows->item_padding_vertical == 3u && rows->item_spacing == 0u);
+  auto neither = candidate_window_style(
+      {{"candidate_item_padding_vertical", 16}, {"candidate_item_spacing", 16}});
+  assert(neither && neither->valid() && *neither->item_padding_vertical == 16u &&
+         *neither->item_spacing == 16u);
+  auto followed_rows = candidate_window_style(
+      {{"candidate_item_padding_vertical", nullptr}, {"candidate_item_spacing", nullptr}});
+  assert(followed_rows && !followed_rows->item_padding_vertical &&
+         !followed_rows->item_spacing);
+  assert(*followed_rows == *defaults);
   // A null radius is how the settings window returns to following the skin.
   auto follow = candidate_window_style({{"candidate_corner_radius", nullptr}});
   assert(follow && !follow->corner_radius);
@@ -36,7 +49,13 @@ int main() {
         nlohmann::json{{"candidate_corner_radius", 33}},
         nlohmann::json{{"candidate_corner_radius", -1}},
         nlohmann::json{{"candidate_corner_radius", 4.5}},
-        nlohmann::json{{"candidate_corner_radius", true}}})
+        nlohmann::json{{"candidate_corner_radius", true}},
+        nlohmann::json{{"candidate_item_padding_vertical", 17}},
+        nlohmann::json{{"candidate_item_padding_vertical", -1}},
+        nlohmann::json{{"candidate_item_padding_vertical", 4.5}},
+        nlohmann::json{{"candidate_item_padding_vertical", "3"}},
+        nlohmann::json{{"candidate_item_spacing", 17}},
+        nlohmann::json{{"candidate_item_spacing", true}}})
     assert(!candidate_window_style(invalid));
   assert(!candidate_window_style(nlohmann::json::array()));
 
