@@ -546,7 +546,7 @@ python3 platforms/macos/scripts/settings_updater.py --app "$app" --input-method 
 # A helper executable beside the app's own is signed on its own first, and the outer signature below seals it.
 ditto "$universal_dir/msime-mcp" "$app/Contents/MacOS/msime-mcp"
 sign "$app/Contents/MacOS/msime-mcp"
-# 更新助手和它的 launchd 任务只是随设置应用分发：设置应用在管理员授权的系统安装里把它们装到 /Library/PrivilegedHelperTools 和 /Library/LaunchDaemons（macos_input_source.rs 的 SYSTEM_INSTALL_SCRIPT），安装包自己不往那两个目录写东西。助手不带任何 entitlement。
+# 更新助手和它的 launchd 任务随设置应用分发：安装包的 postinstall 装好系统目录的输入法后把它们装到 /Library/PrivilegedHelperTools 和 /Library/LaunchDaemons，设置应用的管理员授权安装（macos_input_source.rs 的 SYSTEM_INSTALL_SCRIPT）用同样的路径和权限兜底。助手不带任何 entitlement。
 ditto "$universal_dir/msime-system-updater" "$app/Contents/MacOS/msime-system-updater"
 sign "$app/Contents/MacOS/msime-system-updater"
 ditto platforms/macos/resources/system-updater/app.msime.system-updater.plist "$app/Contents/Resources/app.msime.system-updater.plist"
@@ -751,7 +751,7 @@ check_app() {
 check_app "$app"
 
 # ---- 安装包 ----
-# 每个版本一个分发包：载荷只有这个设置应用，装到 /Applications，--ownership recommended 让它归 root:wheel，权限位沿用上面 chmod 之后的样子（check_app 已确认人人可读，#10329）。组件表让所有组件都不可重定位，postinstall 只在图形安装时以登录用户身份打开设置应用；渲染和检查都在 platforms/macos/scripts/installer_package.py，模板在 platforms/macos/resources/installer/。pkgbuild 必须在 chmod 和 check_app 之后：它按磁盘上的权限位归档，不会替我们修。
+# 每个版本一个分发包：载荷只有这个设置应用，装到 /Applications，--ownership recommended 让它归 root:wheel，权限位沿用上面 chmod 之后的样子（check_app 已确认人人可读，#10329）。组件表让所有组件都不可重定位，postinstall 以 root 把内嵌的输入法和更新助手装进系统目录，图形安装时再以登录用户身份登记输入源、打开设置应用；渲染和检查都在 platforms/macos/scripts/installer_package.py，模板在 platforms/macos/resources/installer/。pkgbuild 必须在 chmod 和 check_app 之后：它按磁盘上的权限位归档，不会替我们修。
 pkg_root="$work/pkg-root-$edition"
 mkdir -p "$pkg_root"
 # 载荷根目录对应安装位置 /Applications 本身，Bom 里的 "." 带着它的权限位；给它与 /Applications 相同的 0775，而不是 mktemp 目录的 0700。

@@ -29,7 +29,7 @@ macOS 维护一份「安全输入源」名单，任何进程开着安全输入�
 
 - 管理员授权的系统安装（`SYSTEM_INSTALL_SCRIPT`）在同一次授权里装上助手和任务并载入。助手装不上不算安装失败。
 - 设置应用的启动检查发现系统副本旧了时调用 `update_through_system_updater`：提交随附的 bundle，等已装副本的构建号变成它；换好后校验、登记、停旧进程、刷新输入源列表。助手没装、构建号不更大、提交被拒或超时，都报 `authorization_required`，并收回自己的提交。
-- 助手和任务文件随设置应用分发（`Contents/MacOS/msime-system-updater`、`Contents/Resources/app.msime.system-updater.plist`），安装包自己不往 `/Library/LaunchDaemons` 和 `/Library/PrivilegedHelperTools` 写东西。
+- 助手和任务文件随设置应用分发（`Contents/MacOS/msime-system-updater`、`Contents/Resources/app.msime.system-updater.plist`）。安装包的 postinstall 装好系统目录的输入法后以同样的路径和权限装上它们（[安装包直接装好输入法](2026-11-28-macos-pkg-installs-input-method.md)），设置应用的授权安装是兜底。
 - 输入法自己的更新（`platforms/macos/src/core/SystemUpdateStaging.h`）：装在系统目录时 Sparkle 的 `hostBundle` 是用户缓存目录里的暂存副本 `~/Library/Caches/<标识>/system-update/<名字>.app`，`applicationBundle` 也是它。每次触发只做磁盘状态允许的一步（`MSIMESystemUpdateNextStep`）：让 Sparkle 把下好的更新装进暂存副本，把变新的暂存副本提交给助手，系统目录里的那份变新之后退出本进程。退出只发生在原来装更新的那些时刻（切走输入源、熄屏、闲置），同一个构建只提交一次。
 - 助手自己的版本记在任务文件的 `EnvironmentVariables.MSIME_SYSTEM_UPDATER_VERSION` 里。改了助手的行为 must 把它加一；设置应用启动时发现系统安装的助手没装或版本更小，报 `authorization_required`，「修复」会在授权安装里重装助手。
 - 迁移：`migrate_to_system` 经一次管理员授权装好系统副本，校验通过后才停掉并删除用户副本，再登记一次。用户副本比随附的新而且完好时装的是用户副本那一版。授权取消或安装失败时用户副本原样留着。
@@ -38,7 +38,8 @@ macOS 维护一份「安全输入源」名单，任何进程开着安全输入�
 
 - [同时识别用户与系统安装](2026-10-23-macos-system-input-method-install.md) 部分取代：默认位置和范围选择改了；系统组件包、授权脚本、权限归一、用户副本优先和重复安装提示都保留。它否掉的「一律安装到系统目录」现在被采用，当时的反对理由（改变默认值、首次安装都要管理员）仍然成立，只是输给了安全输入下不可用。它的「启动检查只提示、不弹授权」保留：启动检查仍然不弹授权，只是多了一条不需要授权的路。
 - [输入法 Sparkle 更新](../feature/2026-10-15-macos-sparkle-input-method-updates.md) 部分重叠：单调构建号和禁止降级被助手沿用。装在用户目录时不变；装在系统目录时 Sparkle 改为更新暂存副本，替换交给助手。
-- [只发 pkg](../process/2026-11-02-macos-pkg-only.md) 部分重叠：安装包的载荷仍然只有设置应用，postinstall 仍然只打开它。
+- [只发 pkg](../process/2026-11-02-macos-pkg-only.md) 部分重叠：安装包的载荷仍然只有设置应用。
+- [安装包直接装好输入法](2026-11-28-macos-pkg-installs-input-method.md) 部分重叠：首次安装由安装包的 postinstall 以 root 完成，不再经设置应用的安装窗口再授权一次；设置应用的授权安装、助手的契约和用户副本优先都不变。
 
 ## Alternatives considered
 

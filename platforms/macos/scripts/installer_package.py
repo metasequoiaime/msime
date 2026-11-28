@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """macOS 发布安装包（pkg）的按版本渲染与结构检查，供 platforms/macos/package-release.sh 调用。
 
-每个版本一个 localSystem 域的分发包，载荷只有该版本的设置应用，装到 /Applications；输入法仍由设置应用装进当前用户目录。为什么这样做见 .agents/notes/implemented/process/2026-11-02-macos-pkg-only.md。
+每个版本一个 localSystem 域的分发包，载荷只有该版本的设置应用，装到 /Applications；postinstall 以 root 把设置应用内嵌的输入法装进 /Library/Input Methods。为什么这样做见 .agents/notes/implemented/process/2026-11-02-macos-pkg-only.md 和 .agents/notes/implemented/bug-fix/2026-11-28-macos-pkg-installs-input-method.md。
 
 用法：
 
@@ -45,12 +45,17 @@ def identity(edition_id: str) -> dict[str, str]:
     macos = entry["platforms"]["macos"]
     # 设置应用的文件名是 Tauri 的 productName，即版本的英文显示名（edition_bundle.tauri_config）。
     app_bundle = f"{entry['display_name']['en']}.app"
-    if "'" in app_bundle or "/" in app_bundle:
-        raise PackageError(f"edition {edition_id}: the app name {app_bundle!r} cannot be quoted in postinstall")
+    ime_bundle = f"{macos['input_method_name']}.app"
+    for value in (app_bundle, ime_bundle, macos["input_method_bundle_id"]):
+        if "'" in value or "/" in value:
+            raise PackageError(f"edition {edition_id}: {value!r} cannot be quoted in postinstall")
     return {
         "identifier": f"{macos['settings_bundle_id']}.pkg",
         "settings_bundle_id": macos["settings_bundle_id"],
         "app_bundle": app_bundle,
+        "ime_bundle": ime_bundle,
+        "ime_bundle_id": macos["input_method_bundle_id"],
+        "ime_executable": macos["input_method_name"],
         "component": f"{macos['dmg_prefix']}.pkg",
         "name.zh-Hans": entry["display_name"]["zh-Hans"],
         "name.en": entry["display_name"]["en"],
@@ -96,7 +101,9 @@ def render(edition_id: str, version: str, output: Path) -> None:
     scripts.mkdir(exist_ok=True)
     postinstall = scripts / "postinstall"
     postinstall.write_text(substitute((TEMPLATES / "pkg-postinstall.sh").read_text(encoding="utf-8"),
-                                      {"APP_BUNDLE": ids["app_bundle"]}, "pkg-postinstall.sh"), encoding="utf-8")
+                                      {"APP_BUNDLE": ids["app_bundle"], "IME_BUNDLE": ids["ime_bundle"],
+                                       "IME_BUNDLE_ID": ids["ime_bundle_id"], "IME_EXECUTABLE": ids["ime_executable"]},
+                                      "pkg-postinstall.sh"), encoding="utf-8")
     postinstall.chmod(0o755)
 
     for locale, directory in LOCALES.items():
@@ -184,8 +191,13 @@ def check(edition_id: str, version: str, expanded: Path, bom_listing: Path) -> l
     scripts = sorted(path.name for path in (component / "Scripts").iterdir()) if (component / "Scripts").is_dir() else []
     if scripts != ["postinstall"]:
         problems.append(f"Scripts holds {scripts}, expected only postinstall")
-    elif f"app_name='{ids['app_bundle']}'" not in (component / "Scripts/postinstall").read_text(encoding="utf-8"):
-        problems.append(f"Scripts/postinstall does not open {ids['app_bundle']}")
+    else:
+        script = (component / "Scripts/postinstall").read_text(encoding="utf-8")
+        for line, what in ((f"app_name='{ids['app_bundle']}'", f"open {ids['app_bundle']}"),
+                           (f"ime_name='{ids['ime_bundle']}'", f"install {ids['ime_bundle']}"),
+                           (f"ime_bundle_id='{ids['ime_bundle_id']}'", f"check the bundle id {ids['ime_bundle_id']}")):
+            if line not in script:
+                problems.append(f"Scripts/postinstall does not {what}")
 
     # Bom 里的每一项都必须在 ./<应用名>.app 下面（"." 是安装位置 /Applications 本身，权限位与它相同的 0775），归 root 所有。文件带扩展属性时 pkgbuild 另记一项 AppleDouble 的 ._<名字>，装的时候还原成同级那个文件的扩展属性，所以按同级文件判断位置。
     prefix = f"./{ids['app_bundle']}"

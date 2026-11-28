@@ -12,6 +12,7 @@ import json
 import plistlib
 import re
 import shutil
+import stat as stat_module
 import subprocess
 import sys
 import tempfile
@@ -201,6 +202,10 @@ def check_installer_package() -> None:
             broken(package_info, 'install-location="/Applications"', 'install-location="/Users/Shared"', "install-location")
             broken(package_info, f'identifier="{ids["identifier"]}"', 'identifier="app.msime.inputmethod.MetasequoiaIME.pkg"', "identifier")
             broken(package_info, '<scripts><postinstall file="./postinstall"/></scripts>', "", "no postinstall")
+            scripts_postinstall = expanded / ids["component"] / "Scripts/postinstall"
+            broken(scripts_postinstall, f"app_name='{ids['app_bundle']}'", "app_name='Other.app'", f"does not open {ids['app_bundle']}")
+            broken(scripts_postinstall, f"ime_name='{ids['ime_bundle']}'", "ime_name='Other.app'", f"does not install {ids['ime_bundle']}")
+            broken(scripts_postinstall, f"ime_bundle_id='{ids['ime_bundle_id']}'", "ime_bundle_id='app.msime.other'", "does not check the bundle id")
             broken(bom, f"{app}/Contents\t", "./Library/Input Methods\t", "outside")
             broken(bom, f"{app}\t40755\t0", f"{app}\t40755\t501", "not root")
             broken(bom, ".\t40775\t0", ".\t40700\t0", "install location")
@@ -231,7 +236,7 @@ def check_installer_package() -> None:
                 check(("退出登录" if locale == "zh-Hans" else "Log Out") in conclusion, f"{edition}: the {locale} conclusion does not tell a first install to log out and back in")
                 title = (expanded / "Resources" / f"{locale}.lproj/Localizable.strings").read_text(encoding="utf-8")
                 check(title.startswith(f'"SU_TITLE" = "{app_name}') and title.endswith('";\n'), f"{edition}: the {locale} title is {title!r}, it must start with {app_name}")
-            check_postinstall(edition, ids["app_bundle"], postinstall)
+            check_postinstall(edition, ids, postinstall)
 
     # 组件表：顶层只能有设置应用一个；它和每一层嵌套组件都不可重定位，顶层原子替换、不降级。
     with tempfile.TemporaryDirectory(prefix="msime-components-") as directory:
@@ -253,21 +258,98 @@ def check_installer_package() -> None:
                 pass
 
 
-def check_postinstall(edition: str, app_bundle: str, script: str) -> None:
-    """postinstall 只在图形安装、有正常登录用户时打开设置应用；什么都不写、不注册、不结束进程，任何情况都以 0 退出。"""
+# postinstall 用到、测试里要换成桩的系统命令和路径：每一项都必须原样出现在渲染出的脚本里，否则替换悄悄落空，测试跑的就是真命令。
+POSTINSTALL_STUBBED = ("/usr/bin/stat ", "/usr/bin/id ", "/usr/bin/dscl ", "/usr/sbin/chown ", "/usr/bin/codesign ", "/bin/launchctl ")
+POSTINSTALL_STUB = """#!/bin/bash
+name="${0##*/}"
+{ printf '%s' "$name"; for argument in "$@"; do printf ' [%s]' "$argument"; done; echo; } >> "$STUB_LOG"
+case "$name" in
+  stat) echo "$STUB_CONSOLE_USER" ;;
+  id) echo "$STUB_UID" ;;
+  dscl) echo "NFSHomeDirectory: $STUB_HOME" ;;
+  codesign) [ ! -e "${!#}/Contents/codesign-fails" ] ;;
+esac
+"""
+RUST_INPUT_SOURCE = ROOT / "apps/desktop/src-tauri/src/platform/macos/macos_input_source.rs"
+
+
+def check_updater_install_matches_app(script: str) -> None:
+    """postinstall 装更新助手的路径、权限和载入方式必须与设置应用的 SYSTEM_INSTALL_SCRIPT 一致：两边各装一次，装出来的东西不能有两种样子。"""
+    rust = RUST_INPUT_SOURCE.read_text(encoding="utf-8")
+    match = re.search(r'const SYSTEM_INSTALL_SCRIPT: &str = r#"(.*?)"#;', rust, re.DOTALL)
+    check(match is not None, "macos_input_source.rs has no SYSTEM_INSTALL_SCRIPT")
+    applescript = match.group(1).replace('\\"', '"') if match else ""
+    tool = "/Library/PrivilegedHelperTools/app.msime.system-updater"
+    job = "/Library/LaunchDaemons/app.msime.system-updater.plist"
+    inbox = "/Library/Application Support/app.msime.system-updater/inbox"
+    for name, value in (("SYSTEM_UPDATER_TOOL", tool), ("SYSTEM_UPDATER_JOB", job), ("SYSTEM_UPDATER_INBOX", inbox), ("SYSTEM_INPUT_METHODS", "/Library/Input Methods")):
+        check(f'const {name}: &str = "{value}";' in rust, f"macos_input_source.rs no longer has {name} = {value}; update pkg-postinstall.sh with it")
+    for variable, value in (("updater_tool", tool), ("updater_job", job), ("updater_inbox", inbox), ("updater_label", "app.msime.system-updater"), ("system_input_methods", "/Library/Input Methods")):
+        check(f"{variable}='{value}'" in script, f"postinstall does not set {variable}='{value}' like the settings app")
+    # 每一行：设置应用的授权脚本里的写法，postinstall 里对应的写法。
+    pairs = (
+        (f'/bin/mkdir -p /Library/PrivilegedHelperTools "{inbox}"', '/bin/mkdir -p "$(/usr/bin/dirname "$updater_tool")" "$updater_inbox"'),
+        (f'/bin/chmod 1777 "{inbox}"', '/bin/chmod 1777 "$updater_inbox"'),
+        ("/usr/bin/install -o root -g wheel -m 755 \" & quoted form of (item 2 of argv) & \" " + tool, '/usr/bin/install -o root -g wheel -m 755 "$updater_source" "$updater_tool"'),
+        ("/usr/bin/install -o root -g wheel -m 644 \" & quoted form of (item 3 of argv) & \" " + job, '/usr/bin/install -o root -g wheel -m 644 "$updater_job_source" "$updater_job"'),
+        ("/bin/launchctl bootout system/app.msime.system-updater;", '/bin/launchctl bootout "system/$updater_label"'),
+        (f"/bin/launchctl bootstrap system {job} || {{ /bin/sleep 2; /bin/launchctl bootstrap system {job}; }}",
+         '/bin/launchctl bootstrap system "$updater_job" >/dev/null 2>&1 || { /bin/sleep 2; /bin/launchctl bootstrap system "$updater_job" >/dev/null 2>&1; }'),
+    )
+    for app_form, script_form in pairs:
+        check(app_form in applescript, f"SYSTEM_INSTALL_SCRIPT no longer has {app_form!r}; update pkg-postinstall.sh to match")
+        check(script_form in script, f"postinstall does not install the updater like SYSTEM_INSTALL_SCRIPT: {script_form!r}")
+    # 随设置应用分发的那两个文件，与 packaged_system_updater 读的是同一处。
+    check('.join("MacOS/msime-system-updater")' in rust and '.join("app.msime.system-updater.plist")' in rust, "packaged_system_updater no longer reads Contents/MacOS/msime-system-updater and Contents/Resources/app.msime.system-updater.plist")
+    check('updater_source="$app/Contents/MacOS/msime-system-updater"' in script and 'updater_job_source="$app/Contents/Resources/app.msime.system-updater.plist"' in script,
+          "postinstall does not take the updater from the same files as packaged_system_updater")
+    label = plistlib.loads((ROOT / "platforms/macos/resources/system-updater/app.msime.system-updater.plist").read_bytes())
+    check(label.get("Label") == "app.msime.system-updater" and label.get("ProgramArguments") == [tool], "the updater's launchd job no longer runs app.msime.system-updater from PrivilegedHelperTools")
+
+
+def write_ime_bundle(path: Path, ids: dict, build: str, marker: str, revision: str = "", broken: bool = False) -> None:
+    """一个合成的输入法 bundle：Info.plist、可执行文件、权限收紧的资源、框架里的相对链接；broken 时 codesign 桩校验不过它。"""
+    (path / "Contents/MacOS").mkdir(parents=True)
+    info = {"CFBundleIdentifier": ids["ime_bundle_id"], "CFBundleVersion": build, "CFBundleShortVersionString": "0.60.1"}
+    if revision:
+        info["MSIMEInputSourceRevision"] = revision
+    (path / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
+    executable = path / "Contents/MacOS" / ids["ime_executable"]
+    executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    executable.chmod(0o700)
+    private = path / "Contents/Resources/private"
+    private.mkdir(parents=True)
+    (private / "table.txt").write_text("synthetic", encoding="utf-8")
+    (private / "table.txt").chmod(0o600)
+    private.chmod(0o700)
+    (path / "Contents/Resources/marker").write_text(marker, encoding="utf-8")
+    framework = path / "Contents/Frameworks/Sparkle.framework"
+    (framework / "Versions/B").mkdir(parents=True)
+    (framework / "Versions/B/Sparkle").write_text("synthetic", encoding="utf-8")
+    (framework / "Versions/Current").symlink_to("B")
+    (framework / "Sparkle").symlink_to("Versions/Current/Sparkle")
+    if broken:
+        (path / "Contents/codesign-fails").write_text("", encoding="utf-8")
+
+
+def check_postinstall(edition: str, ids: dict, script: str) -> None:
+    """postinstall 以 root 把内嵌的输入法原子地装进系统目录、装更新助手；图形安装时以登录用户身份登记、停旧进程、打开设置应用。任何情况都以 0 退出。"""
     live = [line.strip() for line in script.splitlines() if line.strip() and not line.strip().startswith("#")]
     text = "\n".join(live)
-    check(f"app_name='{app_bundle}'" in text, f"{edition}: postinstall does not open {app_bundle}")
+    for key, value in (("app_name", ids["app_bundle"]), ("ime_name", ids["ime_bundle"]), ("ime_bundle_id", ids["ime_bundle_id"]), ("ime_executable", ids["ime_executable"])):
+        check(f"{key}='{value}'" in text, f"{edition}: postinstall does not set {key}='{value}'")
     check("set -u" in live, f"{edition}: postinstall does not set -u")
-    check('if [ -n "${COMMAND_LINE_INSTALL:-}" ]; then' in text, f"{edition}: postinstall does not stop for command-line installs")
+    check('if [ -n "${COMMAND_LINE_INSTALL:-}" ]; then' in text, f"{edition}: postinstall does not stop before the user's side for command-line installs")
     for user in ("root", "loginwindow", "_mbsetupuser"):
         check(user in text, f"{edition}: postinstall does not skip the {user} console user")
     check('-lt 501' in text, f"{edition}: postinstall does not skip system accounts")
-    check('/bin/launchctl asuser "$uid" /usr/bin/sudo -u "$user" -H /usr/bin/open -n "$app"' in text, f"{edition}: postinstall does not open the app as the console user with -H and -n")
-    for forbidden in ("chown", "Input Methods", "--register-input-source", "kill", "rm ", "TISEnable"):
-        check(forbidden not in text, f"{edition}: postinstall does {forbidden!r}; it may only open the app")
+    check('/bin/launchctl asuser "$uid" /usr/bin/sudo -u "$user" -H "$@"' in text, f"{edition}: postinstall does not run the user's side as the console user with -H")
+    check('as_user /usr/bin/open -n "$app"' in text, f"{edition}: postinstall does not open the settings app with -n")
+    for forbidden in ("TISEnable", "osascript", "with administrator privileges"):
+        check(forbidden not in text, f"{edition}: postinstall uses {forbidden!r}")
     exits = re.findall(r"\bexit\b\s*(\S*)", text)
     check(exits and all(code == "0" for code in exits), f"{edition}: postinstall can exit with {exits}")
+    check_updater_install_matches_app(script)
     bash = shutil.which("bash")
     if not bash:
         return
@@ -275,23 +357,168 @@ def check_postinstall(edition: str, app_bundle: str, script: str) -> None:
         path = Path(directory) / "postinstall"
         path.write_text(script, encoding="utf-8")
         check(subprocess.run([bash, "-n", str(path)], capture_output=True, timeout=10).returncode == 0, f"{edition}: postinstall is not valid bash")
-        # 不会走到 open 的几条路：命令行安装、没有参数、安装位置里没有应用、应用是符号链接。
-        empty = Path(directory) / "Applications"
-        empty.mkdir()
-        (empty / "elsewhere").mkdir()
-        linked = Path(directory) / "Linked"
-        linked.mkdir()
-        (linked / app_bundle).symlink_to(empty / "elsewhere")
-        environment = {"PATH": "/usr/bin:/bin"}
-        for arguments, extra, expected in (
-            ([str(path), "synthetic.pkg", str(empty), "/"], {"COMMAND_LINE_INSTALL": "1"}, "command-line install"),
-            ([str(path)], {}, "not opening"),
-            ([str(path), "synthetic.pkg", str(empty), "/"], {}, "not opening"),
-            ([str(path), "synthetic.pkg", str(linked), "/"], {}, "not opening"),
-        ):
-            result = subprocess.run([bash, *arguments], env={**environment, **extra}, capture_output=True, text=True, timeout=10)
-            check(result.returncode == 0 and expected in result.stdout and "opened" not in result.stdout,
-                  f"{edition}: postinstall {arguments[1:]} {extra}: {result.returncode} {result.stdout!r} {result.stderr!r}")
+        shellcheck = shutil.which("shellcheck")
+        if shellcheck:
+            result = subprocess.run([shellcheck, "-s", "bash", str(path)], capture_output=True, text=True, timeout=60)
+            check(result.returncode == 0, f"{edition}: shellcheck postinstall: {result.stdout.strip()}")
+    if sys.platform != "darwin" or not all(Path(tool).exists() for tool in ("/usr/bin/ditto", "/usr/bin/plutil")):
+        print("skipped: postinstall behaviour needs macOS ditto and plutil")
+        return
+    # 各版本的脚本只差四个名字，上面的静态检查逐个版本都做了；真跑一遍要十几秒，只跑完整版和一个名字不同的版本。
+    if edition in ("full", "wubi"):
+        run_postinstall_cases(edition, ids, script, bash)
+
+
+def run_postinstall_cases(edition: str, ids: dict, script: str, bash: str) -> None:
+    """把 postinstall 里以 root 改系统的命令换成记账的桩、把 /Library 下的路径换到临时目录，按场景真跑一遍：ditto、chmod、find、mv、plutil 都是真的。"""
+    def run(name: str, *, system_build: str = "", system_revision: str = "", system_broken: bool = False, source_build: str = "60001000000200",
+            source_revision: str = "", source_broken: bool = False, source: str = "bundle", user_copy: bool = False, updater: bool = True,
+            console: str = "synthetic", command_line: bool = False, volume: str = "/", location: bool = True) -> tuple:
+        directory = Path(tempfile.mkdtemp(prefix="msime-postinstall-case-"))
+        try:
+            stubs = directory / "bin"
+            stubs.mkdir()
+            for tool in ("stat", "id", "dscl", "chown", "codesign", "launchctl", "lsregister"):
+                (stubs / tool).write_text(POSTINSTALL_STUB, encoding="utf-8")
+                (stubs / tool).chmod(0o755)
+            library = directory / "Library"
+            (library / "LaunchDaemons").mkdir(parents=True)
+            system = library / "Input Methods"
+            rewritten = script
+            replacements = [(f"{tool}", f"{stubs}/{tool.rsplit('/', 1)[1]}") for tool in POSTINSTALL_STUBBED]
+            replacements += [
+                ("/usr/bin/install -o root -g wheel ", "/usr/bin/install "),
+                ("lsregister='/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'", f"lsregister='{stubs}/lsregister'"),
+                ("system_input_methods='/Library/Input Methods'", f"system_input_methods='{system}'"),
+                ("updater_tool='/Library/PrivilegedHelperTools/", f"updater_tool='{library}/PrivilegedHelperTools/"),
+                ("updater_job='/Library/LaunchDaemons/", f"updater_job='{library}/LaunchDaemons/"),
+                ("updater_inbox='/Library/Application Support/", f"updater_inbox='{library}/Application Support/"),
+            ]
+            for old, new in replacements:
+                check(old in rewritten, f"{edition}: postinstall no longer contains {old!r}, the behaviour test would run the real command")
+                rewritten = rewritten.replace(old, new)
+            (directory / "postinstall").write_text(rewritten, encoding="utf-8")
+            applications = directory / "Applications"
+            app = applications / ids["app_bundle"]
+            (app / "Contents/MacOS").mkdir(parents=True)
+            (app / "Contents/Resources").mkdir(parents=True)
+            embedded = app / "Contents/Resources" / ids["ime_bundle"]
+            if source == "bundle":
+                write_ime_bundle(embedded, ids, source_build, "new", source_revision, source_broken)
+            elif source == "symlink":
+                write_ime_bundle(directory / "elsewhere.app", ids, source_build, "new")
+                embedded.symlink_to(directory / "elsewhere.app")
+            if updater:
+                (app / "Contents/MacOS/msime-system-updater").write_text("#!/bin/sh\n", encoding="utf-8")
+                (app / "Contents/Resources/app.msime.system-updater.plist").write_text("<plist/>\n", encoding="utf-8")
+            if system_build:
+                write_ime_bundle(system / ids["ime_bundle"], ids, system_build, "old", system_revision, system_broken)
+            home = directory / "home"
+            if user_copy:
+                write_ime_bundle(home / "Library/Input Methods" / ids["ime_bundle"], ids, "1", "user")
+            log = directory / "stub.log"
+            log.write_text("", encoding="utf-8")
+            environment = {"PATH": "/usr/bin:/bin", "STUB_LOG": str(log), "STUB_CONSOLE_USER": console, "STUB_UID": "501", "STUB_HOME": str(home)}
+            if command_line:
+                environment["COMMAND_LINE_INSTALL"] = "1"
+            arguments = [str(directory / "postinstall")] + (["synthetic.pkg", str(applications), volume] if location else [])
+            result = subprocess.run([bash, *arguments], env=environment, capture_output=True, text=True, timeout=60)
+            target = system / ids["ime_bundle"]
+            state = {
+                "marker": (target / "Contents/Resources/marker").read_text(encoding="utf-8") if (target / "Contents/Resources/marker").is_file() else None,
+                "entries": sorted(entry.name for entry in system.iterdir()) if system.is_dir() else [],
+                "calls": log.read_text(encoding="utf-8").splitlines(),
+                "updater": (library / "PrivilegedHelperTools/app.msime.system-updater").is_file(),
+                "target": target,
+                "library": library,
+                "app": app,
+            }
+            check(result.returncode == 0, f"{edition}: postinstall ({name}) exited {result.returncode}: {result.stdout!r} {result.stderr!r}")
+            state["stdout"] = result.stdout
+            state["modes"] = {}
+            if target.is_dir():
+                for relative in ("", "Contents/Resources/private", "Contents/Resources/private/table.txt", f"Contents/MacOS/{ids['ime_executable']}"):
+                    state["modes"][relative] = stat_module.S_IMODE((target / relative).stat().st_mode) if relative else stat_module.S_IMODE(target.stat().st_mode)
+                state["framework_link"] = (target / "Contents/Frameworks/Sparkle.framework/Versions/Current").is_symlink()
+                inbox = library / "Application Support/app.msime.system-updater/inbox"
+                state["inbox_mode"] = stat_module.S_IMODE(inbox.stat().st_mode) if inbox.is_dir() else None
+                tool = library / "PrivilegedHelperTools/app.msime.system-updater"
+                job = library / "LaunchDaemons/app.msime.system-updater.plist"
+                state["tool_mode"] = stat_module.S_IMODE(tool.stat().st_mode) if tool.is_file() else None
+                state["job_mode"] = stat_module.S_IMODE(job.stat().st_mode) if job.is_file() else None
+            return state
+        finally:
+            shutil.rmtree(directory, ignore_errors=True)
+
+    ime = ids["ime_bundle"]
+
+    def calls(state: dict, prefix: str) -> list:
+        return [call for call in state["calls"] if call.startswith(prefix)]
+
+    def user_side(state: dict) -> list:
+        return calls(state, "launchctl [asuser]")
+
+    def where(name: str, state: dict) -> str:
+        return f"{edition}: postinstall ({name}): {state['stdout']!r} {state['calls']}"
+
+    # 全新安装：原子装进系统目录、属主改成 root、权限放开给所有用户、框架链接保留，没有暂存残留；装上助手；以登录用户身份登记、停旧进程、打开设置应用。
+    state = run("fresh")
+    target = str(state["target"])
+    check(state["marker"] == "new" and state["entries"] == [ime], where("fresh", state))
+    check(state["modes"] == {"": 0o755, "Contents/Resources/private": 0o755, "Contents/Resources/private/table.txt": 0o644, f"Contents/MacOS/{ids['ime_executable']}": 0o755}, f"{where('fresh', state)} modes {state['modes']}")
+    check(state.get("framework_link") is True, f"{where('fresh', state)}: the framework's relative link was not kept")
+    check(any(call.startswith("chown [-R] [root:wheel] [") and ".pkg-staging-" in call for call in state["calls"]), f"{where('fresh', state)}: the staged copy is not chowned to root:wheel before it is moved in")
+    check(any(call.startswith("codesign [--verify] [--deep] [--strict] [") and ".pkg-staging-" in call for call in state["calls"]), f"{where('fresh', state)}: the staged copy is not verified")
+    check(state["tool_mode"] == 0o755 and state["job_mode"] == 0o644 and state["inbox_mode"] == 0o1777, f"{where('fresh', state)}: updater modes {state['tool_mode']} {state['job_mode']} {state['inbox_mode']}")
+    check(calls(state, "launchctl [bootout] [system/app.msime.system-updater]") and calls(state, "launchctl [bootstrap] [system] ["), f"{where('fresh', state)}: the updater is not reloaded")
+    side = user_side(state)
+    order = [index for marker in (f"[{state['library'].parent}/bin/lsregister] [-f] [{target}]", f"[{target}/Contents/MacOS/{ids['ime_executable']}] [--register-input-source]",
+                                  "[/usr/bin/pkill] [-u] [501] [-f]", "[/usr/bin/open] [-n]") for index, call in enumerate(side) if marker in call]
+    check(len(order) == 4 and order == sorted(order), f"{where('fresh', state)}: the user's side does not lsregister, register, stop the old process and open the app in that order")
+    check(all(call.startswith("launchctl [asuser] [501] [/usr/bin/sudo] [-u] [synthetic] [-H]") for call in side), f"{where('fresh', state)}: a user step does not run as the console user")
+    check(any("[/usr/bin/pkill] [-x] [System Settings]" in call for call in side), f"{where('fresh', state)}: the input source lists are not refreshed")
+
+    # 升级系统目录里的旧版本：换成新的，旧的和暂存都不留。
+    state = run("upgrade", system_build="60001000000100")
+    check(state["marker"] == "new" and state["entries"] == [ime] and state["updater"], where("upgrade", state))
+    # 已装的构建号相同（无修订）且完好：不动它，仍然登记、打开设置应用，但不停进程。
+    state = run("same build", system_build="60001000000200")
+    check(state["marker"] == "old" and "left as it is" in state["stdout"] and state["updater"], where("same build", state))
+    check(any("--register-input-source" in call for call in user_side(state)) and not any("pkill" in call for call in user_side(state)), where("same build", state))
+    # 构建号相同而随附的修订不同：换。
+    state = run("same build, new revision", system_build="60001000000200", system_revision="aaaa", source_revision="bbbb")
+    check(state["marker"] == "new", where("same build, new revision", state))
+    # 已装的更新：从不降级。
+    state = run("newer installed", system_build="60001000000300")
+    check(state["marker"] == "old" and "left as it is" in state["stdout"], where("newer installed", state))
+    # 已装的更新却校验不过：换成能用的。
+    state = run("newer but broken", system_build="60001000000300", system_broken=True)
+    check(state["marker"] == "new" and state["entries"] == [ime], where("newer but broken", state))
+    # 暂存的副本校验不过：已装的原样留着，不留暂存，不装助手不登记，打开设置应用让它兜底。
+    state = run("staged copy fails", system_build="60001000000100", source_broken=True)
+    check(state["marker"] == "old" and state["entries"] == [ime] and not state["updater"], where("staged copy fails", state))
+    check(not any("--register-input-source" in call for call in user_side(state)) and any("[/usr/bin/open] [-n]" in call for call in user_side(state)), where("staged copy fails", state))
+    # 登录用户的目录里已经有一份：系统目录不动、不装助手、不登记，打开设置应用去更新那份。
+    state = run("user copy", user_copy=True)
+    check(state["entries"] == [] and not state["updater"] and "takes priority" in state["stdout"], where("user copy", state))
+    check(not any("--register-input-source" in call for call in user_side(state)) and any("[/usr/bin/open] [-n]" in call for call in user_side(state)), where("user copy", state))
+    # 命令行安装：照样装好输入法和助手，用户那一侧一步都不做。
+    state = run("command line", command_line=True)
+    check(state["marker"] == "new" and state["updater"] and not user_side(state) and "command-line install" in state["stdout"], where("command line", state))
+    # 登录窗口在前台：装好输入法，用户那一侧不做。
+    state = run("login window", console="loginwindow")
+    check(state["marker"] == "new" and not user_side(state), where("login window", state))
+    # 随附的设置应用没带助手：输入法照装，助手不装。
+    state = run("no updater", updater=False)
+    check(state["marker"] == "new" and not state["updater"] and "carries no system updater" in state["stdout"], where("no updater", state))
+    # 设置应用里没有输入法或者它是链接：什么都不装，设置应用照样打开（首次安装窗口兜底）。
+    for name, kind in (("no embedded input method", "missing"), ("embedded input method is a link", "symlink")):
+        state = run(name, source=kind)
+        check(state["entries"] == [] and not state["updater"] and "not installed" in state["stdout"], where(name, state))
+    # 没有参数、装到别的卷：什么都不做。
+    for name, options in (("no arguments", {"location": False}), ("another volume", {"volume": "/Volumes/Synthetic"})):
+        state = run(name, **options)
+        check(state["entries"] == [] and not state["calls"], where(name, state))
 
 
 def check_pkg_naming_and_order(package_text: str) -> None:
