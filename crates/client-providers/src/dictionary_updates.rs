@@ -20,7 +20,7 @@ const DOWNLOAD: &str = "https://github.com/metasequoiaime/msime-dictionary/relea
 const MANIFEST: &str = "msime-dictionary-manifest.json";
 const INTERVAL: u64 = 24 * 60 * 60;
 const DOCUMENT_LIMIT: u64 = 2 * 1024 * 1024;
-/// 没下完的词库文件放在 `dictionary-updates/.partial-downloads/`，下次检查用 HTTP Range 接着下。
+/// 没下完的词库文件放在 [`work`] 下的 `.partial-downloads/`（缺省是 `dictionary-updates/.partial-downloads/`），下次检查用 HTTP Range 接着下。
 const PARTIALS: &str = "downloads";
 
 #[derive(Debug, thiserror::Error)]
@@ -57,6 +57,8 @@ pub struct UpdateContext {
     pub format: i32,
     /// 用户填的下载镜像前缀（偏好 `voice_input.asr_model_mirror`，与资源包下载同一个来源），排在项目 CDN 之前尝试；不合法的前缀跳过。只影响 Release 附件，版本 API 始终直连。
     pub mirrors: Vec<String>,
+    /// 只属于本进程、不与其他进程共享的目录（iOS：App 自己容器里的 `Caches/dictionary-updates`）。给了时，检查的互斥锁 `update.lock`、没下完的词库文件和 manifest 的暂存文件都放在这里，而不是 `state_root` 下：一次检查要在网络上等几分钟，iOS 在挂起进程时发现它还持着 App Group 里的文件锁，就以 0xdead10cc 结束它（#11973）。这样做的前提是只有本进程会检查、回退词库更新（iOS 的键盘扩展从不调 `updates`），因为锁不再跨进程互斥。缺省时这些都在 `state_root/dictionary-updates` 下，与以前相同。
+    pub private_root: Option<PathBuf>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -302,6 +304,13 @@ pub struct UpdateStatus {
 
 fn root(state: &Path) -> PathBuf {
     state.join("dictionary-updates")
+}
+/// 放检查的互斥锁 `update.lock` 和下载暂存的目录，见 [`UpdateContext::private_root`]。
+fn work(context: &UpdateContext) -> PathBuf {
+    context
+        .private_root
+        .clone()
+        .unwrap_or_else(|| root(&context.state_root))
 }
 fn store(state: &Path) -> ResourceStore {
     ResourceStore::new(root(state).join("generations"))
@@ -563,9 +572,7 @@ pub fn status(context: &UpdateContext) -> UpdateStatus {
         read(&root(&context.state_root).join("status.json")).unwrap_or_default();
     // 上次进程退出后不让界面永远停在下载中；活动任务仍持有跨进程锁。
     if matches!(status.phase.as_str(), "checking" | "downloading") {
-        if let Ok(lock) =
-            file_lock::open_private_lock_file(root(&context.state_root).join("update.lock"))
-        {
+        if let Ok(lock) = file_lock::open_private_lock_file(work(context).join("update.lock")) {
             if let Ok(Some(_idle)) = file_lock::ScopedFileLock::try_exclusive(lock) {
                 status.phase = "interrupted".into();
                 status.error = Some("dictionary_update_interrupted".into());
@@ -611,8 +618,10 @@ pub fn configure(context: &UpdateContext, enabled: bool) -> Result<UpdateStatus,
 pub fn rollback(context: &UpdateContext) -> Result<UpdateStatus, UpdateError> {
     let folder = root(&context.state_root);
     storage::create_directory_and_check(&folder)?;
+    let work = work(context);
+    storage::create_directory_and_check(&work)?;
     let _lock = file_lock::ScopedFileLock::exclusive(file_lock::open_private_lock_file(
-        folder.join("update.lock"),
+        work.join("update.lock"),
     )?)?;
     let mut installed: Installed = read(&folder.join("installed.json"))?;
     if let Some(previous) = &installed.previous {
@@ -770,9 +779,9 @@ fn download_manifest(
     transport: &dyn Transport,
     artifact: &Artifact,
     mirrors: &[String],
-    state: &Path,
+    work: &Path,
 ) -> Result<File, UpdateError> {
-    let mut output = tempfile::tempfile_in(root(state))?;
+    let mut output = tempfile::tempfile_in(work)?;
     local_models::download_from_mirrors(
         &DocumentFetcher { transport },
         &prefixes(artifact, mirrors),
@@ -788,17 +797,17 @@ fn download_manifest(
     Ok(output)
 }
 
-/// 下载一个词库文件：没下完的部分留在 `dictionary-updates/.partial-downloads/`，下次检查用 HTTP Range 接着下，换源规则见 [`prefixes`]。交出的文件已按长度和摘要校验，读完丢掉时删除。
+/// 下载一个词库文件：没下完的部分留在 `work`（[`work`]）下的 `.partial-downloads/`，下次检查用 HTTP Range 接着下，换源规则见 [`prefixes`]。交出的文件已按长度和摘要校验，读完丢掉时删除。
 fn download_file(
     files: &dyn Fetcher,
     artifact: &Artifact,
     mirrors: &[String],
-    state: &Path,
+    work: &Path,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(u64),
 ) -> Result<local_models::PartialFile, UpdateError> {
     local_models::download_partial(
-        &root(state),
+        work,
         PARTIALS,
         artifact,
         &prefixes(artifact, mirrors),
@@ -930,7 +939,9 @@ fn plan(
     Ok(selection)
 }
 
-/// 安装 `set` 这一代。`status.downloaded_bytes` 按完成的字节累加：下载的按收到的字节，从本机复用的整份计入，结束时正好加上 `set` 的总长度，所以成功时进度停在总量上。下载途中开关被关掉（[`switched_off`]）时停下并报 [`UpdateError::Cancelled`]：有数据进来时每写一次状态查一次，停滞的连接等这次连接或读取超时，之后不再换源（[`SwitchAware`]）。
+/// 安装 `set` 这一代，分两步。先在不持 `resources.lock` 的时候把每个文件都准备成本机文件：本机已有相同字节的就复用，其余的下载到 [`work`] 下续传用的暂存里，网络上的等待全在这一步。再交给 [`ResourceStore::install`]，它在 `resources.lock` 下只从这些本机文件复制、校验并发布。`resources.lock` 在共享状态目录里（iOS 是 App Group），以前下载就在它的取字节回调里，持着它等网络的进程被挂起时，iOS 以 0xdead10cc 结束它（#11973）。这一代的目录已经在时什么也不准备，由 `ResourceStore` 直接校验已有的目录。
+///
+/// `status.downloaded_bytes` 按完成的字节累加：下载的按收到的字节，从本机复用的整份计入，结束时正好加上 `set` 的总长度，所以成功时进度停在总量上。下载途中开关被关掉（[`switched_off`]）时停下并报 [`UpdateError::Cancelled`]：有数据进来时每写一次状态查一次，停滞的连接等这次连接或读取超时，之后不再换源（[`SwitchAware`]）。
 fn install(
     context: &UpdateContext,
     set: &ResourceSet,
@@ -940,96 +951,107 @@ fn install(
 ) -> Result<(), UpdateError> {
     let folder = root(&context.state_root);
     let start = status.downloaded_bytes;
-    let cancel = AtomicBool::new(false);
-    let files = SwitchAware {
-        files: transport.files(),
-        folder: &folder,
-        enabled_at_start,
-        cancel: &cancel,
-    };
-    // ResourceStore 把取字节的错误一律折成 I/O 错误；这里记下原因，好让网络失败和取消照实报告。
-    let mut failure = None;
+    let generation = set.generation().map_err(|_| UpdateError::Invalid)?;
+    let mut prepared = BTreeMap::new();
+    if std::fs::symlink_metadata(folder.join("generations").join(&generation)).is_err() {
+        let cancel = AtomicBool::new(false);
+        let files = SwitchAware {
+            files: transport.files(),
+            folder: &folder,
+            enabled_at_start,
+            cancel: &cancel,
+        };
+        for file in &set.artifacts {
+            let source = prepare(context, file, &files, &cancel, status, enabled_at_start)?;
+            prepared.insert(file.name.clone(), source);
+        }
+    }
     let installed = store(&context.state_root).install(set, |file| {
-        // 复用当前资源的字节；ResourceStore 始终重新校验，损坏缓存不能被带进新代次。发布包不带的日文词典和五笔码表在已装的资源包里，新版本没改这份文件时从那里取，不重新下载（五笔码表近百 MB）。
-        let active = selected(&context.state_root, &context.baseline);
-        let candidates = [
-            Some(context.resources.join(&file.name)),
-            context.languages.as_ref().map(|p| p.join(&file.name)),
-            active
-                .and_then(|s| directory(&context.state_root, &s.desktop).ok())
-                .map(|p| p.join(&file.name)),
-            on_demand_pack(&file.name).and_then(|pack| {
-                crate::resource_packs::installed_file(&context.state_root, pack, &file.name)
-            }),
-        ];
-        for path in candidates.into_iter().flatten() {
-            if msime_path_trust::reject_symlinked_components(&path).is_err() {
-                continue;
-            }
-            if let Ok(mut source) = File::open(&path) {
-                if source.metadata()?.len() != file.size {
-                    continue;
-                }
-                let mut digest = Sha256::new();
-                let mut buffer = [0u8; 64 * 1024];
-                loop {
-                    let count = source.read(&mut buffer)?;
-                    if count == 0 {
-                        break;
-                    }
-                    digest.update(&buffer[..count]);
-                }
-                if hex::encode(digest.finalize()) == file.sha256 {
-                    status.downloaded_bytes += file.size;
-                    let _ = write(&folder.join("status.json"), status);
-                    return Ok(Box::new(File::open(path)?) as Box<dyn Read>);
-                }
-            }
-        }
-        if switched_off(&folder, enabled_at_start) {
-            failure = Some(UpdateError::Cancelled);
-            return Err(io::Error::other(UpdateError::Cancelled));
-        }
-        let offset = status.downloaded_bytes;
-        let mut reported = offset;
-        let downloaded = download_file(
-            &files,
-            file,
-            &context.mirrors,
-            &context.state_root,
-            &cancel,
-            &mut |count| {
-                status.downloaded_bytes = offset + count.min(file.size);
-                if status.downloaded_bytes.abs_diff(reported) >= 1024 * 1024 || count == file.size {
-                    reported = status.downloaded_bytes;
-                    let _ = write(&folder.join("status.json"), status);
-                    if switched_off(&folder, enabled_at_start) {
-                        cancel.store(true, Ordering::Relaxed);
-                    }
-                }
-            },
-        );
-        match downloaded {
-            Ok(source) => Ok(Box::new(source) as Box<dyn Read>),
-            Err(error) => {
-                // 最后一个源停滞到读取超时时，开关可能已在等待中被关掉：这次失败是用户要求停下，不报网络错误。
-                let error = if switched_off(&folder, enabled_at_start) {
-                    UpdateError::Cancelled
-                } else {
-                    error
-                };
-                let reported = io::Error::other(error.to_string());
-                failure = Some(error);
-                Err(reported)
-            }
-        }
+        prepared
+            .remove(&file.name)
+            .ok_or_else(|| io::Error::other("dictionary update file was not prepared"))
     });
     match installed {
         Ok(_) => {
             status.downloaded_bytes = start + set.artifacts.iter().map(|a| a.size).sum::<u64>();
             Ok(())
         }
-        Err(_) => Err(failure.unwrap_or(UpdateError::Integrity)),
+        Err(_) => Err(UpdateError::Integrity),
+    }
+}
+
+/// 给 [`install`] 准备 `file` 的字节，交出一份本机文件。先复用当前资源的字节；ResourceStore 始终重新校验，损坏缓存不能被带进新代次。发布包不带的日文词典和五笔码表在已装的资源包里，新版本没改这份文件时从那里取，不重新下载（五笔码表近百 MB）。都没有时下载，这时不能持着共享状态目录里的任何锁。
+fn prepare(
+    context: &UpdateContext,
+    file: &Artifact,
+    files: &SwitchAware<'_>,
+    cancel: &AtomicBool,
+    status: &mut UpdateStatus,
+    enabled_at_start: bool,
+) -> Result<Box<dyn Read>, UpdateError> {
+    let folder = root(&context.state_root);
+    let active = selected(&context.state_root, &context.baseline);
+    let candidates = [
+        Some(context.resources.join(&file.name)),
+        context.languages.as_ref().map(|p| p.join(&file.name)),
+        active
+            .and_then(|s| directory(&context.state_root, &s.desktop).ok())
+            .map(|p| p.join(&file.name)),
+        on_demand_pack(&file.name).and_then(|pack| {
+            crate::resource_packs::installed_file(&context.state_root, pack, &file.name)
+        }),
+    ];
+    for path in candidates.into_iter().flatten() {
+        if msime_path_trust::reject_symlinked_components(&path).is_err() {
+            continue;
+        }
+        if let Ok(mut source) = File::open(&path) {
+            if source.metadata()?.len() != file.size {
+                continue;
+            }
+            let mut digest = Sha256::new();
+            let mut buffer = [0u8; 64 * 1024];
+            loop {
+                let count = source.read(&mut buffer)?;
+                if count == 0 {
+                    break;
+                }
+                digest.update(&buffer[..count]);
+            }
+            if hex::encode(digest.finalize()) == file.sha256 {
+                status.downloaded_bytes += file.size;
+                let _ = write(&folder.join("status.json"), status);
+                return Ok(Box::new(File::open(path)?));
+            }
+        }
+    }
+    if switched_off(&folder, enabled_at_start) {
+        return Err(UpdateError::Cancelled);
+    }
+    let offset = status.downloaded_bytes;
+    let mut reported = offset;
+    let downloaded = download_file(
+        files,
+        file,
+        &context.mirrors,
+        &work(context),
+        cancel,
+        &mut |count| {
+            status.downloaded_bytes = offset + count.min(file.size);
+            if status.downloaded_bytes.abs_diff(reported) >= 1024 * 1024 || count == file.size {
+                reported = status.downloaded_bytes;
+                let _ = write(&folder.join("status.json"), status);
+                if switched_off(&folder, enabled_at_start) {
+                    cancel.store(true, Ordering::Relaxed);
+                }
+            }
+        },
+    );
+    match downloaded {
+        Ok(source) => Ok(Box::new(source)),
+        // 最后一个源停滞到读取超时时，开关可能已在等待中被关掉：这次失败是用户要求停下，不报网络错误。
+        Err(_) if switched_off(&folder, enabled_at_start) => Err(UpdateError::Cancelled),
+        Err(error) => Err(error),
     }
 }
 
@@ -1040,7 +1062,7 @@ fn now() -> u64 {
         .as_secs()
 }
 
-/// 在后台线程执行。跨进程取锁，自动检查每天至多一次；手动检查不受节流影响。开关关着时发起的手动检查不受开关影响；开始时开着、下载途中被关掉的检查（自动或手动）停下不发布，已收到的字节留给下次续传。
+/// 在后台线程执行。取检查的互斥锁（[`UpdateContext::private_root`]），自动检查每天至多一次；手动检查不受节流影响。开关关着时发起的手动检查不受开关影响；开始时开着、下载途中被关掉的检查（自动或手动）停下不发布，已收到的字节留给下次续传。
 pub fn check(context: &UpdateContext, automatic: bool) -> Result<UpdateStatus, UpdateError> {
     check_with(
         context,
@@ -1059,12 +1081,19 @@ fn check_with(
 ) -> Result<UpdateStatus, UpdateError> {
     let folder = root(&context.state_root);
     storage::create_directory_and_check(&folder)?;
+    // 这把锁要一直持到检查结束，包括网络上的等待，所以在 `private_root` 下（见 [`UpdateContext::private_root`]）。
+    let work = work(context);
+    storage::create_directory_and_check(&work)?;
     let Some(_lock) = file_lock::ScopedFileLock::try_exclusive(file_lock::open_private_lock_file(
-        folder.join("update.lock"),
+        work.join("update.lock"),
     )?)?
     else {
         return Ok(status(context));
     };
+    if work != folder {
+        // 以前没下完的部分留在共享状态目录里，现在续传只看 `work`，那份再也用不上。
+        let _ = local_models::retain_partials(&folder, PARTIALS, &[]);
+    }
     let mut status = status(context);
     let checked_at = now();
     if automatic && !automatic_check_due(&status, checked_at) {
@@ -1104,14 +1133,9 @@ fn check_with(
                 return Err(UpdateError::Invalid);
             }
             let mut manifest = Vec::new();
-            download_manifest(
-                transport,
-                &descriptor,
-                &context.mirrors,
-                &context.state_root,
-            )?
-            .take(DOCUMENT_LIMIT + 1)
-            .read_to_end(&mut manifest)?;
+            download_manifest(transport, &descriptor, &context.mirrors, &work)?
+                .take(DOCUMENT_LIMIT + 1)
+                .read_to_end(&mut manifest)?;
             match plan(context, release, &manifest) {
                 Err(UpdateError::Incompatible) => incompatible = true,
                 Err(error) => return Err(error),
@@ -1139,7 +1163,7 @@ fn check_with(
             }
             status.phase = "current".into();
             // 已是最新：以前没下完的部分再也用不上。
-            let _ = local_models::retain_partials(&folder, PARTIALS, &[]);
+            let _ = local_models::retain_partials(&work, PARTIALS, &[]);
             return Ok(());
         };
         let artifacts: Vec<Artifact> = selection
@@ -1150,7 +1174,7 @@ fn check_with(
             .cloned()
             .collect();
         // 只留这次要下载的文件没下完的部分，旧版本留下的续不上，删掉免得占盘。
-        local_models::retain_partials(&folder, PARTIALS, &artifacts).map_err(update_error)?;
+        local_models::retain_partials(&work, PARTIALS, &artifacts).map_err(update_error)?;
         status.phase = "downloading".into();
         status.total_bytes = artifacts.iter().map(|a| a.size).sum();
         write(&folder.join("status.json"), &status)?;
@@ -1188,7 +1212,7 @@ fn check_with(
             },
         )?;
         status.phase = "ready".into();
-        let _ = local_models::retain_partials(&folder, PARTIALS, &[]);
+        let _ = local_models::retain_partials(&work, PARTIALS, &[]);
         Ok(())
     })();
     let result = match result {

@@ -17,10 +17,43 @@ struct Fixture {
     switch_off_while_stalled: std::cell::Cell<bool>,
     /// 这些地址不支持 Range，总是整份返回。
     ignore_range: RefCell<Vec<String>>,
+    /// 开着时每次网络请求都记下那一刻临时目录里被锁着的锁文件（相对路径），见 [`held_locks`]。
+    probe_locks: std::cell::Cell<bool>,
+    locks_during_network: RefCell<Vec<Vec<PathBuf>>>,
+}
+
+/// `directory` 下所有正被别的描述符锁着的 `*.lock`，相对 `directory`、排好序。flock 的锁属于打开文件描述，同一进程里另开一个描述符照样取不到。
+fn held_locks(directory: &Path) -> Vec<PathBuf> {
+    let mut held = Vec::new();
+    let mut pending = vec![directory.to_path_buf()];
+    while let Some(next) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&next) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if entry.file_type().unwrap().is_dir() {
+                pending.push(path);
+            } else if path
+                .extension()
+                .is_some_and(|extension| extension == "lock")
+            {
+                let file = std::fs::File::open(&path).unwrap();
+                if file_lock::try_exclusive(&file).unwrap() {
+                    file_lock::unlock(&file).unwrap();
+                } else {
+                    held.push(path.strip_prefix(directory).unwrap().to_path_buf());
+                }
+            }
+        }
+    }
+    held.sort();
+    held
 }
 
 impl Transport for Fixture {
     fn open(&self, url: &str, _: Duration) -> Result<Box<dyn Read>, UpdateError> {
+        self.probe();
         self.requests.borrow_mut().push(url.to_owned());
         self.files
             .borrow()
@@ -37,6 +70,7 @@ impl Transport for Fixture {
 
 impl Fetcher for Fixture {
     fn fetch<'a>(&'a self, url: &str, offset: u64) -> Result<Fetched<'a>, LocalModelError> {
+        self.probe();
         self.requests.borrow_mut().push(url.to_owned());
         self.ranges.borrow_mut().push((url.to_owned(), offset));
         let bytes = self
@@ -119,6 +153,7 @@ impl Fixture {
             languages: None,
             format: 1,
             mirrors: Vec::new(),
+            private_root: None,
         };
         Self {
             _directory: directory,
@@ -130,7 +165,24 @@ impl Fixture {
             switch_off_on: RefCell::default(),
             switch_off_while_stalled: std::cell::Cell::default(),
             ignore_range: RefCell::default(),
+            probe_locks: std::cell::Cell::default(),
+            locks_during_network: RefCell::default(),
         }
+    }
+
+    fn probe(&self) {
+        if self.probe_locks.get() {
+            self.locks_during_network
+                .borrow_mut()
+                .push(held_locks(self._directory.path()));
+        }
+    }
+
+    /// 与 iOS App 相同：检查的锁和下载暂存放在临时目录下的 `private`。
+    fn private_context(&self) -> UpdateContext {
+        let mut context = self.context.clone();
+        context.private_root = Some(self._directory.path().join("private"));
+        context
     }
 
     fn release(&self, tag: &str, data: &[u8], format: i32) {
@@ -896,6 +948,121 @@ fn interrupted_process_does_not_leave_the_controls_stuck_downloading() {
     .unwrap();
     assert_eq!(status(&fixture.context).phase, "downloading");
     drop(lock);
+}
+
+/// #11973：iOS 上 `state_root` 是 App Group，挂起时还持着那里的文件锁的进程被系统以 0xdead10cc 结束。给了 `private_root` 时，版本接口、manifest 和词库文件的每一次请求期间，共享状态目录里都没有锁被持着；检查的互斥锁在 `private_root` 下照样持着。
+#[test]
+fn network_waits_hold_no_lock_in_the_shared_state_directory() {
+    let fixture = Fixture::new();
+    let context = fixture.private_context();
+    fixture.release("dict-v2.0.10", b"updated synthetic dictionary", 1);
+    fixture.probe_locks.set(true);
+    assert_eq!(
+        check_with(&context, false, &fixture).unwrap().phase,
+        "ready"
+    );
+    // 版本接口、manifest 和词库文件都请求过（CDN 上没有的再回原地址）。
+    assert!(fixture
+        .requests
+        .borrow()
+        .iter()
+        .any(|url| url.ends_with("/msime-pinyin.db")));
+    let seen = fixture.locks_during_network.borrow();
+    assert_eq!(seen.len(), fixture.requests.borrow().len());
+    for held in seen.iter() {
+        assert_eq!(held, &[PathBuf::from("private/update.lock")]);
+    }
+    assert_eq!(
+        selected(&context.state_root, &context.baseline)
+            .unwrap()
+            .version,
+        "dict-v2.0.10"
+    );
+}
+
+/// 所有平台上，`resources.lock` 都只在文件已经下好之后才取：下载期间只有检查自己的 `update.lock` 锁着，桌面上的跨进程互斥不变。
+#[test]
+fn downloads_finish_before_the_resource_lock_is_taken() {
+    let fixture = Fixture::new();
+    fixture.release("dict-v2.0.10", b"updated synthetic dictionary", 1);
+    fixture.probe_locks.set(true);
+    assert_eq!(
+        check_with(&fixture.context, false, &fixture).unwrap().phase,
+        "ready"
+    );
+    let seen = fixture.locks_during_network.borrow();
+    assert_eq!(seen.len(), fixture.requests.borrow().len());
+    assert!(seen.len() >= 3);
+    for held in seen.iter() {
+        assert_eq!(
+            held,
+            &[PathBuf::from("state/dictionary-updates/update.lock")]
+        );
+    }
+}
+
+#[test]
+fn a_private_root_keeps_unfinished_downloads_out_of_the_shared_state_directory() {
+    let fixture = Fixture::new();
+    let context = fixture.private_context();
+    let private_partials = fixture
+        ._directory
+        .path()
+        .join("private")
+        .join(format!(".partial-{PARTIALS}"));
+    let data = b"updated synthetic dictionary";
+    fixture.release("dict-v2.0.10", data, 1);
+    // 以前的版本把没下完的部分留在共享状态目录里，现在续不上了。
+    std::fs::create_dir_all(fixture.partials()).unwrap();
+    std::fs::write(fixture.partials().join("stale-msime-pinyin.db"), b"stale").unwrap();
+    let origin = format!("{DOWNLOAD}dict-v2.0.10/msime-pinyin.db");
+    fixture.stalls.borrow_mut().insert(origin.clone(), 10);
+    assert!(matches!(
+        check_with(&context, false, &fixture),
+        Err(UpdateError::Network)
+    ));
+    assert!(!fixture.partials().exists());
+    let partial = private_partials.join(format!(
+        "{}-msime-pinyin.db",
+        hex::encode(Sha256::digest(data))
+    ));
+    assert_eq!(std::fs::read(&partial).unwrap(), &data[..10]);
+
+    fixture.stalls.borrow_mut().clear();
+    fixture.ranges.borrow_mut().clear();
+    assert_eq!(
+        check_with(&context, false, &fixture).unwrap().phase,
+        "ready"
+    );
+    assert!(fixture.ranges.borrow().contains(&(origin, 10)));
+    assert!(!private_partials.exists());
+    assert!(installed_file(&context.state_root, &context.baseline, "msime-pinyin.db").is_some());
+}
+
+/// 给了 `private_root` 时，界面判断检查还在不在跑看的也是那里的 `update.lock`。
+#[test]
+fn status_and_rollback_use_the_private_update_lock() {
+    let fixture = Fixture::new();
+    let context = fixture.private_context();
+    fixture.release("dict-v2.0.10", b"updated synthetic dictionary", 1);
+    check_with(&context, false, &fixture).unwrap();
+    write(
+        &root(&context.state_root).join("status.json"),
+        &UpdateStatus {
+            phase: "downloading".into(),
+            ..UpdateStatus::default()
+        },
+    )
+    .unwrap();
+    let lock = file_lock::ScopedFileLock::exclusive(
+        file_lock::open_private_lock_file(work(&context).join("update.lock")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(status(&context).phase, "downloading");
+    drop(lock);
+    assert_eq!(status(&context).phase, "interrupted");
+    assert_eq!(rollback(&context).unwrap().phase, "rolled_back");
+    assert!(!root(&context.state_root).join("update.lock").exists());
 }
 
 #[test]

@@ -2135,6 +2135,10 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     if !MSIMEAppEdition.isFull { options["edition"] = MSIMEAppEdition.identifier }
     var action: [String: Any] = ["operation": "updates", "command": command]
     if let enabled { action["enabled"] = enabled }
+    // 检查要在网络上等几分钟，期间一直持着检查的锁；放在 App Group 里时，App 被挂起那一刻还持着它，iOS 以 0xdead10cc 结束 App（#11973）。锁和没下完的文件放在 App 自己的 Caches 里，App Group 里只在下好之后发布时短暂取锁。只有 App 调这里，键盘扩展从不检查词库更新。
+    if let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
+      action["private_directory"] = caches.appendingPathComponent("dictionary-updates", isDirectory: true).path
+    }
     return try callOptions(msimeClientDictionary, ["options": options, "action": action])
   }
 

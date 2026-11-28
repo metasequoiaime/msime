@@ -343,6 +343,7 @@ impl ResourceStore {
         Ok(())
     }
 
+    /// 在 `resources.lock` 下把 `specification` 发布成一个完整的代次：已有这一代时只校验它；没有时依次调 `fetch` 取每个文件的字节，写进暂存目录并按长度和摘要校验，全部通过才改名发布。`fetch` 是在持着这把锁的时候调的。应用里的调用方只交本机文件这类马上读得完的来源，不在里面联网：资源目录可能在 iOS 的 App Group 里，持着那里的文件锁等网络的进程被挂起时会被系统以 0xdead10cc 结束（#11973），要下载的文件先下好再交进来，见 client-providers 的 `dictionary_updates::install`。只在桌面命令行里跑的 `examples/install_resources.rs` 直接在 `fetch` 里下载。
     pub fn install(
         &self,
         specification: &ResourceSet,

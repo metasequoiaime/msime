@@ -12,12 +12,18 @@ pub(crate) fn request(
     options: &HostOptions,
     command: &str,
     enabled: Option<bool>,
+    private_directory: Option<&str>,
 ) -> Result<Value, String> {
     let state = options
         .preferences_directory
         .as_deref()
         .filter(|s| Path::new(s).is_absolute())
         .ok_or("dictionary_update_invalid")?;
+    let private_root = match private_directory {
+        Some(directory) if Path::new(directory).is_absolute() => Some(PathBuf::from(directory)),
+        Some(_) => return Err("dictionary_update_invalid".into()),
+        None => None,
+    };
     let baseline = options
         .edition()
         .resource_set()
@@ -48,6 +54,7 @@ pub(crate) fn request(
             }),
         format: msime_engine::format::FORMAT_VERSION,
         mirrors: Vec::new(),
+        private_root,
     };
     let status = match command {
         "status" => updates::status(&context),
@@ -472,6 +479,7 @@ mod tests {
             languages: None,
             format: 1,
             mirrors: Vec::new(),
+            private_root: None,
         };
         updates::rollback(&context).unwrap();
         let reverted = prepare();
@@ -894,5 +902,41 @@ mod tests {
             saved_mirrors(&options, &state),
             ["https://copy.example.test/"]
         );
+    }
+
+    /// iOS App 在 `updates` 请求里交 `private_directory`（#11973）：检查的锁建在那里，不在共享状态目录里；相对路径整个请求被拒。
+    #[test]
+    fn the_updates_request_keeps_its_lock_in_the_private_directory_it_names() {
+        let root = tempfile::tempdir().unwrap();
+        let state = root.path().join("state");
+        let private = root.path().join("private");
+        std::fs::create_dir_all(&state).unwrap();
+        let call = |private_directory: Value| {
+            let request = json!({
+                "options": {
+                    "api_version": 1,
+                    "resources": root.path().join("resources"),
+                    "user_data": state.join("user"),
+                    "cache": state.join("cache"),
+                    "dictionaries": state.join("user/dictionaries"),
+                    "preferences_directory": state,
+                    "preferences": crate::Preferences::default(),
+                },
+                "action": {
+                    "operation": "updates",
+                    "command": "rollback",
+                    "private_directory": private_directory,
+                },
+            });
+            crate::dictionary::dictionary_request_json(request.to_string().as_bytes())
+        };
+        assert_eq!(
+            call(json!("relative/private")).unwrap_err(),
+            "dictionary_update_invalid"
+        );
+        // 还没装过更新，回退本身失败；锁已经取过了。
+        assert!(call(json!(private)).is_err());
+        assert!(private.join("update.lock").is_file());
+        assert!(!state.join("dictionary-updates/update.lock").exists());
     }
 }
