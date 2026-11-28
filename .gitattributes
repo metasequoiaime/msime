@@ -32,6 +32,11 @@ resources/licenses/onnxruntime-MIT.txt text eol=lf
 resources/licenses/onnxruntime-ThirdPartyNotices.txt text eol=lf
 resources/licenses/PaddleOCR-Apache-2.0.txt text eol=lf
 
+# 语音模型的内置词表经 include_bytes! 编进二进制，长度和 SHA-256 钉在 resources/local-asr-models.json；
+# Windows 的 autocrlf 检出成 CRLF 后，设备上每次安装（下载和从文件导入都一样）必报
+# local_model_size_mismatch（2026-11-22 真机反馈），检出也保持 LF。
+resources/voice-models/*.vocab text eol=lf
+
 # GitHub 语言统计默认归入 Rust，主要语言仅按扩展名覆盖。
 * linguist-language=Rust
 *.cpp linguist-language=C++
