@@ -2817,6 +2817,40 @@ fn reporting_consent_concurrent_initializers_share_one_epoch() {
 }
 
 #[test]
+fn automatic_update_download_defaults_to_off_and_survives_a_save() {
+    // 默认关闭由维护者在 #11681 决定；关闭时不写进文档，旧版本读到的文档和以前一样。
+    let defaults = Preferences::default();
+    assert!(!defaults.update_auto_download);
+    let serialized = serde_json::to_value(&defaults).unwrap();
+    assert!(serialized.get("update_auto_download").is_none());
+    assert!(
+        !serde_json::from_value::<Preferences>(serialized.clone())
+            .unwrap()
+            .update_auto_download
+    );
+    let mut malformed = serialized;
+    malformed["update_auto_download"] = "yes".into();
+    assert!(serde_json::from_value::<Preferences>(malformed).is_err());
+
+    let enabled = Preferences {
+        update_auto_download: true,
+        ..Preferences::default()
+    };
+    assert_eq!(
+        serde_json::to_value(&enabled).unwrap()["update_auto_download"],
+        true
+    );
+    assert!(enabled.validate().is_ok());
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    store.save(0, enabled).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert!(loaded.update_auto_download);
+    // 恢复默认设置回到关闭。
+    assert!(!loaded.restored_to_defaults().update_auto_download);
+}
+
+#[test]
 fn update_channel_defaults_to_stable_and_reads_unknown_values_as_stable() {
     let defaults = Preferences::default();
     assert_eq!(defaults.update_channel, UpdateChannel::Stable);

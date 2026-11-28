@@ -795,6 +795,22 @@ pub fn check_settings_update_on_channel(channel: &str) -> bool {
     unsafe { msime_macos_settings_update_check_channel(channel.as_ptr()) }
 }
 
+/// 在主线程按偏好 `update_auto_download` 打开或关闭设置应用的后台更新：打开时 Sparkle 按 `channel`（偏好 `update_channel` 的值，规则同 [`check_settings_update_on_channel`]）每天检查一次，在后台下载新版本，下好后提示用户安装；安装要用户点、经过管理员授权，从不静默安装。只该由设置应用的主实例调用，面板进程不调用。关闭且更新器还没创建时不加载 Sparkle。不带更新配置的构建、不认识的通道名和不在主线程时返回 `false`，什么也不改。
+#[cfg(target_os = "macos")]
+pub fn configure_settings_background_updates(channel: &str, enabled: bool) -> bool {
+    unsafe extern "C" {
+        fn msime_macos_settings_update_configure_background(
+            channel: *const std::ffi::c_char,
+            enabled: bool,
+        ) -> bool;
+    }
+    let Ok(channel) = std::ffi::CString::new(channel) else {
+        return false;
+    };
+    // SAFETY: `channel` 是以 NUL 结尾的字符串，调用期间一直有效；原生端核对主线程，只在调用期间读它、不保留。
+    unsafe { msime_macos_settings_update_configure_background(channel.as_ptr(), enabled) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -115,6 +115,10 @@ fn local_only_settings_are_dropped() {
             AccountPreferenceValue::Boolean(true),
         ),
         ("update_channel", string("nightly")),
+        (
+            "update_auto_download",
+            AccountPreferenceValue::Boolean(true),
+        ),
     ]);
     without_local_only(&mut values);
     assert_eq!(values, settings(&[("input.schema", string("quanpin"))]));

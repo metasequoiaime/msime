@@ -8,6 +8,7 @@ Status: proposed
 
 ## Existing notes audit
 
+- [设置应用在后台检查并下载更新包](../../implemented/feature/2026-11-27-macos-settings-background-update-download.md)：部分实现本提案。按维护者在 #11681 的决定落地了第一步（默认关闭的 `update_auto_download`、主实例后台检查与下载、安装仍由用户触发并经管理员授权），开关界面、「安全时机」一段和 root 助手扩展仍留在本篇。
 - [设置应用在应用内更新完整安装包](../../implemented/feature/2026-10-18-macos-settings-in-app-updates.md)：本提案部分翻转它。它的 Decision 规定「设置应用只在用户主动检查时启动更新器，避免多个共享面板进程各自检查更新」，本提案要让设置应用在后台检查与下载，下文「后台检查只在一个进程里跑」回答它的理由。实现 PR 要同步改写那篇的 Decision 并互链。
 - [输入法本体的 Sparkle 更新](../../implemented/feature/2026-10-15-macos-sparkle-input-method-updates.md)：部分重叠，继续拥有已装输入法自己的后台下载与离开输入源时安装，本提案不改它的默认值。
 - [macOS 的更新通道](../../implemented/feature/2026-10-25-macos-update-channels.md)：部分重叠，继续拥有通道选择与 appcast 命名，本提案沿用。

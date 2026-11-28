@@ -2611,6 +2611,10 @@ pub struct Preferences {
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "UpdateChannel::is_default")]
     pub update_channel: UpdateChannel,
+    /// macOS 设置应用在后台按 [`Self::update_channel`] 检查、下载并校验自己的完整安装包（Sparkle），下好后提示用户；安装仍由用户在提示里点「现在安装」触发，照常经过管理员授权，不在下次启动时自动安装。只在设置应用的主实例里生效，面板进程不检查。新装和缺字段时都是关闭，维护者在 #11681 决定由用户自行开启（https://github.com/metasequoiaime/msime/issues/11681#issuecomment-7215082122）。不影响输入法本体自己的 Sparkle 后台更新。与更新通道一样只属于本机：不随设置文件走（`settings_document::LOCAL_SECTIONS`），也不进账号同步；关闭时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub update_auto_download: bool,
 }
 
 #[cfg_attr(feature = "preferences-schema", derive(schemars::JsonSchema))]
@@ -5050,6 +5054,7 @@ impl Default for Preferences {
             usage_reporting: true,
             usage_reporting_consent: None,
             update_channel: UpdateChannel::Stable,
+            update_auto_download: false,
         }
     }
 }

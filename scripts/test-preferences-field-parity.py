@@ -68,6 +68,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "touch_fourteen_key_letter_widths",
         # WebDAV 设置同步连接属于本机凭据配置；原生设置页尚未在六端开放，packages/ui 迁移期不新增设置入口。
         "settings_sync_webdav",
+        # macOS 设置应用后台下载更新包（#11681）：共享 Rust 与宿主行为先行；packages/ui 迁移期不加新设置，冻结的 AppKit 回退窗口也不加，开关随 macOS 原生设置迁移接入，期间经 `msime-mcp config apply` 写偏好文档。
+        "update_auto_download",
 
     },
     "KeybindingPreferences": {

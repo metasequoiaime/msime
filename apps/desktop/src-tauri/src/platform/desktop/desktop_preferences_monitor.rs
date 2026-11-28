@@ -184,6 +184,8 @@ impl Monitor {
             {
                 eprintln!("MSIME global voice setup: {category}");
             }
+            // 设置应用后台下载更新的选择（偏好 update_auto_download、update_channel），只在设置窗口的主实例里生效。
+            crate::update_check::sync_macos_background_updates(app, &snapshot.preferences);
         }
 
         if let Ok(mut history) = history.lock() {
