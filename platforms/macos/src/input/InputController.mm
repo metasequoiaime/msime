@@ -37,6 +37,7 @@
 #import "../voice/VoiceDeactivation.h"
 #import "../voice/HTTPVoiceRequest.h"
 #import "../voice/VoiceHoldShortcut.h"
+#import "../core/LeftOptionHold.h"
 #import "../voice/GlobalVoiceCoordinator.h"
 #import "../voice/GlobalVoiceScopeMenu.h"
 #import "../voice/DoubaoVoiceRequest.h"
@@ -2030,6 +2031,11 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _capsLockTapReleasedSawExplicitOff;
     // 打开 `keybindings.shift_tap_uppercase_english` 后单按 Shift 从中文切到英文时为真，英文状态下的 a–z 输出大写；任何其它改变中英文的入口都清掉它。
     BOOL _uppercaseEnglishMode;
+    // 长按左 Option 打开表情与符号面板（#11859）：手势判定、到期计时器和按住期间的鼠标监视器。
+    MSIMELeftOptionHold _leftOptionHold;
+    NSTimer *_leftOptionHoldTimer;
+    id _leftOptionHoldLocalMouseMonitor;
+    id _leftOptionHoldGlobalMouseMonitor;
     MSIMEVoiceHoldShortcut _voiceHoldShortcut;
     // 按住期间轮询修饰键状态的计时器（syncVoiceHoldPoll）；按住结束就停。
     NSTimer *_voiceHoldPollTimer;
@@ -5321,6 +5327,10 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 }
 - (void)showEmoji:(id)sender {
     (void)sender;
+    [self presentEmojiPanelCommittingComposition:NO];
+}
+// Returns whether the panel started opening. With commit, the composition is committed once the panel is known to have a target and before it opens, so the long-press gesture (#11859) never strands a preedit behind the panel nor commits it for a panel that does not open.
+- (BOOL)presentEmojiPanelCommittingComposition:(BOOL)commit {
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     NSDictionary *options = [self runtimeOptions];
@@ -5328,11 +5338,18 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     // can be alive before that bridge is loaded (or while the desktop bundle
     // is being repaired). Keep the macOS character viewer as a useful,
     // platform-native fallback instead of silently dropping the menu action.
-    if (![shared respondsToSelector:@selector(showEmojiWithOptions:selectionAttempt:)]) {
-        [self showSystemCharacterPalette];
-        return;
+    const BOOL sharedPanel = [shared respondsToSelector:@selector(showEmojiWithOptions:selectionAttempt:)];
+    if (sharedPanel && ![self sharedTextToolApplication]) return NO;
+    if (commit && _session && _activeClient) {
+        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (!finished) return NO;
+        [self apply:finished];
     }
-    [self showSharedTextTool:@"emoji" options:options bridge:shared];
+    if (!sharedPanel) {
+        [self showSystemCharacterPalette];
+        return YES;
+    }
+    return [self showSharedTextTool:@"emoji" options:options bridge:shared];
 }
 - (void)showVoicePanel {
     if (MSIMEGlobalVoiceHost().toggleCurrent && MSIMEGlobalVoiceHost().toggleCurrent()) return;
@@ -5424,10 +5441,17 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
             [session authorizePID:peer.processIdentifier stillValid:^BOOL { return !peer.terminated; }];
         }, fallback);
 }
-- (void)showSharedTextTool:(NSString *)route options:(NSDictionary *)options bridge:(id)shared {
+// The frontmost application a shared text tool would type into, or nil when the focused client is not in front (our own window, or a client left behind by an activation).
+- (NSRunningApplication *)sharedTextToolApplication {
     NSRunningApplication *application = NSWorkspace.sharedWorkspace.frontmostApplication;
-    if (!_activeClient || !application || application.processIdentifier == NSProcessInfo.processInfo.processIdentifier) return;
-    if (!MSIMEToolApplicationMatches([(id<IMKTextInput>)_activeClient bundleIdentifier], application.bundleIdentifier)) return;
+    if (!_activeClient || !application || application.processIdentifier == NSProcessInfo.processInfo.processIdentifier) return nil;
+    if (!MSIMEToolApplicationMatches([(id<IMKTextInput>)_activeClient bundleIdentifier], application.bundleIdentifier)) return nil;
+    return application;
+}
+// Returns whether the tool started opening; NO when there is no client in front to type into.
+- (BOOL)showSharedTextTool:(NSString *)route options:(NSDictionary *)options bridge:(id)shared {
+    NSRunningApplication *application = [self sharedTextToolApplication];
+    if (!application) return NO;
     [_desktopInputSession stop];
     _desktopInputSession = nil;
     if (_desktopEmojiCompletion) { _desktopEmojiCompletion(NO); _desktopEmojiCompletion = nil; }
@@ -5491,15 +5515,16 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
             [shared performSelector:@selector(showHandwritingWithSelectionAttempt:) withObject:selection];
         else [shared performSelector:@selector(showEmojiWithOptions:selectionAttempt:) withObject:options withObject:selection];
     };
-    if (!inputSession) { fallback(); return; }
+    if (!inputSession) { fallback(); return YES; }
     if ([route isEqualToString:@"cloud-clipboard"]) {
         MSIMEOpenDesktopCloudClipboardWithInput(MSIMERuntimeOptionsPath(), NSWorkspace.sharedWorkspace, inputSession, fallback);
-        return;
+        return YES;
     }
     MSIMEOpenDesktopRouteWithContext(route, MSIMERuntimeOptionsPath(), inputSession.launchEnvironment,
         NSWorkspace.sharedWorkspace, ^(NSRunningApplication *peer) {
             [inputSession authorizePID:peer.processIdentifier stillValid:^BOOL { return !peer.terminated; }];
         }, fallback);
+    return YES;
 }
 - (void)showScreenKeyboard:(id)sender {
     (void)sender;
@@ -5916,6 +5941,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
 - (void)dealloc {
     [MSIMEInputSessionRecoveryPanel dismissForDelegate:self];
     [self stopEditableShiftMouseMonitoring];
+    [self stopLeftOptionHoldTimer];
     [self stopPredictionMouseMonitoring];
     [self stopSettledScoring];
     [_capsLockTapTimer invalidate];
@@ -7569,6 +7595,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     [self discardGlossSensePage];
     [self discardExpandedCandidates];
     [self resetModifierTap];
+    [self resetLeftOptionHold];
     [self abandonCapsLockTap];
     [self stopPredictionMouseMonitoring];
     MSIMESetBackendSelectionObservation([NSNotificationCenter defaultCenter], self, @selector(handwritingCandidateSelected:), NO);
@@ -8129,6 +8156,73 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     return tap && (!shift || allowed);
 }
 
+// #11859：按住左 Option 约 400 毫秒打开表情与符号面板。判定在 MSIMELeftOptionHold，这里只接事件、计时器和面板。
+// 返回 YES 时吞掉这个事件：只有面板确实由这次按住打开之后，左 Option 的松开会这样。开关关着或安全输入期间整个手势不生效。
+- (BOOL)observeLeftOptionHold:(NSEvent *)event {
+    using HoldEvent = MSIMELeftOptionHold::Event;
+    const HoldEvent type = event.type == NSEventTypeKeyDown ? HoldEvent::KeyDown
+        : event.type == NSEventTypeKeyUp ? HoldEvent::KeyUp : HoldEvent::FlagsChanged;
+    const BOOL enabled = _appearance.symbolPanelLeftOptionHold && ![self secureEventInputActive];
+    const BOOL wasPending = _leftOptionHold.pending();
+    const BOOL swallow = _leftOptionHold.observe(type, event.keyCode, event.modifierFlags, event.timestamp, enabled);
+    if (!_leftOptionHold.pending()) [self stopLeftOptionHoldTimer];
+    else if (!wasPending) [self scheduleLeftOptionHold];
+    return swallow;
+}
+- (void)scheduleLeftOptionHold {
+    [_leftOptionHoldTimer invalidate];
+    // 事件时间戳和 systemUptime 是同一个时钟；按键在队列里等过的时间算进按住时长。
+    const NSTimeInterval delay = std::max(0.0, _leftOptionHold.deadline() - NSProcessInfo.processInfo.systemUptime);
+    __weak MSIMEInputController *weakSelf = self;
+    _leftOptionHoldTimer = [NSTimer timerWithTimeInterval:delay repeats:NO block:^(NSTimer *timer) {
+        (void)timer;
+        [weakSelf leftOptionHoldTimerFired];
+    }];
+    [NSRunLoop.mainRunLoop addTimer:_leftOptionHoldTimer forMode:NSRunLoopCommonModes];
+    if (_leftOptionHoldLocalMouseMonitor) return;
+    // Option+点按、Option+拖动不经过输入法的按键流，只能从鼠标事件看出这是组合操作。
+    const NSEventMask mask = NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown | NSEventMaskScrollWheel;
+    _leftOptionHoldLocalMouseMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) {
+        [weakSelf cancelLeftOptionHold];
+        return event;
+    }];
+    _leftOptionHoldGlobalMouseMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:mask handler:^(NSEvent *event) {
+        (void)event;
+        [weakSelf cancelLeftOptionHold];
+    }];
+}
+- (void)stopLeftOptionHoldTimer {
+    [_leftOptionHoldTimer invalidate];
+    _leftOptionHoldTimer = nil;
+    if (_leftOptionHoldLocalMouseMonitor) [NSEvent removeMonitor:_leftOptionHoldLocalMouseMonitor];
+    if (_leftOptionHoldGlobalMouseMonitor) [NSEvent removeMonitor:_leftOptionHoldGlobalMouseMonitor];
+    _leftOptionHoldLocalMouseMonitor = nil;
+    _leftOptionHoldGlobalMouseMonitor = nil;
+}
+- (void)cancelLeftOptionHold {
+    _leftOptionHold.cancel();
+    if (!_leftOptionHold.pending()) [self stopLeftOptionHoldTimer];
+}
+- (void)resetLeftOptionHold {
+    _leftOptionHold.reset();
+    [self stopLeftOptionHoldTimer];
+}
+- (void)leftOptionHoldTimerFired {
+    _leftOptionHoldTimer = nil;
+    // 松开事件可能没送到，到期时用会话里的修饰键状态确认左 Option 还单独按着。
+    const NSEventModifierFlags session = (NSEventModifierFlags)MSIMEPhysicalModifierFlagsState(kCGEventSourceStateCombinedSessionState);
+    if (!_leftOptionHold.due(NSProcessInfo.processInfo.systemUptime, session)) {
+        if (_leftOptionHold.pending()) [self scheduleLeftOptionHold];
+        else [self stopLeftOptionHoldTimer];
+        return;
+    }
+    [self stopLeftOptionHoldTimer];
+    [self ensureAppearance];
+    const BOOL opened = _activeClient && _appearance.symbolPanelLeftOptionHold && ![self secureEventInputActive] &&
+        [self presentEmojiPanelCommittingComposition:YES];
+    _leftOptionHold.didOpen(opened);
+}
+
 - (BOOL)handleKeyEvent:(NSEvent *)event client:(id)sender {
     CGEventRef nativeEvent = event.CGEvent;
     if (nativeEvent && CGEventGetIntegerValueField(nativeEvent, kCGEventSourceUserData) == MSIMEVoiceCommitEventTag) return NO;
@@ -8173,6 +8267,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         _voicePermissionToken = nil;
         [_voiceOverlay dismissFailure];
         [self resetModifierTap];
+        [self resetLeftOptionHold];
         [self abandonCapsLockTap];
         [self resetVoiceHoldFinishingRecording];
         _backspaceHoldArmed = NO;
@@ -8194,6 +8289,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         [self cancelCloudCandidates];
         [self resetCandidateAnchor];
         [self resetModifierTap];
+        [self resetLeftOptionHold];
         _preferenceLoadState.reset();
         [self flushPendingPairedClosing];
         _pairedPunctuation.clear();
@@ -8230,6 +8326,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         // 按键也能接管失焦后保留的会话，此时没有 activateServer: 帮它恢复偏好轮询。
         [self startPreferencesMonitoring];
     }
+    if ([self observeLeftOptionHold:event]) return YES;
     NSUserDefaults *voiceDefaults = NSUserDefaults.standardUserDefaults;
     if (event.type == NSEventTypeKeyDown && event.keyCode == 53) [_voiceOverlay dismissFailure];
     if (_voicePermissionToken && event.type == NSEventTypeKeyDown && event.keyCode == 53) {

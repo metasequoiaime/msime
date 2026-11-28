@@ -374,6 +374,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 // Plays secure event input, which is window-server state a test cannot turn on. Left at NO it also keeps a test from inheriting the machine's state: a locked screen or another process's password field turns it on for everyone.
 @property(nonatomic) BOOL secureInput;
 @property(nonatomic) NSUInteger paletteCalls;
+// 打开系统字符检视器那一刻客户端已上屏的文字，用来断言先上屏组字、再开面板。
+@property(nonatomic, copy) NSString *committedAtPalette;
 @property(nonatomic) NSUInteger screenKeyboardCalls;
 @property(nonatomic) NSUInteger restartCalls;
 @property(nonatomic) NSUInteger terminationCalls;
@@ -622,7 +624,11 @@ static void TestKeyLatencyIsLoggedWithoutTheKey() {
     if ([self valueForKey:@"session"]) [super prepareSession];
 }
 - (BOOL)secureEventInputActive { return self.secureInput; }
-- (void)showSystemCharacterPalette { ++self.paletteCalls; }
+- (void)showSystemCharacterPalette {
+    ++self.paletteCalls;
+    id client = [self valueForKey:@"activeClient"];
+    self.committedAtPalette = [client respondsToSelector:@selector(committed)] ? [client committed] : nil;
+}
 - (void)showScreenKeyboard:(id)sender { (void)sender; ++self.screenKeyboardCalls; }
 - (void)restartCurrentInputMethod { ++self.restartCalls; }
 - (void)terminateCurrentInputMethod { ++self.terminationCalls; }
@@ -7473,6 +7479,96 @@ static void TestShiftTapUppercaseEnglish() {
     [controller setValue:empty forKey:@"view"];
     [controller setEnglishInputMode:YES];
     assert(!type(@"a", 0, 0) && !handled);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
+static CGEventFlags gLeftOptionSessionFlags = 0;
+static CGEventFlags SyntheticLeftOptionSessionFlags(CGEventSourceStateID) { return gLeftOptionSessionFlags; }
+
+// #11859：`keybindings.symbol_panel_left_option_hold` 默认关；打开后按住左 Option 满 400 毫秒先上屏正在组的字再打开面板，只吞掉这次松开。短按、组合键和安全输入期间都把事件交给应用。面板在测试里走系统字符检视器回退（没有 Swift 桥），以 paletteCalls 计数。
+static void TestLeftOptionHoldOpensSymbolPanel() {
+    NSString *suite = [@"msime.left-option-hold." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    ShortcutSession *session = [ShortcutSession new];
+    NSDictionary *composing = @{@"focused": @YES, @"editing_text": @"ni", @"candidates": @[]};
+    NSDictionary *empty = @{@"focused": @YES, @"editing_text": @"", @"candidates": @[]};
+    session.finishTransition = @{@"handled": @YES, @"commit": @"你", @"view": empty};
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:composing forKey:@"view"];
+    [controller setValue:[HiddenCandidatePanel new] forKey:@"panel"];
+    const auto realFlags = MSIMEPhysicalModifierFlagsState;
+    MSIMEPhysicalModifierFlagsState = &SyntheticLeftOptionSessionFlags;
+    const NSEventModifierFlags leftOption = NSEventModifierFlagOption | NX_DEVICELALTKEYMASK;
+    gLeftOptionSessionFlags = (CGEventFlags)leftOption;
+    // 按下的时间戳取在 400 毫秒之前，到期计时器在下一轮 run loop 就触发。
+    auto press = [&](NSEventModifierFlags flags = NSEventModifierFlagOption | NX_DEVICELALTKEYMASK) {
+        return [controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 58, flags, NSProcessInfo.processInfo.systemUptime - 1.0) client:client];
+    };
+    auto release = [&] {
+        return [controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 58, 0, NSProcessInfo.processInfo.systemUptime) client:client];
+    };
+    // 到期计时器已经过点，跑一小段 run loop 就该触发；负向用例只能等一段固定时间。
+    auto settle = [] { [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]]; };
+    // 正向用例等到面板真的打开：慢机器上主队列里排着别的测试留下的工作，固定一小段不够。
+    auto waitForPanel = [&](NSUInteger calls) {
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
+        while (controller.paletteCalls < calls && deadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.mainRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    };
+
+    // 出厂默认关：按住多久都只是把事件交给应用。
+    assert(!prefs.symbolPanelLeftOptionHold);
+    assert(!press());
+    settle();
+    assert(!release() && controller.paletteCalls == 0 && client.committed == nil);
+
+    [prefs applySharedInputPreferences:@{@"keybindings": @{@"symbol_panel_left_option_hold": @YES}}];
+    assert(prefs.symbolPanelLeftOptionHold);
+    // 按满：按下交给应用，先上屏组字再开面板，松开被吞掉，下一次松开不再吞。
+    assert(!press());
+    waitForPanel(1);
+    // 开面板的那一刻「你」已经上屏：顺序是先上屏、后开面板。
+    assert(controller.paletteCalls == 1 && [controller.committedAtPalette isEqual:@"你"] && [client.committed isEqual:@"你"]);
+    assert(release());
+    assert(!release());
+
+    // 短按：没到期就松开，交给应用，不开面板。
+    assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 58, leftOption, NSProcessInfo.processInfo.systemUptime) client:client]);
+    assert(!release());
+    settle();
+    assert(controller.paletteCalls == 1);
+
+    // Option+字母：组合键交给应用，不开面板，松开也交给应用。
+    assert(!press());
+    [controller handleEvent:[NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:leftOption timestamp:0
+                                         windowNumber:0 context:nil characters:@"å" charactersIgnoringModifiers:@"a" isARepeat:NO keyCode:0] client:client];
+    settle();
+    assert(controller.paletteCalls == 1 && !release());
+
+    // 带着 Command 按下左 Option：组合键。右 Option 归语音按住说话，由 LeftOptionHoldTest 覆盖。
+    assert(!press(leftOption | NSEventModifierFlagCommand));
+    settle();
+    assert(controller.paletteCalls == 1 && !release());
+
+    // 安全输入期间不生效。
+    controller.secureInput = YES;
+    assert(!press());
+    settle();
+    assert(controller.paletteCalls == 1 && !release());
+    controller.secureInput = NO;
+
+    // 松开没送到：到期时会话里左 Option 已经抬起，不开面板。
+    gLeftOptionSessionFlags = 0;
+    assert(!press());
+    settle();
+    assert(controller.paletteCalls == 1 && !release());
+
+    MSIMEPhysicalModifierFlagsState = realFlags;
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
@@ -15665,6 +15761,7 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if (argc == 2 && std::string(argv[1]) == "--left-option-hold") { TestLeftOptionHoldOpensSymbolPanel(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--voice-preference-restore") { TestVoicePreferenceRestore(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice-conflicts") { TestGlobalVoiceConflicts(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--global-voice-polling") { TestGlobalVoicePolling(); return 0; }
@@ -17785,6 +17882,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestEditableShiftController(); }
         @autoreleasepool { TestModifierTaps(); }
         @autoreleasepool { TestShiftTapUppercaseEnglish(); }
+        @autoreleasepool { TestLeftOptionHoldOpensSymbolPanel(); }
         @autoreleasepool { TestShiftChordRecoversWithoutFlagsChanged(); }
         @autoreleasepool { TestInputModeStatusItem(); }
         @autoreleasepool { TestInputModeGlyphIconsPreference(); }
