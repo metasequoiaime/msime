@@ -12847,18 +12847,21 @@ private:
       start = end == std::wstring::npos ? end
                                         : preview_sample_.find_first_not_of(whitespace, end);
     }
-    // 行距、序号、释义字号跟着候选窗的缺省版式（CandidateCardSize.h，和 macOS 一样）：行挨着行，序号 0.8 倍字号、从行左缘 8 DIP 起（主题打开选中竖条时 14 DIP，竖条画在行内 1 DIP 处），候选文字紧跟在序号后 1.5 DIP，行高是文字上下各 6 DIP，释义固定 12。
+    // 行距、序号、释义字号跟着候选窗的缺省版式（CandidateCardSize.h，和 macOS 一样）：序号 0.8 倍字号、从行左缘 8 DIP 起（主题打开选中竖条时 14 DIP，竖条画在行内 1 DIP 处），候选文字紧跟在序号后 1.5 DIP，行高是文字上下各 6 DIP，释义固定 12。用户设了行高（`candidate_item_padding_vertical`，跟随皮肤时是这 6 DIP）和行距（`candidate_item_spacing`，缺省 0）时按用户的值，和真候选窗一样。
+    const double row_padding =
+        static_cast<double>(style.item_padding_vertical.value_or(6)) * scale;
+    const double row_gap = static_cast<double>(style.item_spacing.value_or(0)) * scale;
     const double number_left = theme.show_selected_bar ? 14.0 : 8.0;
     StackPanel list;
     list.Orientation(vertical ? Orientation::Vertical : Orientation::Horizontal);
-    list.Spacing(0);
+    list.Spacing(row_gap);
     for (int i = 0; i < count; ++i) {
       const auto &[default_word, code] = preview_words[static_cast<size_t>(i)];
       const std::wstring word = samples.empty() ? default_word
                                                 : samples[static_cast<size_t>(i) % samples.size()];
       const bool highlighted = i == 0;
       Grid item;
-      item.Padding(Thickness{number_left * scale, 6 * scale, 8 * scale, 6 * scale});
+      item.Padding(Thickness{number_left * scale, row_padding, 8 * scale, row_padding});
       item.CornerRadius(CornerRadius{row_radius, row_radius, row_radius, row_radius});
       if (highlighted)
         item.Background(brush(to_color(theme.selected)));
@@ -12940,7 +12943,7 @@ private:
 
   // ---- 候选窗口 ----
 
-  // 共享设置「候选窗口」页的桌面版（appearance-page.tsx）：页首引导下面是四个页内标签（`candidateTabs`：布局、字体与大小、窗口样式、预编辑，page_tab_bar），标签条与标签内容之间是一张无标题卡片里的预览，每个标签里只有一组，组名与标签同名。展开候选和内边距在 Windows 上没有（能力位为假），不画；页码开关在「布局」里，排在每页候选数之后，与共享页相同。「游戏」组管游戏里候选窗能不能出现，是 Windows 独有的功能开关而不是外观，不属于哪个标签，画在标签内容下面、一直显示。
+  // 共享设置「候选窗口」页的桌面版（appearance-page.tsx）：页首引导下面是四个页内标签（`candidateTabs`：布局、字体与大小、窗口样式、预编辑，page_tab_bar），标签条与标签内容之间是一张无标题卡片里的预览，每个标签里只有一组，组名与标签同名。展开候选和窗口内边距在 Windows 上没有（能力位为假），不画；候选行高与行距（共享页的「候选项垂直内边距」「候选项间距」，#11939）现在由 Windows 候选窗消费，画在「窗口样式」里。页码开关在「布局」里，排在每页候选数之后，与共享页相同。「游戏」组管游戏里候选窗能不能出现，是 Windows 独有的功能开关而不是外观，不属于哪个标签，画在标签内容下面、一直显示。
   void build_candidate_page(StackPanel const &page) {
     const auto tab = page_tab_bar(page, L"候选窗口设置",
                                   {{L"layout", L"布局"},
@@ -12999,6 +13002,8 @@ private:
       candidate_percent_row(style, L"不透明度", L"candidate_opacity_percent", 50, 100,
                             L"文字和焦点高亮保持不透明");
       corner_radius_row(style);
+      // 窗口样式的另外两行：候选行高与行距（#11939），字段与 macOS 共享，缺省跟随皮肤与窗口布局。
+      candidate_row_layout_rows(style);
     }
 
     if (in_tab(tab, L"preedit")) {
@@ -13143,6 +13148,66 @@ private:
                                   : std::wstring(L"跟随皮肤；设置后覆盖皮肤自带的圆角"),
                        box);
     *line = make_weak(row_subtitle(row));
+  }
+
+  // 「行高」「行距」照共享页 CandidateWindowStyleRows 的候选项几何：滑块写的值压过皮肤与窗口布局（行高是候选文字上下各留的 DIP，行距是行与行、横排时列与列之间的空），旁边的「跟随皮肤」写回 null。说明随数值变化，拖动时就地改写、抬起按钮，不重画整页；跟随时滑块停在皮肤的 6 DIP 和 0 上。
+  void candidate_row_layout_rows(StackPanel const &group) {
+    struct Field {
+      wchar_t glyph;
+      std::wstring title;
+      std::wstring key;
+      std::wstring detail;
+      double followed;
+    };
+    for (const auto &field :
+         {Field{0xE8E9, L"行高", L"candidate_item_padding_vertical",
+                L"候选文字上下各留的空白；调小后行与行更紧凑", 6},
+          Field{0xE8A9, L"行距", L"candidate_item_spacing",
+                L"相邻候选行之间、横排时相邻列之间的空隙", 0}}) {
+      const auto stored = document_.Value(field.key);
+      const bool overridden = stored && stored.ValueType() == JsonValueType::Number;
+      Primitives::ToggleButton follow;
+      follow.Content(box_value(L"跟随皮肤"));
+      follow.Height(32);
+      follow.IsChecked(!overridden);
+      follow.IsEnabled(loaded_);
+      A11y::SetName(follow, L"跟随皮肤");
+      // 按文档里现在的值判断：拖过滑块以后页面没有重画，画出来时的状态已经过时。
+      follow.Click([this, key = field.key](Inspectable const &sender, RoutedEventArgs const &) {
+        const auto current = document_.Value(key);
+        if (current && current.ValueType() == JsonValueType::Number)
+          change([key](PreferencesDocument &doc) {
+            doc.SetValue(key, JsonValue::CreateNullValue());
+          }, true);
+        else
+          sender.as<Primitives::ToggleButton>().IsChecked(true);
+      });
+      auto line = std::make_shared<weak_ref<TextBlock>>();
+      StackPanel box;
+      box.Orientation(Orientation::Horizontal);
+      box.Spacing(8);
+      auto slider = formatted_slider_control(
+          field.title, 0, 16, overridden ? stored.GetNumber() : field.followed,
+          [this, key = field.key, detail = field.detail, line,
+           weak_follow = make_weak(follow)](double value) {
+            document_.SetNumber(key, value);
+            schedule_save();
+            update_preview();
+            if (auto block = line->get())
+              block.Text(hstring(number_text(value) + L" DIP，" + detail));
+            if (auto button = weak_follow.get())
+              button.IsChecked(false);
+          },
+          [](double shown) { return number_text(shown) + L" DIP"; });
+      slider.Children().GetAt(1).Visibility(Visibility::Collapsed);
+      box.Children().Append(slider);
+      box.Children().Append(follow);
+      auto row = add_row(group, field.glyph, field.title,
+                         overridden ? number_text(stored.GetNumber()) + L" DIP，" + field.detail
+                                    : std::wstring(L"跟随皮肤与窗口布局，" + field.detail),
+                         box);
+      *line = make_weak(row_subtitle(row));
+    }
   }
 
   static const wchar_t *app_input_mode_rule_problem(nav::AppInputModeRuleError error) {
@@ -13475,6 +13540,16 @@ private:
     if (radius && radius.ValueType() == JsonValueType::Number)
       style.corner_radius =
           static_cast<unsigned>(std::lround((std::max)(0.0, radius.GetNumber())));
+    // 行高与行距是可选字段：没写（或写 null）时跟随皮肤与窗口布局，预览停在缺省的行高上。
+    const auto item_padding_vertical = document_.Value(L"candidate_item_padding_vertical");
+    if (item_padding_vertical &&
+        item_padding_vertical.ValueType() == JsonValueType::Number)
+      style.item_padding_vertical = static_cast<unsigned>(
+          std::lround((std::max)(0.0, item_padding_vertical.GetNumber())));
+    const auto item_spacing = document_.Value(L"candidate_item_spacing");
+    if (item_spacing && item_spacing.ValueType() == JsonValueType::Number)
+      style.item_spacing = static_cast<unsigned>(
+          std::lround((std::max)(0.0, item_spacing.GetNumber())));
     return style.valid() ? style : msime::windows::CandidateWindowStyle{};
   }
 

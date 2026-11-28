@@ -1138,6 +1138,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
   const double scale = layout_scale(dpi);
   CandidateCardInput input;
   input.horizontal = horizontal_;
+  input.rows = candidate_row_layout(style_.item_padding_vertical, style_.item_spacing);
   input.preedit_visible = show_preedit_ && show_preedit_area_;
   input.font_size = font_size_;
   input.preedit_font_size = preedit_font_size_;
@@ -1187,7 +1188,7 @@ CandidateBounds CandidateWindow::card_bounds(const CandidatePresentation &value,
                              font_size_, preedit_font_size_, show_preedit_ && show_preedit_area_,
                              show_app_logo_ && show_preedit_area_,
                              input.page_width > 0.0 && show_preedit_area_, input.skin, input.number_width,
-                             input.line_height, input.hint_width > 0.0)))
+                             input.line_height, input.hint_width > 0.0, input.rows)))
           : CandidateCanvasEdges{};
   input.canvas_extra_width = canvas_offset_.left + canvas_offset_.right;
   // 卷轴展开：展开着时卡片按网格变宽变高；后续候选还没到时沿用上一帧的高度。
@@ -1534,7 +1535,8 @@ void CandidateWindow::paint() {
       font_size_, preedit_font_size_, show_preedit_ && show_preedit_area_,
       show_app_logo_ && show_preedit_area_, !label.empty() && show_preedit_area_, skin,
       number_label_width(value->candidates.size(), skin), candidate_line_height(*value),
-      hint_width > 0.0);
+      hint_width > 0.0,
+      candidate_row_layout(style_.item_padding_vertical, style_.item_spacing));
   // 卡片按窗口客户区排，和 card_bounds 定的窗口尺寸一致。渲染目标比窗口大（合成交换链按 64 像素分档、只增不减），按它的 GetSize() 排会把卡片右边和下边画到窗口外面裁掉。
   const auto size = device_.GetClientSize();
   // 卡片的宽高从客户区像素算：扣掉 card_bounds 留的整像素阴影边距，用同一个 scale 换回 DIP，再扣 canvas 的内边距，全程 double。不走上面 float 的 GetClientSize：它和没取整的 DIP 边距相减，绘制时的卡片会比量出来的窄零点几 DIP，横排的最后一个候选折到第二行、画到卡片外面（#10856）。

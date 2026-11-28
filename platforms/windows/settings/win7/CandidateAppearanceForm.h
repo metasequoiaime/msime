@@ -71,7 +71,7 @@ public:
       note(field.title, 24);
       control(field.id, WC_COMBOBOXW, field.title, WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, 200);
     }
-    note(L"不透明度只改变窗口背景、边框和皮肤图；文字、编号和高亮保持不透明。圆角选择“跟随皮肤”时不覆盖皮肤或主题的值。", 66);
+    note(L"不透明度只改变窗口背景、边框和皮肤图；文字、编号和高亮保持不透明。圆角、行高和行距选择“跟随皮肤”时不覆盖皮肤与窗口布局的值。", 66);
     note(L"预编辑", 28);
     control(appearance_preedit_area, L"BUTTON", L"显示候选窗预编辑区", WS_TABSTOP | BS_AUTOCHECKBOX);
     for (const auto& field : enum_fields) {
@@ -294,12 +294,15 @@ private:
       {appearance_inline, "tsf_preedit_style", L"行内预编辑", 3, {"raw", "pinyin", "empty"}, {L"原始按键", L"拼音分词", L"不显示"}},
   }};
   struct NumberField { int id; const char* key; const wchar_t* title; int low; int high; int step; bool optional; };
-  static constexpr std::array<NumberField, 5> number_fields{{
+  static constexpr std::array<NumberField, 7> number_fields{{
       {appearance_font_size, "candidate_font_size", L"候选字号", 12, 32, 1, false},
       {appearance_preedit_size, "candidate_preedit_font_size", L"预编辑字号", 12, 32, 1, false},
       {appearance_scale, "candidate_scale_percent", L"整体大小（%）", 75, 150, 5, false},
       {appearance_opacity, "candidate_opacity_percent", L"不透明度（%）", 50, 100, 5, false},
       {appearance_radius, "candidate_corner_radius", L"圆角大小（DIP）", 0, 16, 1, true},
+      // 共享偏好里的候选行高与行距（#11939）：行高是候选文字上下各留的空白，行距是行与行之间、横排时列与列之间的空；“跟随皮肤”时不覆盖皮肤与窗口布局。
+      {appearance_item_padding_vertical, "candidate_item_padding_vertical", L"行高（DIP，上下各留）", 0, 16, 1, true},
+      {appearance_item_spacing, "candidate_item_spacing", L"行距（DIP）", 0, 16, 1, true},
   }};
   struct GameList { int id; int remove; const char* key; const wchar_t* title; };
   static constexpr std::array<GameList, 2> game_lists{{

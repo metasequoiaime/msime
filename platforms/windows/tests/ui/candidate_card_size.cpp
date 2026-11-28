@@ -114,6 +114,52 @@ int main() {
                  4.0 + 4.0 + (16.0 * 1.4 + 6.0) + 37.0 * 3.0));
   }
 
+  // 设置里的行高与行距（#11939）压过皮肤与缺省版式，卡片的高度、列宽和行的点击区都从同一份 metrics 来：行高是文字上下各留的 DIP，行距是行与行、横排时列与列之间的空；0 是贴边的真实值，只有空才表示跟随。
+  {
+    CandidateCardInput spaced = vertical;
+    spaced.rows = candidate_row_layout(2u, 4u);
+    const auto slim = candidate_card_size(spaced);
+    require(near(slim.height, stacked.height - (row16 - (16.0 * 1.35 + 4.0)) * 3.0 +
+                                 4.0 * 2.0));
+    const auto shape = candidate_card_metrics(16.0, 16.0, true, true, true, {}, 0.0, 0.0,
+                                              false, spaced.rows);
+    require(near(shape.row_padding, 4.0) &&
+            near(shape.candidate_row, 16.0 * 1.35 + 4.0) && near(shape.item_gap, 4.0) &&
+            near(shape.column_gap, 4.0) && near(shape.selection_inset, 0.0));
+    const auto first_row = candidate_row_bounds(0, 3, stacked.width, shape, false);
+    const auto second_row = candidate_row_bounds(1, 3, stacked.width, shape, false);
+    require(near(second_row.top, first_row.bottom + 4.0));
+    CandidateCardInput spread = horizontal;
+    spread.rows = spaced.rows;
+    // 横排每列之后都带一段 column_gap（皮肤的既有规则，最后一列之后也带），所以是 4 × 3 而不是 4 × 2。
+    require(near(candidate_card_size(spread).width, inline_card.width + 4.0 * 3.0));
+    // 皮肤写了行高与行距时用户的值仍然生效；用户只给行高时行距仍旧跟随皮肤。
+    CandidateSkinMetrics skin;
+    skin.item_extra_height = 20.0;
+    skin.item_gap = 8.0;
+    const auto user_rows = candidate_card_metrics(16.0, 16.0, true, true, true, skin, 0.0, 0.0,
+                                                 false, spaced.rows);
+    require(near(user_rows.candidate_row, 16.0 * 1.35 + 4.0) && near(user_rows.item_gap, 4.0));
+    const auto skin_rows = candidate_card_metrics(16.0, 16.0, true, true, true, skin, 0.0, 0.0,
+                                                  false, candidate_row_layout(2u, std::nullopt));
+    require(near(skin_rows.candidate_row, 16.0 * 1.35 + 4.0) && near(skin_rows.item_gap, 8.0));
+    // 两段空表示跟随：缺省行高仍是上下各 6 DIP，行挨着行。
+    const auto followed =
+        candidate_card_metrics(16.0, 16.0, true, true, true, {}, 0.0, 0.0, false,
+                               candidate_row_layout(std::nullopt, std::nullopt));
+    require(near(followed.candidate_row, row16) && near(followed.item_gap, 0.0) &&
+            near(followed.selection_inset, 1.0));
+    // 0 不是「跟随」：上下都不留白时行高就是文字高度，行距 0 和缺省一样行挨着行。
+    const auto flush = candidate_row_layout(0u, 0u);
+    require(flush.padding_vertical && *flush.padding_vertical == 0.0 &&
+            flush.spacing && *flush.spacing == 0.0);
+    const auto flush_metrics = candidate_card_metrics(16.0, 16.0, true, true, true, {}, 0.0,
+                                                      0.0, false, flush);
+    require(near(flush_metrics.row_padding, 0.0) &&
+            near(flush_metrics.candidate_row, 16.0 * 1.35) &&
+            near(flush_metrics.item_gap, 0.0));
+  }
+
   // Work area caps clamp both axes; a cap of at most one pixel is no cap.
   CandidateCardInput capped = vertical;
   capped.max_width = 100.0;
