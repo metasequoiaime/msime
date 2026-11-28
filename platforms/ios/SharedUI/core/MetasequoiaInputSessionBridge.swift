@@ -811,6 +811,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     "wubi_mixed_pinyin",
     "wubi_auto_commit_unique",
     "wubi_candidate_selection",
+    // 词库页的五笔自造词位置（#11863）：引擎字段，会话空闲时重建 Engine 应用，交给活着的会话后下一次造词就按新位置入库。选回默认时文档里没有这个键，`next[key] = nil` 同样把它从会话的偏好里去掉。
+    "wubi_phrase_placement",
     // 退格回退已选词段由 Runtime 立即应用，不等待组字结束。
     "backspace_reverts_selection",
     // Laid over the document by `hostOverrides` from the iOS switch, so a change to that switch reaches the live session too.

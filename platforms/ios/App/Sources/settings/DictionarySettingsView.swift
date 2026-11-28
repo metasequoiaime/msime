@@ -11,6 +11,8 @@ struct DictionarySettingsView: View {
   @State private var updateError = false
   @State private var updateGeneration = 0
   @State private var habits = InputHabitPreference.mirrored
+  @State private var wubiEnabled = InputSchemePreference.enabledSchemes.contains(.wubi)
+  @State private var wubiPhrasePlacement = WubiPhrasePlacement.bottom
   @State private var saveFailed = false
   @State private var dictionary: PersonalDictionaryState?
   /// 偏好里有没有配置词库同步的网盘。
@@ -290,6 +292,12 @@ struct DictionarySettingsView: View {
                     sheetTitle: "线性调频步长", identifier: "frequencyAdjustmentLinearStepPicker")
       .disabled(!stepEnabled)
       .opacity(stepEnabled ? 1 : 0.45)
+    if wubiEnabled && habits.learning {
+      DesignDivider(leading: 20)
+      DesignSelectRow(title: "自造词位置", info: "五笔造出的新词入库时排在同码已有词之前还是之后。只决定入库时的位置，之后照常按调频方式调整。",
+                      options: WubiPhrasePlacement.allCases.map { DesignOption(title: $0.title, value: $0) },
+                      selection: wubiPhrasePlacementBinding, sheetTitle: "自造词位置", identifier: "wubiPhrasePlacementPicker")
+    }
     DesignDivider(leading: 20)
     Button { confirmsClearLearning = true } label: {
       DesignNavRowLabel(title: ClearLearningCopy.title, subtitle: ClearLearningCopy.subtitle)
@@ -337,10 +345,25 @@ struct DictionarySettingsView: View {
   private func reload() {
     let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences()
     habits = InputHabitPreference.settings(in: preferences)
+    wubiEnabled = InputSchemePreference.enabledSchemes.contains(.wubi)
+    wubiPhrasePlacement = WubiPhrasePlacementPreference.placement(in: preferences)
     syncConfigured = IOSDictionarySyncPolicy.Configuration(preferences: preferences) != nil
     // 队列文件读不出来只是在这里不显示数量；错误由「拼音词库」页报告。
     dictionary = try? store.read()
     added = CommunityDictionaryImports.ids()
+  }
+
+  /// 五笔自造词位置写共享文档；保存失败时与 `habit` 一样提示并重新加载。
+  private var wubiPhrasePlacementBinding: Binding<WubiPhrasePlacement> {
+    Binding(get: { wubiPhrasePlacement }, set: { value in
+      if WubiPhrasePlacementPreference.update(value) {
+        wubiPhrasePlacement = value
+        saveFailed = false
+      } else {
+        saveFailed = true
+        reload()
+      }
+    })
   }
 
   /// 只保存一个字段的 binding；保存失败时重新加载，让控件显示实际存下的值。
