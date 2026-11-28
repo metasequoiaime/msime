@@ -7453,7 +7453,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Korean and Vietnamese write half-width ASCII marks, the same menu English offers.
     guard isChineseMode, !isInLocalMode, !inputScheme.writesAsciiPunctuation else { return [",", ".", "?", "!", ":", ";", "@"] }
     if inputScheme.isJapanese { return ["、", "。", "？", "！", "「", "」", "・"] }
-    return KeyboardLayoutPreference.quickPunctuationSymbols
+    let symbols = KeyboardLayoutPreference.quickPunctuationSymbols
+    // 中文键面对应的键设成了保留英文（View 的 `preserve_english_punctuation`，#11890）时 Engine 原样写出 ASCII，这一项就画这个键，键面与上屏一致；注音的标点先走注音规则，不看这个集合。
+    guard !currentPreserveEnglishPunctuation.isEmpty, !inputScheme.isZhuyin else { return symbols }
+    return symbols.map { face in
+      guard let key = KeyboardPunctuationContext.engineInput(
+        for: face, japanese: false, enumerationCommaBackslash: currentEnumerationCommaBackslash,
+        enumerationCommaSlash: currentEnumerationCommaSlash),
+        key != face, currentPreserveEnglishPunctuation.contains(key) else { return face }
+      return key
+    }
   }
 
   private func updateLetterRowInsets() {
