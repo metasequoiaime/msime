@@ -40,7 +40,7 @@ DMG 不是当年比较过 pkg 之后选的。仓库最开始（MSIME-Apple 时�
 
 - [macOS 版本发布页只放 DMG](2026-10-20-macos-release-page-only-dmgs.md)：部分重叠。发布页的标准不变，安装包格式由这篇接管。
 - [macOS nightly 用 Developer ID 签名并公证](2026-10-15-macos-nightly-notarized.md)、[发布打包提速](2026-10-20-macos-release-faster-packaging.md)、[nightly 只发原生安装文件](../simplification/2026-10-15-nightly-native-downloads.md)：部分重叠。签名跟着 secrets 走、先全部提交再统一取公证结果、nightly 只放原生安装文件这些决定都沿用，其中写的 DMG 现在是 pkg，挂载 DMG 的检查现在是展开 pkg。
-- [首次安装要重新登录](../bug-fix/2026-10-09-macos-first-install-login-required.md)：结束页沿用它的结论，安装包不加 `RequireLogout`。
+- [首次安装要重新登录](../bug-fix/2026-10-09-macos-first-install-login-required.md)：安装包不加 `RequireLogout`。结束页原来沿用它「首次安装要注销重登」的结论，这条前提已被 [首次安装不需要注销重登](../bug-fix/2026-11-28-macos-first-install-without-logout.md) 推翻，结束页不再要求注销。
 - [「所有用户」安装输入法](../bug-fix/2026-10-23-macos-system-input-method-install.md)：设置应用自己生成的系统安装包（identifier `<input_method_bundle_id>.system-install`）与这里的 `<settings_bundle_id>.pkg` 不冲突；关掉重定位的依据与它相同，那篇的合成测试只覆盖顶层组件，这里把每层子组件也显式关掉。
 
 ## Alternatives considered
@@ -52,7 +52,7 @@ DMG 不是当年比较过 pkg 之后选的。仓库最开始（MSIME-Apple 时�
 
 ## Consequences
 
-- **收益**：安装是标准的「双击、按提示、装完自动打开」，不再有「拖进去没打开」的半安装；结束页把首次安装要注销重登写在用户一定会看到的地方。Homebrew 卸载有回执可查。MDM 和命令行部署有了签名的分发包，安装时不弹窗。
+- **收益**：安装是标准的「双击、按提示、装完自动打开」，不再有「拖进去没打开」的半安装；结束页把装完之后还差的步骤写在用户一定会看到的地方。Homebrew 卸载有回执可查。MDM 和命令行部署有了签名的分发包，安装时不弹窗。
 - **代价**：
   - 每次安装都要管理员密码，管理员账户拖 DMG 时不用。没有管理员密码的普通用户装不了：DMG 时期他们可以把应用放在 `~/Applications` 或下载目录里打开，输入法照样装进自己的用户目录。
   - 应用归 root:wheel，管理员手动更新设置应用时 Sparkle 要授权，普通用户更新不了设置应用（DMG 时期普通用户本来也写不了 `/Applications`）。这条建立在 Sparkle 2.9.6 能经授权替换 root 拥有的 bundle 上，只读过源码，没有实测，macOS 27 上若走不通要重新评估 chown。
