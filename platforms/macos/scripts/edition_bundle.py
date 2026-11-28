@@ -391,7 +391,7 @@ def cask(template: str, edition_id: str, version: str, sha256: str) -> str:
         (full_macos["input_method_bundle_id"], macos["input_method_bundle_id"]),
         (f"{full_macos['input_method_name']}.app", f"{macos['input_method_name']}.app"),
         (f"Open {full['display_name']['en']} once", f"Open {entry['display_name']['en']} once"),
-        (f"adds {full['display_name']['zh-Hans']} to", f"adds {entry['display_name']['zh-Hans']} to"),
+        (f"add {full['display_name']['zh-Hans']} in", f"add {entry['display_name']['zh-Hans']} in"),
     ]
     for old, new in replacements:
         if old not in text:
@@ -445,7 +445,7 @@ def download_guide(edition_ids: list[str], version: str, download_base: str, hom
         lines.append(row)
     lines += [
         "",
-        "双击下载的安装包，按提示安装（需要管理员密码）。装好后应用会自动打开，点「立即安装」；第一次在这台 Mac 上安装时，请退出登录再重新登录，"
+        "双击下载的安装包，按提示安装（需要管理员密码），输入法随之装好。第一次在这台 Mac 上安装时，请退出登录再重新登录，"
         "然后到「系统设置」→「键盘」→「文字输入」→「输入法」中添加。`SHA256SUMS` 是这些安装包的 SHA-256 校验值。",
     ]
     if not homebrew:

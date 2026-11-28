@@ -174,13 +174,16 @@ def check_edition(errors: list[str], generator, table: dict, entry: dict, others
         cask = generator.cask(CASK.read_text(encoding="utf-8"), edition_id, "1.2.3", "0" * 64)
         if f'cask "{macos["cask"]}"' not in cask or f"/{macos['dmg_prefix']}-#{{version}}-universal.pkg\"" not in cask:
             errors.append(f"{where}: the cask does not name {macos['cask']} and download {macos['dmg_prefix']}-VERSION-universal.pkg")
-        # pkg 段装的是这个版本自己的安装包；pkg 不认 --appdir，卸载按 <settings_bundle_id>.pkg 回执，再兜底删掉 /Applications 里本版本的应用。输入法由设置应用装进系统目录（回执 <input_method_bundle_id>.system-install），卸载要连它和早先装在用户目录的那份一起删，否则卸掉设置应用后输入法还留在输入法列表里。
+        # pkg 段装的是这个版本自己的安装包；pkg 不认 --appdir，卸载按 <settings_bundle_id>.pkg 回执，再兜底删掉 /Applications 里本版本的应用。输入法由安装包的 postinstall 装进系统目录（不在回执里；早先由设置应用装，回执 <input_method_bundle_id>.system-install），卸载要连它和早先装在用户目录的那份一起删，否则卸掉设置应用后输入法还留在输入法列表里。
         app = f"/Applications/{entry['display_name']['en']}.app"
         receipts = f'pkgutil:   ["{macos["settings_bundle_id"]}.pkg", "{macos["input_method_bundle_id"]}.system-install"]'
         input_method = f"Library/Input Methods/{macos['input_method_name']}.app"
         for expected in (f'pkg "{macos["dmg_prefix"]}-#{{version}}-universal.pkg"', receipts, f'"{app}"', f'"/{input_method}"', f'"~/{input_method}"', 'launchctl: "app.msime.system-updater"', "auto_updates true"):
             if expected not in cask:
                 errors.append(f"{where}: the cask lacks {expected}")
+        # 安装包自己装好输入法，cask 不再叫人打开设置应用去「完成安装」；命令行安装不替用户打开它，词库仍要它第一次启动时准备。
+        if "finish installing" in cask or f"Open {entry['display_name']['en']} once so that it prepares your dictionary" not in cask or f"add {entry['display_name']['zh-Hans']} in System Settings" not in cask:
+            errors.append(f"{where}: the cask caveats do not say that the package installs the input method and {entry['display_name']['en']} prepares the dictionary")
         if 'app "' in cask or "#{appdir}" in cask:
             errors.append(f"{where}: the cask still installs with an app stanza or --appdir")
         full_macos = generator.full_entry(table)["platforms"]["macos"]

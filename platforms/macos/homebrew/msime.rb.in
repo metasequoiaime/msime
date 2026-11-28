@@ -26,7 +26,7 @@ cask "msime" do
   # 同一个程序再以 msime 的名字放上 PATH，方便在终端里手动敲 msime expand、msime config。
   binary "/Applications/MSIME.app/Contents/MacOS/msime-mcp", target: "msime"
 
-  # 设置应用第一次启动时经管理员授权把输入法装进 /Library/Input Methods（回执 <输入法标识>.system-install），同时装上 root 更新助手和它的 launchd 任务；早先的版本装在 ~/Library/Input Methods。应用和输入法除了按回执卸载还要显式删除：Sparkle 和更新助手更新过之后，磁盘上的 bundle 和回执对不上。更新助手是各版本共用的，卸掉任何一个版本都会带走它，仍装着的其他版本下一次授权安装或修复时会重新装上。
+  # 安装包的 postinstall 把输入法装进 /Library/Input Methods，同时装上 root 更新助手和它的 launchd 任务；这些不在安装包的回执里，所以要显式删除。早先的版本由设置应用经管理员授权装进系统目录（回执 <输入法标识>.system-install）或装在 ~/Library/Input Methods，一起列着。设置应用除了按回执卸载也要显式删除：Sparkle 更新过之后，磁盘上的 bundle 和回执对不上。更新助手是各版本共用的，卸掉任何一个版本都会带走它，仍装着的其他版本下一次授权安装或修复时会重新装上。
   uninstall launchctl: "app.msime.system-updater",
             quit:      ["app.msime.macos", "app.msime.inputmethod.MetasequoiaIME"],
             pkgutil:   ["app.msime.macos.pkg", "app.msime.inputmethod.MetasequoiaIME.system-install"],
@@ -51,7 +51,7 @@ cask "msime" do
 
   caveats <<~EOS
     Installing and upgrading need an administrator password.
-    Open MSIME once to finish installing: it adds 水杉输入法 to your input sources.
-    On a Mac where it was never installed, log out and back in after that before it appears.
+    On a Mac where it was never installed, log out and back in, then add 水杉输入法 in System Settings > Keyboard > Text Input.
+    Open MSIME once so that it prepares your dictionary.
   EOS
 end
