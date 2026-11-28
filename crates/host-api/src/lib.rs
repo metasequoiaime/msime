@@ -580,7 +580,7 @@ pub fn evict_grammar_model(path: &std::path::Path) {
     msime_engine::octagram::GramDb::evict_shared(path);
 }
 
-/// 引擎的引号与方头括号样式，由 client-core 从偏好解析（`corner_when_traditional` 在那里按繁体开关定下）。View 报告的是同一个解析结果。
+/// 引擎的引号与方头括号样式、顿号键与保留英文的键，由 client-core 从偏好解析（`corner_when_traditional` 在那里按繁体开关定下）。View 报告的是同一个解析结果。
 fn apply_punctuation_marks(
     options: &mut EngineOptions,
     preferences: &msime_client_core::preferences::Preferences,
@@ -591,6 +591,13 @@ fn apply_punctuation_marks(
         marks.brackets == msime_client_core::preferences::BracketStyle::Hollow;
     options.enumeration_comma_backslash = marks.enumeration_comma_backslash;
     options.enumeration_comma_slash = marks.enumeration_comma_slash;
+    // 两张表都是契约 `preserveEnglish` 段，键全是 ASCII。
+    options.preserve_english_punctuation = msime_engine::PreservedEnglish::from_keys(
+        marks
+            .preserve_english_punctuation
+            .keys()
+            .map(|key| key as u8),
+    );
 }
 
 /// The switch the Engine is handed. Windows turns the punctuation switch on whenever punctuation is locked to Chinese, while the Engine drops Chinese punctuation whenever its switch is off, so a lock to Chinese has to carry the switch with it.

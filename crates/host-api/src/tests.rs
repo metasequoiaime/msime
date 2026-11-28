@@ -23893,6 +23893,7 @@ fn punctuation_marks_follow_preferences_and_the_view_reports_them() {
             "brackets": "solid",
             "enumeration_comma_backslash": true,
             "enumeration_comma_slash": false,
+            "preserve_english_punctuation": [],
         })
     );
     assert_eq!(punctuation_commit(handle, b'\''), "‘");
@@ -23913,6 +23914,7 @@ fn punctuation_marks_follow_preferences_and_the_view_reports_them() {
             "brackets": "hollow",
             "enumeration_comma_backslash": true,
             "enumeration_comma_slash": false,
+            "preserve_english_punctuation": [],
         })
     );
     // 重建会话重置交替，所以从前半个开始。
@@ -23948,6 +23950,27 @@ fn punctuation_marks_follow_preferences_and_the_view_reports_them() {
         read(msime_client_punctuation_with_context(handle, b'\\', 0))["value"]["handled"],
         false
     );
+
+    // 按键保留英文（#11890）：集合经 View 报告给宿主，引擎对这些键不出中文标点；`\` 在集合里时两个顿号开关可以都关。
+    let preserved = Preferences {
+        enumeration_comma_backslash: false,
+        preserve_english_punctuation: vec!["\\".into(), "`".into()],
+        ..chinese_preferences()
+    };
+    assert_eq!(update(handle, 4, &preserved)["value"]["deferred"], false);
+    let marks = read(msime_client_view(handle))["value"]["punctuation_marks"].clone();
+    assert_eq!(marks["preserve_english_punctuation"], json!(["\\", "`"]));
+    assert_eq!(marks["enumeration_comma_backslash"], false);
+    assert_eq!(marks["enumeration_comma_slash"], false);
+    for key in [b'\\', b'`', b'/'] {
+        assert_eq!(
+            read(msime_client_punctuation_with_context(handle, key, 0))["value"]["handled"],
+            false,
+            "key {}",
+            key as char
+        );
+    }
+    assert_eq!(punctuation_commit(handle, b'$'), "￥");
     read(msime_client_destroy(handle));
 }
 
