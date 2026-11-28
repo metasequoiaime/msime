@@ -3100,6 +3100,83 @@ static void TestRestoredInputModeActivation() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+@interface RestoredAvailableModesController : RestoredInputModeController
+@end
+@implementation RestoredAvailableModesController
+- (MSIMEInputModeAvailability)inputModeAvailability {
+    return +[](NSString *identifier) -> BOOL { return MSIMEIsInputModeID(identifier); };
+}
+@end
+
+// 在 ABC 上从输入菜单直接选「五」、设置里是全拼：激活先于系统的报告时，校准记下「五」，随后的报告成了重复。以前方案留在全拼、菜单栏还被选回「中」，只有到设置里点五笔才生效；现在校准按报告的规则把方案换成五笔，之后的报告不再改动。回到离开时的入口、系统恢复输入源的那段时间照旧不改方案。
+static void TestActivationAdoptsPickedSchemeMode() {
+    NSString *suite = [@"msime.activation-picked-mode." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.englishMode = NO;
+    appearance.inputModeStatusItem = NO;
+    ModeSelectingClient *client = nil;
+    auto activate = [&](NSString *left, NSString *selected) {
+        appearance.inputScheme = @"quanpin";
+        appearance.englishMode = NO;
+        RestoredAvailableModesController *controller = [RestoredAvailableModesController alloc];
+        [controller setValue:appearance forKey:@"appearance"];
+        [controller setValue:[ShortcutSession new] forKey:@"session"];
+        [controller setValue:@{@"editing_text":@"", @"candidates":@[]} forKey:@"view"];
+        client = [ModeSelectingClient new];
+        [controller setValue:client forKey:@"activeClient"];
+        controller.selectedSource = selected;
+        ForgetSystemInputMode();
+        MSIMESharedSystemInputModeState().left = left;
+        MSIMEFocusedController = controller;
+        return controller;
+    };
+
+    // 离开时在「中」，从 ABC 选「五」。
+    RestoredAvailableModesController *controller = activate(MSIMEChineseInputModeID, MSIMEWubiInputModeID);
+    [controller scheduleSystemInputModeSyncForClient:client];
+    DrainMainQueue();
+    assert([appearance.inputScheme isEqual:@"wubi"] && !appearance.englishMode);
+    assert(client.selectedModes.count == 0);
+    assert([[defaults stringForKey:@"MSIMEClientInputScheme"] isEqual:@"wubi"]);
+    [controller systemDidReportInputMode:MSIMEWubiInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"wubi"] && client.selectedModes.count == 0);
+
+    // 进程刚启动（离开时的入口未知）就落在「五」上，同样是五笔。
+    controller = activate(nil, MSIMEWubiInputModeID);
+    [controller scheduleSystemInputModeSyncForClient:client];
+    DrainMainQueue();
+    assert([appearance.inputScheme isEqual:@"wubi"] && client.selectedModes.count == 0);
+
+    // 离开时就在「五」、之后在设置里改成了全拼：系统把人送回「五」不是选择，方案留在全拼，菜单栏选回「中」。
+    controller = activate(MSIMEWubiInputModeID, MSIMEWubiInputModeID);
+    [controller scheduleSystemInputModeSyncForClient:client];
+    DrainMainQueue();
+    assert([appearance.inputScheme isEqual:@"quanpin"]);
+    assert([client.selectedModes isEqual:@[MSIMEChineseInputModeID]]);
+
+    // 唤醒、解锁时系统恢复输入源：不改方案。
+    controller = activate(MSIMEChineseInputModeID, MSIMEWubiInputModeID);
+    MSIMEHoldSystemInputModeRestore(MSIMESharedSystemInputModeState());
+    [controller scheduleSystemInputModeSyncForClient:client];
+    DrainMainQueue();
+    assert([appearance.inputScheme isEqual:@"quanpin"]);
+    MSIMESharedSystemInputModeState().restoringUntil = 0;
+
+    // 报告先到、已经被采纳时，校准不再重复处理。
+    controller = activate(MSIMEChineseInputModeID, MSIMEWubiInputModeID);
+    [controller systemDidReportInputMode:MSIMEWubiInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"wubi"]);
+    appearance.inputScheme = @"quanpin";
+    [controller scheduleSystemInputModeSyncForClient:client];
+    DrainMainQueue();
+    assert([appearance.inputScheme isEqual:@"quanpin"]);
+
+    MSIMEFocusedController = nil;
+    ForgetSystemInputMode();
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 // 系统输入菜单里的模式可用性由测试决定：TestSystemInputModeReport 用真实的 TIS 查询，CI 上「双」没有启用，切回分支在那里分不出修复前后。
 @interface AvailableModesController : ModeController
 @end
@@ -17860,6 +17937,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestSwitchInReportKeepsStartingEnglish(); }
         @autoreleasepool { TestOptInSchemeModes(); }
         @autoreleasepool { TestRestoredInputModeActivation(); }
+        @autoreleasepool { TestActivationAdoptsPickedSchemeMode(); }
         @autoreleasepool { TestKeymap(defaults, appearance); }
         @autoreleasepool { TestKeymapPreeditMargins(); }
         Method fontMethod = class_getClassMethod(NSFont.class, @selector(monospacedSystemFontOfSize:weight:));
