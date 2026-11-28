@@ -95,7 +95,7 @@ final class PunctuationSettingsTests: XCTestCase {
     XCTAssertNil(backtick.commitText)
     XCTAssertEqual(backtick.preserveEnglishPunctuation, "`\\")
     XCTAssertFalse(bridge.handlePunctuationWithContext("\\", preceding: 0).isHandled)
-    XCTAssertEqual(bridge.handlePunctuationWithContext("$", preceding: 0).commitText, "￥")
+    XCTAssertEqual(bridge.handlePunctuationWithContext("^", preceding: 0).commitText, "……")
     XCTAssertEqual(KeyboardViewController.chineseSymbolFace(
       "\\", cornerQuotes: false, hollowBrackets: false, preserveEnglish: "`\\"), "\\")
     XCTAssertEqual(KeyboardViewController.chineseSymbolFace(

@@ -4224,7 +4224,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func typeSymbolLayerFace(_ face: String) {
     switch SymbolLayerLayout.input(for: face, chinese: symbolLayerIsChinese, japanese: inputScheme.isJapanese,
-                                   chinesePunctuation: symbolLayerEngineWritesChinesePunctuation) {
+                                   chinesePunctuation: symbolLayerEngineWritesChinesePunctuation,
+                                   preserveEnglish: currentPreserveEnglishPunctuation) {
     case .symbol(let key):
       countKeyPress(TypingKeyID.character(key))
       handleSymbol(key)
