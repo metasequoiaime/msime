@@ -5782,8 +5782,11 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     MSIMESystemInputModeState &state = MSIMESharedSystemInputModeState();
     const BOOL englishToChineseModeSwitchPending = _englishToChineseModeSwitchPending;
     // 切进水杉后的第一次采纳要在清掉标记之前读到它：切回时系统把用户送回离开时的 中，不是用户在水杉里越过 双 选了 中（#10199，见 MSIMESystemInputModeState 的 switchedIn 和 left）。只看 current 是否为空不够，激活校准和随后选回 双 都会先写 current。
-    const BOOL switchedIn = state.switchedIn;
-    const BOOL restoring = MSIMESystemInputModeRestoring(state, NSProcessInfo.processInfo.systemUptime);
+    // 切进后已经按过键、但切进时的报告迟到了，仍按切进处理（#11391，见 MSIMESystemInputModeState 的 switchInLateUntil）。英文切回中文的回执只看原始标记：那是在水杉里按 Shift 之后的事，不是切进。
+    const double now = NSProcessInfo.processInfo.systemUptime;
+    const BOOL switchInHandled = !state.switchedIn;
+    const BOOL switchedIn = MSIMESystemInputModeSwitchedIn(state, now);
+    const BOOL restoring = MSIMESystemInputModeRestoring(state, now);
     if (!MSIMEAdoptReportedInputMode(state, value)) {
         // 自己刚从英文切回中文时，系统也可能重复报告已经选中的模式；消费这次回执，免得下一次真正的「中」选择仍被保留。
         // 但控制器请求模式时同步回来的回报仍在 selecting 保护期内，不能抢先消费等待中的异步回执。
@@ -5805,7 +5808,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         [self syncSystemInputModeForClient:sender];
         return;
     }
-    state.switchedIn = false;
+    MSIMEFinishSystemInputModeSwitchIn(state);
     [self ensureAppearance];
     [self applySharedInputPreferencesBeforeFirstUse];
     // The report can arrive before activateServer: or handleEvent: has named the client, and the mode is remembered per application.
@@ -5816,7 +5819,7 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     const MSIMEInputMode mode = MSIMEInputModeForID(value);
     NSString *scheme = _appearance.inputScheme;
     const BOOL reportConfirmsEnglishToChineseSwitch = englishToChineseModeSwitchPending &&
-        !switchedIn && mode == MSIMEInputMode::Chinese;
+        switchInHandled && mode == MSIMEInputMode::Chinese;
     _englishToChineseModeSwitchPending = NO;
     NSString *target = reportConfirmsEnglishToChineseSwitch ? nil : [self schemeForSelectedInputMode:value switchedIn:switchedIn];
     // 诊断日志记下每一次被采纳的报告和它把方案改成了什么：模式名和方案名都不是输入内容。方案莫名其妙被改掉时（开盖后变成注音），这一行能说明是谁报告了哪个模式。
@@ -8020,8 +8023,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     _smartPunctuationShadowWritten = NO;
     // 在水杉里按过键，之后系统报告的 中 就是用户自己的选择，不再按刚切回处理（#10199）。只看按下：切换输入源用的 Caps Lock、Ctrl 松开是 flagsChanged，可能先于切回时的报告送到。
     // 唤醒或解锁后的第一次按键同样说明用户已经在用水杉了，之后的报告不再按系统恢复处理。
+    // 切进时的报告可能排在头几个键后面，按键之后短时间内到达的报告仍按切进处理（#11391，MSIMENoteSystemInputModeKey）。
     if (event.type == NSEventTypeKeyDown && sender && !selfPosted) {
-        MSIMESharedSystemInputModeState().switchedIn = false;
+        MSIMENoteSystemInputModeKey(MSIMESharedSystemInputModeState(), NSProcessInfo.processInfo.systemUptime);
         MSIMESharedSystemInputModeState().restoringUntil = 0;
         _englishToChineseModeSwitchPending = NO;
     }
