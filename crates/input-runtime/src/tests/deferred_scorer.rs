@@ -126,11 +126,74 @@ fn settling_decodes_again_with_the_model_and_moves_to_a_new_generation() {
     assert_eq!(model.scored.lock().unwrap().len(), calls);
 }
 
+/// 不给束搜索打分、给每个候选同一个分的打分器：挂上去重解出的候选与不挂时一模一样。
+struct Flat;
+
+impl CandidateScorer for Flat {
+    fn context_length(&self) -> usize {
+        64
+    }
+
+    fn log_probabilities(&mut self, _context: &str, candidates: &[&str]) -> Vec<f32> {
+        vec![-5.0; candidates.len()]
+    }
+}
+
+/// 停顿重解没有改变候选时不推进代次（#11819）：宿主手上停顿前的身份照旧有效，选中的就是画出来的那个词。以前每一片都换代，安卓上与停顿发布重叠的点按 7/7 被当成过期丢掉。
+#[test]
+fn a_settle_that_changes_nothing_keeps_the_generation() {
+    let (_directory, mut runtime, _model) = runtime(Duration::ZERO);
+    runtime.set_deferred_scorer(Some(Box::new(Flat)));
+    type_tashuo(&mut runtime);
+    let shown = runtime.all_candidates();
+    let epoch = runtime.candidates_epoch();
+    assert_eq!(
+        runtime
+            .settle_deferred_scorer(Duration::from_secs(60))
+            .unwrap(),
+        DeferredSettle::Done { moved: false }
+    );
+    assert_eq!(runtime.generation(), shown.generation);
+    assert_eq!(runtime.candidates_epoch(), epoch);
+    let rows: Vec<String> = shown
+        .candidates
+        .iter()
+        .map(|row| row.text.clone())
+        .collect();
+    assert_eq!(texts(&mut runtime), rows);
+    let picked = runtime
+        .dispatch(Action::Select(shown.candidates[1].id))
+        .unwrap();
+    assert_eq!(
+        picked.commit.as_deref(),
+        Some(shown.candidates[1].text.as_str())
+    );
+}
+
+/// 候选变了照旧换代：停顿前的身份不能再选到新座位上。
+#[test]
+fn a_settle_that_reorders_rejects_identities_from_before() {
+    let (_directory, mut runtime, _model) = runtime(Duration::ZERO);
+    type_tashuo(&mut runtime);
+    let stale = runtime.all_candidates().candidates[0].id;
+    assert_eq!(
+        runtime
+            .settle_deferred_scorer(Duration::from_secs(60))
+            .unwrap(),
+        DeferredSettle::Done { moved: true }
+    );
+    assert!(matches!(
+        runtime.dispatch(Action::Select(stale)),
+        Err(RuntimeError::StaleCandidate)
+    ));
+}
+
 #[test]
 fn a_slice_that_runs_out_leaves_the_view_alone_and_the_next_one_carries_on() {
     let (_directory, mut runtime, model) = runtime(Duration::from_millis(5));
     type_tashuo(&mut runtime);
     let shown = texts(&mut runtime);
+    let generation = runtime.generation();
     let mut slices = 0;
     loop {
         slices += 1;
@@ -142,6 +205,8 @@ fn a_slice_that_runs_out_leaves_the_view_alone_and_the_next_one_carries_on() {
             DeferredSettle::Continue { moved } => {
                 assert!(!moved);
                 assert_eq!(texts(&mut runtime), shown);
+                // 没解完的片不改候选，也不推进代次：停顿前取到的身份照旧选得中（#11819）。
+                assert_eq!(runtime.generation(), generation);
             }
             DeferredSettle::Done { moved } => {
                 assert!(moved);

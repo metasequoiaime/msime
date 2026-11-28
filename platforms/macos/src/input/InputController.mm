@@ -4429,7 +4429,7 @@ static const NSTimeInterval kPauseRerankSliceGap = 0.001;
         }
         // Same shape the cloud path applies — a transition carrying the refreshed view — so it
         // goes through the same method rather than a second way of updating the window.
-        // 延后的模型每一片都推进候选代次，文字没换位置（moved 为假）时也带着新 view：不收的话候选窗上画的还是旧代次的身份，空格和数字键照它选词时会被会话当成过期而吞掉。
+        // 延后的模型改变了候选视图时推进候选代次，文字没换位置（moved 为假）时也可能带着新 view：不收的话候选窗上画的还是旧代次的身份，空格和数字键照它选词时会被会话当成过期而吞掉。候选什么都没变时不带 view，画着的身份照旧有效。
         if (MSIMEStrictBoolean(started[@"moved"]) || [started[@"view"] isKindOfClass:NSDictionary.class]) [controller apply:started];
         // apply: 会重新排一次停顿计时；没解完的那一片要接着跑，用短间隔覆盖它。
         if ([started[@"status"] isEqual:@"continue"]) [controller scheduleSettledRerankAfter:kPauseRerankSliceGap];

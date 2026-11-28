@@ -1,4 +1,4 @@
-//! 停顿重解即使保留文字，也必须把新的候选身份交回宿主。
+//! 停顿重解与候选身份：候选变了才换代、交回新视图；什么都没变时代次不动，宿主手上画着的身份照旧选得中（#11819）。
 
 use super::*;
 
@@ -15,7 +15,7 @@ impl msime_input_runtime::CandidateScorer for UnchangedScorer {
 }
 
 #[test]
-fn unchanged_deferred_candidates_publish_selectable_fresh_ids() {
+fn unchanged_deferred_candidates_keep_the_drawn_ids() {
     let directory = tempfile::tempdir().unwrap();
     let handle = test_host_with_pinyin_fixture(directory.path(), chinese_preferences());
     read(msime_client_focus(handle, true));
@@ -35,19 +35,15 @@ fn unchanged_deferred_candidates_publish_selectable_fresh_ids() {
     assert_eq!(value["moved"], false, "{result}");
     // 挂着延后的模型：宿主据此在打字的空隙里就起跑。
     assert_eq!(value["deferred"], true, "{result}");
-    let view = &value["view"];
-    assert!(view.is_object(), "候选换代后缺少新身份：{result}");
-    assert!(view["generation"].as_u64().unwrap() > before["generation"].as_u64().unwrap());
-    assert_eq!(
-        view["candidates"][0]["text"],
-        before["candidates"][0]["text"]
-    );
+    // 候选没变：不换代，也就没有新视图要宿主收。
+    assert!(value.get("view").is_none(), "候选没变却换了代：{result}");
     let selected = read(msime_client_select(
         handle,
-        view["generation"].as_u64().unwrap(),
+        before["generation"].as_u64().unwrap(),
         0,
     ));
-    assert_eq!(selected["value"]["commit"], view["candidates"][0]["text"]);
+    assert_eq!(selected["ok"], true, "{selected}");
+    assert_eq!(selected["value"]["commit"], before["candidates"][0]["text"]);
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
@@ -74,7 +70,7 @@ fn defer(handle: u64, scorer: Box<dyn msime_input_runtime::CandidateScorer>) {
     });
 }
 
-/// 打完拼音马上按空格时停顿重解还没跑：宿主先调 `msime_client_finish_pause_rerank`，它把当前组字的停顿重解做完（打字时模型一次都没跑），交回新代次的视图；照它的高亮项上屏，上屏的就是视图里的那一行。已经解完时再调立即返回、不再跑模型、不再换代，没挂延后的模型时什么都不做。
+/// 打完拼音马上按空格时停顿重解还没跑：宿主先调 `msime_client_finish_pause_rerank`，它把当前组字的停顿重解做完（打字时模型一次都没跑）；候选变了交回新代次的视图，没变就不换代、不带视图，宿主照画着的高亮项上屏，上屏的都是用户看到的那一行。已经解完时再调立即返回、不再跑模型、不再换代，没挂延后的模型时什么都不做。
 #[test]
 fn finishing_the_pause_rerank_hands_back_the_view_to_commit_from() {
     let directory = tempfile::tempdir().unwrap();
@@ -98,23 +94,9 @@ fn finishing_the_pause_rerank_hands_back_the_view_to_commit_from() {
     let value = &finished["value"];
     assert_eq!(value["status"], "done", "{finished}");
     assert_eq!(value["deferred"], true, "{finished}");
-    // 这份小词库里首选是词库的确定结果，重排在调模型之前就返回，所以这里不数模型跑了几次；带着模型重解、模型参与排序由 input-runtime 的 `settle_deferred_scorer` 测试覆盖。这里看的是接口：做完重解、推进代次、交回视图。
-    let view = &value["view"];
-    let generation = view["generation"].as_u64().unwrap();
-    assert!(
-        generation > before["generation"].as_u64().unwrap(),
-        "{finished}"
-    );
-    // `moved` 只看文字：候选身份每片都换代，文字没换位置时为假。
-    let texts = |view: &Value| -> Vec<Value> {
-        view["candidates"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|row| row["text"].clone())
-            .collect()
-    };
-    assert_eq!(value["moved"], texts(view) != texts(&before), "{finished}");
+    // 这份小词库里首选是词库的确定结果，重排在调模型之前就返回，候选与不挂模型时相同：不换代、不带视图，宿主画着的身份照旧有效。带着模型重解、模型参与排序和换代由 input-runtime 的 `settle_deferred_scorer` 测试覆盖。
+    assert_eq!(value["moved"], false, "{finished}");
+    assert!(value.get("view").is_none(), "{finished}");
 
     // 已经解完（模型还挂在按键的位置上）：立即返回，不再跑模型、不再换代。
     let ran = count();
@@ -124,9 +106,13 @@ fn finishing_the_pause_rerank_hands_back_the_view_to_commit_from() {
     assert!(again["value"].get("view").is_none(), "{again}");
     assert_eq!(count(), ran);
 
-    let selected = read(msime_client_select(handle, generation, 0));
+    let selected = read(msime_client_select(
+        handle,
+        before["generation"].as_u64().unwrap(),
+        0,
+    ));
     assert_eq!(
-        selected["value"]["commit"], view["candidates"][0]["text"],
+        selected["value"]["commit"], before["candidates"][0]["text"],
         "{selected}"
     );
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);

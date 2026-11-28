@@ -431,6 +431,23 @@ pub enum DeferredSettle {
     Continue { moved: bool },
 }
 
+/// 停顿重解开始前的候选视图，见 [`Runtime::publish_settled_view`]。
+struct SettleBaseline {
+    snapshot: EngineSnapshot,
+    candidates_epoch: u64,
+    composition_epoch: u64,
+}
+
+impl SettleBaseline {
+    fn of<E: InputEngine>(runtime: &Runtime<E>) -> Self {
+        Self {
+            snapshot: runtime.cached.clone(),
+            candidates_epoch: runtime.candidates_epoch,
+            composition_epoch: runtime.composition_epoch,
+        }
+    }
+}
+
 /// [`score_settled_rerank`] 产生的模型和待提升的候选行。
 pub struct SettledRerankScore {
     generation: u64,
@@ -1345,7 +1362,9 @@ impl<E: InputEngine> Runtime<E> {
     ///
     /// 整段组字的模型计算都挤到停顿时做：Mac（M1 Max）上 typing-chat-v1 整句一次解完 p50 24 ms，畅享 90 Plus 要慢五倍以上，一次做完会让停顿后紧接着的按键等上一两百毫秒。分片之后按键最多等一片。
     ///
-    /// 没有延后的打分器、没有组字、正显示上屏后联想、整句改字、光标后编辑或用户已经移动了高亮时什么都不做：最后一条是因为重解会把高亮放回首选。每一片都推进候选代次，停顿之前取到的候选身份不能再选到新的座位上。
+    /// 没有延后的打分器、没有组字、正显示上屏后联想、整句改字、光标后编辑或用户已经移动了高亮时什么都不做：最后一条是因为重解会把高亮放回首选。
+    ///
+    /// 候选代次只在这一片改变了候选视图时推进（[`Self::publish_settled_view`]）：文字、来源、编码、注释等任何一项变了，停顿之前取到的候选身份都不能再选到新的座位上；什么都没变时代次不动，宿主手上的身份照旧有效，不必换视图（#11819）。
     pub fn settle_deferred_scorer(
         &mut self,
         slice: std::time::Duration,
@@ -1360,10 +1379,17 @@ impl<E: InputEngine> Runtime<E> {
         {
             return Ok(DeferredSettle::Done { moved: false });
         }
+        if self.deferred_scorer.is_none() {
+            return Ok(DeferredSettle::Done { moved: false });
+        }
+        // 代次耗尽时不能发布换过的视图：推进会失败，不推进又会让旧身份选到新座位。与落定重排一样不做（`settled_rerank_blocked`）。
+        if self.generation == u64::MAX {
+            return Err(RuntimeError::IdentityExhausted);
+        }
         let Some(DeferredScorer { scorer, budgeted }) = self.deferred_scorer.take() else {
             return Ok(DeferredSettle::Done { moved: false });
         };
-        let before = self.cached.candidates.clone();
+        let before = SettleBaseline::of(self);
         // 换整句打分器时引擎清掉了缓存里的在线行（云、AI），宿主又不会为同一个查询再取一次：先从视图里记下，重解之后放回。
         let online: Vec<(String, u8)> = self
             .cached
@@ -1399,10 +1425,9 @@ impl<E: InputEngine> Runtime<E> {
                 budgeted.unlimit();
             }
             self.deferred_mounted = Some(budgeted);
-            self.advance()?;
-            self.refresh()?;
+            self.publish_settled_view(&before)?;
             return Ok(DeferredSettle::Done {
-                moved: self.cached.candidates != before,
+                moved: self.cached.candidates != before.snapshot.candidates,
             });
         }
         if let Some(scorer) = self.reranker.take() {
@@ -1413,14 +1438,27 @@ impl<E: InputEngine> Runtime<E> {
         // 引擎里现在是解了一半的候选，屏幕上还是停顿前的：不带模型再解一遍，让两边一致。
         self.engine.recompute_candidates()?;
         self.engine.restore_online_rows(&online);
-        self.advance()?;
-        self.refresh()?;
-        let moved = self.cached.candidates != before;
+        self.publish_settled_view(&before)?;
+        let moved = self.cached.candidates != before.snapshot.candidates;
         Ok(if failed {
             DeferredSettle::Done { moved }
         } else {
             DeferredSettle::Continue { moved }
         })
+    }
+
+    /// 停顿重解的一片之后取新快照，候选视图变了才推进代次（[`Self::settle_deferred_scorer`]）。
+    ///
+    /// 「没变」比 `refresh` 里决定换不换视图的比较更严：整份引擎快照（包括评分证据、裁决点这些不画出来的列）逐项相同，候选视图计数（释义、插件标记、高亮）和组字计数都没动。这时每个座位上还是同一个词、同一个来源，旧身份选到的就是用户看到的那一个。
+    fn publish_settled_view(&mut self, before: &SettleBaseline) -> Result<(), RuntimeError> {
+        self.refresh()?;
+        let held = self.cached == before.snapshot
+            && self.candidates_epoch == before.candidates_epoch
+            && self.composition_epoch == before.composition_epoch;
+        if !held {
+            self.advance()?;
+        }
+        Ok(())
     }
 
     /// 安装或移除停顿模型；替换后不得恢复在途评分携带的旧模型。
