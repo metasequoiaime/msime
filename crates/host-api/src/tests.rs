@@ -23997,7 +23997,7 @@ fn punctuation_marks_follow_preferences_and_the_view_reports_them() {
             key as char
         );
     }
-    assert_eq!(punctuation_commit(handle, b'$'), "￥");
+    assert_eq!(punctuation_commit(handle, b'^'), "……");
     read(msime_client_destroy(handle));
 }
 
