@@ -1,7 +1,51 @@
 #import "InputSourceRegistration.h"
 #import "InputModeIdentifiers.h"
 #include "../core/DiagnosticLog.h"
+#include <atomic>
 #include <cstring>
+#include <time.h>
+
+static std::atomic<uint64_t> lastInputMethodActivation{0};
+
+void MSIMENoteInputMethodActivated(void) {
+    lastInputMethodActivation.store(clock_gettime_nsec_np(CLOCK_UPTIME_RAW), std::memory_order_relaxed);
+}
+
+MSIMEInputSourceSwitchContext MSIMEInputSourceSwitchContextNow(NSString *mode) {
+    MSIMEInputSourceSwitchContext context;
+    context.secureInput = IsSecureEventInputEnabled();
+    // The session dictionary names the process holding secure event input; the key is not in the public headers, but it is the one `ioreg -l -w 0 | grep SecureInput` shows.
+    CFDictionaryRef session = CGSessionCopyCurrentDictionary();
+    if (session) {
+        CFTypeRef pid = CFDictionaryGetValue(session, CFSTR("kCGSSessionSecureInputPID"));
+        int value = 0;
+        if (pid && CFGetTypeID(pid) == CFNumberGetTypeID() && CFNumberGetValue((CFNumberRef)pid, kCFNumberIntType, &value))
+            context.secureInputPID = value;
+        CFRelease(session);
+    }
+    if (context.secureInputPID > 0) {
+        NSRunningApplication *owner = [NSRunningApplication runningApplicationWithProcessIdentifier:context.secureInputPID];
+        context.secureInputOwner = owner.bundleIdentifier ?: owner.executableURL.lastPathComponent;
+    }
+    context.frontmostBundle = NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier;
+    if (mode.length) {
+        NSDictionary *filter = @{(__bridge NSString *)kTISPropertyInputSourceID: mode};
+        CFArrayRef sources = TISCreateInputSourceList((__bridge CFDictionaryRef)filter, true);
+        if (sources && CFArrayGetCount(sources) > 0) {
+            TISInputSourceRef source = (TISInputSourceRef)CFArrayGetValueAtIndex(sources, 0);
+            auto flag = [&](CFStringRef key) {
+                CFTypeRef value = (CFTypeRef)TISGetInputSourceProperty(source, key);
+                return value && CFGetTypeID(value) == CFBooleanGetTypeID() ? (CFBooleanGetValue((CFBooleanRef)value) ? 1 : 0) : -1;
+            };
+            context.modeEnabled = flag(kTISPropertyInputSourceIsEnabled);
+            context.modeSelectable = flag(kTISPropertyInputSourceIsSelectCapable);
+        }
+        if (sources) CFRelease(sources);
+    }
+    const uint64_t activated = lastInputMethodActivation.load(std::memory_order_relaxed);
+    if (activated) context.msSinceActivation = (long long)((clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - activated) / NSEC_PER_MSEC);
+    return context;
+}
 
 @implementation MSIMEInputSourceMonitor {
     NSNotificationCenter *_center;
@@ -9,6 +53,8 @@
     MSIMEInputSourceCopier _copier;
     MSIMEInputSourcePropertyGetter _getter;
     void (^_action)(void);
+    // The last of this method's own modes the selection was seen on, for the switched_away line.
+    NSString *_lastOwnMode;
 }
 - (instancetype)initWithCenter:(NSNotificationCenter *)center bundleIdentifier:(NSString *)identifier
                     copySource:(MSIMEInputSourceCopier)copier propertyGetter:(MSIMEInputSourcePropertyGetter)getter
@@ -16,6 +62,7 @@
     self = [super init];
     if (self) {
         _center = center; _identifier = [identifier copy]; _copier = copier; _getter = getter; _action = [action copy];
+        _switchContextReader = MSIMEInputSourceSwitchContextNow;
         if (!center || !identifier.length || !copier || !getter || !action) return nil;
         NSString *name = (__bridge NSString *)kTISNotifySelectedKeyboardInputSourceChanged;
         if ([center isKindOfClass:NSDistributedNotificationCenter.class])
@@ -46,8 +93,22 @@
     BOOL away = bundle.length ? ![bundle isEqual:_identifier] :
         (identifier.length && ![identifier isEqual:_identifier] &&
          ![identifier hasPrefix:[_identifier stringByAppendingString:@"."]]);
+    NSString *modePrefix = [_identifier stringByAppendingString:@"."];
+    if (!away && [identifier hasPrefix:modePrefix]) _lastOwnMode = [identifier copy];
     // Name the source the system moved to, so a report that the input method keeps switching to another one shows in diagnostic.log which source took over and when; the ID is a state label like the others, and the log replaces control bytes and caps its length.
-    if (away) msime_macos_diagnostic_writef("input_source switched_away to=%s", (identifier.length ? identifier : bundle).UTF8String);
+    // The rest tells apart the two causes left open in #11592 when the system keeps moving the selection to ABC: another process holding secure event input (secure=1 and the owner it names), or this method's mode no longer enabled or selectable in the TIS registry (enabled=0 or selectable=0 with secure=0). since_activate_ms shows whether the switch follows our own activation. Each event is capped at 192 bytes, so the app bundle identifiers, whose length is not ours to bound, go on a second line.
+    if (away && msime_macos_diagnostic_enabled()) {
+        const MSIMEInputSourceSwitchContext context = _switchContextReader ? _switchContextReader(_lastOwnMode) : MSIMEInputSourceSwitchContext{};
+        auto tri = [](int value) { return value < 0 ? "-" : value ? "1" : "0"; };
+        NSString *mode = [_lastOwnMode hasPrefix:modePrefix] ? [_lastOwnMode substringFromIndex:modePrefix.length] : nil;
+        NSString *since = context.msSinceActivation < 0 ? @"-" : [NSString stringWithFormat:@"%lld", context.msSinceActivation];
+        msime_macos_diagnostic_writef("input_source switched_away to=%s secure=%d secure_pid=%d mode=%s enabled=%s selectable=%s since_activate_ms=%s",
+            (identifier.length ? identifier : bundle).UTF8String, context.secureInput ? 1 : 0, (int)context.secureInputPID,
+            mode.length ? mode.UTF8String : "-", tri(context.modeEnabled), tri(context.modeSelectable), since.UTF8String);
+        msime_macos_diagnostic_writef("input_source switched_away_apps front=%s secure_owner=%s",
+            context.frontmostBundle.length ? context.frontmostBundle.UTF8String : "-",
+            context.secureInputOwner.length ? context.secureInputOwner.UTF8String : "-");
+    }
     CFRelease(source);
     if (away) _action();
 }

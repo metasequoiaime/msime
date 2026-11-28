@@ -9,10 +9,33 @@ using MSIMEInputSourcePropertyGetter = void *(*)(TISInputSourceRef, CFStringRef)
 using MSIMEInputSourceEnabler = OSStatus (*)(TISInputSourceRef);
 using MSIMEInputSourceCopier = TISInputSourceRef (*)(void);
 
+/// System state read when the selected source moves away from this input method, written to diagnostic.log next to "input_source switched_away" and nowhere else (#11592). Tri-state fields are -1 when unknown.
+struct MSIMEInputSourceSwitchContext {
+    /// IsSecureEventInputEnabled() at the moment of the switch.
+    bool secureInput = false;
+    /// kCGSSessionSecureInputPID of the current session, 0 when the key is absent.
+    pid_t secureInputPID = 0;
+    /// Bundle identifier of that process, or its executable name when it has none.
+    NSString *secureInputOwner = nil;
+    NSString *frontmostBundle = nil;
+    /// kTISPropertyInputSourceIsEnabled / IsSelectCapable of this method's last selected mode; -1 when no mode was seen or it is not installed.
+    int modeEnabled = -1;
+    int modeSelectable = -1;
+    /// Milliseconds since the last MSIMENoteInputMethodActivated(), -1 before the first.
+    long long msSinceActivation = -1;
+};
+/// Reads the live state for `mode`, the source ID of this method's last selected mode (nil when none was seen).
+using MSIMEInputSourceSwitchContextReader = MSIMEInputSourceSwitchContext (*)(NSString *mode);
+MSIMEInputSourceSwitchContext MSIMEInputSourceSwitchContextNow(NSString *mode);
+/// Records the time of an activateServer:, for the since_activate_ms field.
+void MSIMENoteInputMethodActivated(void);
+
 @interface MSIMEInputSourceMonitor : NSObject
 - (instancetype)initWithCenter:(NSNotificationCenter *)center bundleIdentifier:(NSString *)identifier
                     copySource:(MSIMEInputSourceCopier)copier propertyGetter:(MSIMEInputSourcePropertyGetter)getter
                     switchedAway:(void (^)(void))action;
+/// Read only while diagnostic.log is on, once per switch away; MSIMEInputSourceSwitchContextNow unless a test replaces it.
+@property(nonatomic) MSIMEInputSourceSwitchContextReader switchContextReader;
 - (void)stop;
 @end
 

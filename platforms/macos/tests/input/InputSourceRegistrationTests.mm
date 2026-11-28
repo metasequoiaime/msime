@@ -158,6 +158,19 @@ int main()
                     !MSIMEShouldReportInputSourceRegistration(1, nullptr),
                 "Another command was treated as the registry probe.");
 
+        // The live state behind the switched_away diagnostics (#11592): no activation yet, and a mode that is not installed has no enabled or selectable state rather than a made-up one.
+        MSIMEInputSourceSwitchContext context = MSIMEInputSourceSwitchContextNow(nil);
+        require(context.msSinceActivation == -1 && context.modeEnabled == -1 && context.modeSelectable == -1,
+                "The switch context reported an activation or mode state that does not exist.");
+        require(context.secureInput == (bool)IsSecureEventInputEnabled() && context.secureInputPID >= 0,
+                "The switch context did not report the session's secure input state.");
+        MSIMENoteInputMethodActivated();
+        context = MSIMEInputSourceSwitchContextNow(@"org.example.not-installed.mode");
+        require(context.msSinceActivation >= 0 && context.msSinceActivation < 60000,
+                "The time since the last activation was not measured from MSIMENoteInputMethodActivated.");
+        require(context.modeEnabled == -1 && context.modeSelectable == -1,
+                "A mode that is not installed was reported as enabled or disabled.");
+
         NSURL *bundleURL = [NSURL fileURLWithPath:@"/tmp/MetasequoiaIME.app" isDirectory:YES];
         RegistrationWorkspace *workspace = [RegistrationWorkspace new];
         __block BOOL launchCompleted = NO;

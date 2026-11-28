@@ -6744,6 +6744,7 @@ static constexpr NSUInteger MSIMEIdleDictionarySessionLimit = 4;
     MSIMEPrepareClientKeyboardLayout(sender);
     [self ensureAppearance];
     msime_macos_diagnostic_write("focus_in");
+    MSIMENoteInputMethodActivated();
     if (_activeClient && _activeClient != sender) [self apply:[_session setFocused:NO error:nil]];
     NSDictionary *initialHostSnapshot = [self applySharedInputPreferencesBeforeFirstUse];
     _uppercaseEnglishMode = NO; // 激活时中英文按应用规则和默认模式重新推导，不沿用上一个焦点的大写英文。

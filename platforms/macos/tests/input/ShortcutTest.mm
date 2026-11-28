@@ -3021,6 +3021,22 @@ static void ForgetSystemInputMode() {
 }
 @end
 
+static NSString *switchContextMode;
+static NSUInteger switchContextReads;
+// Fixed system state for the switched_away diagnostics, so the line does not depend on what the test machine's secure input or frontmost app happen to be.
+static MSIMEInputSourceSwitchContext SyntheticSwitchContext(NSString *mode) {
+    ++switchContextReads;
+    switchContextMode = mode;
+    MSIMEInputSourceSwitchContext context;
+    context.secureInput = true;
+    context.secureInputPID = 4242;
+    context.secureInputOwner = @"org.example.secure-owner";
+    context.frontmostBundle = @"org.example.front";
+    context.modeEnabled = 1;
+    context.modeSelectable = 0;
+    context.msSinceActivation = 7;
+    return context;
+}
 static void DrainMainQueue();
 
 // 系统从 ASCII 恢复输入法时只校准已经选中的模式；排队期间换客户端、失焦和后续激活都不能留下旧请求。
@@ -9162,6 +9178,9 @@ static void TestInputSourceModeReset() {
     MSIMEInputSourceMonitor *monitor = [[MSIMEInputSourceMonitor alloc] initWithCenter:center bundleIdentifier:own
         copySource:CopyMonitoredSource propertyGetter:MonitoredSourceProperty switchedAway:^{ assert(NSThread.isMainThread); ++resets; [prefs resetRememberedInputModes]; }];
     assert(monitor);
+    assert(monitor.switchContextReader == MSIMEInputSourceSwitchContextNow);
+    monitor.switchContextReader = SyntheticSwitchContext;
+    switchContextReads = 0;
     NSString *logRoot = [NSTemporaryDirectory() stringByAppendingPathComponent:[@"msime-source-log-" stringByAppendingString:NSUUID.UUID.UUIDString]];
     assert([NSFileManager.defaultManager createDirectoryAtPath:logRoot withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions: @0700} error:nil]);
     NSString *logPath = [logRoot stringByAppendingPathComponent:@"diagnostic.log"];
@@ -9185,18 +9204,26 @@ static void TestInputSourceModeReset() {
         assert(resets == beforeResets + 1 && !prefs.englishMode && saves == beforeSaves);
     }
     msime_macos_diagnostic_configure(logRoot.fileSystemRepresentation, false);
-    // Only switches away are written, each naming the source that took over: its input source ID, or the bundle when the source has no ID. Unknown sources and this method's own modes write nothing.
+    // The state is read once per switch away, for the last of this method's own modes the selection was on (own.mode above), not for the source that took over.
+    assert(switchContextReads == 3 && [switchContextMode isEqualToString:[own stringByAppendingString:@".mode"]]);
+    // Only switches away are written, each naming the source that took over: its input source ID, or the bundle when the source has no ID. Unknown sources and this method's own modes write nothing. Each switch also records whether secure event input was on and who held it, the frontmost app, whether the mode just left is still enabled and selectable, and how long after activateServer: it happened (#11592); the app bundle identifiers go on a second line so neither line reaches the per-event cap.
     NSString *switchLog = [NSString stringWithContentsOfFile:logPath encoding:NSUTF8StringEncoding error:nil];
     NSArray<NSString *> *switchLines = [[switchLog componentsSeparatedByString:@"\n"] filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
-    assert(switchLines.count == 3);
-    assert([switchLines[0] hasSuffix:@"] input_source switched_away to=org.example.other-input"]);
-    assert([switchLines[1] hasSuffix:@"] input_source switched_away to=com.apple.keylayout.US"]);
-    assert([switchLines[2] hasSuffix:[@"] input_source switched_away to=" stringByAppendingString:[own stringByAppendingString:@"-other"]]]);
+    assert(switchLines.count == 6);
+    NSString *context = @" secure=1 secure_pid=4242 mode=mode enabled=1 selectable=0 since_activate_ms=7";
+    NSString *apps = @"] input_source switched_away_apps front=org.example.front secure_owner=org.example.secure-owner";
+    NSArray<NSString *> *targets = @[@"org.example.other-input", @"com.apple.keylayout.US", [own stringByAppendingString:@"-other"]];
+    for (NSUInteger i = 0; i < targets.count; ++i) {
+        NSString *expected = [NSString stringWithFormat:@"] input_source switched_away to=%@%@", targets[i], context];
+        assert([switchLines[2 * i] hasSuffix:expected]);
+        assert([switchLines[2 * i + 1] hasSuffix:apps]);
+    }
     [NSFileManager.defaultManager removeItemAtPath:logRoot error:nil];
     prefs.defaultImeMode = @"english";
     prefs.englishMode = NO;
     [center postNotificationName:notification object:nil];
     assert(prefs.englishMode); // Reset follows the configured default, not hardcoded Chinese.
+    assert(switchContextReads == 3); // With the log off a switch does not read the diagnostic state: nobody records the CGSession and TIS lookups.
     // App scope: switching between this method's own modes keeps each app's choice, and leaving for another source drops every app's choice so the next activation starts from default_ime_mode, as TIP re-activation does in the reference.
     prefs.imeModeScope = @"app";
     prefs.defaultImeMode = @"chinese";
