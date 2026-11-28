@@ -5739,7 +5739,19 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
         MSIMEInputController *controller = weakSelf;
         if (!controller || controller->_inputModeActivationGeneration != generation ||
             controller->_activeClient != client || MSIMEFocusedController != controller) return;
-        if (!MSIMERecordRestoredSystemInputMode(MSIMESharedSystemInputModeState(), [controller selectedSystemInputModeID])) return;
+        MSIMESystemInputModeState &state = MSIMESharedSystemInputModeState();
+        NSString *selected = [controller selectedSystemInputModeID];
+        // 校准记下的入口还没有哪份报告处理过：用户从别的输入源直接选了「五」时，激活常常先于系统的报告，校准把「五」记成当前入口，随后的报告就成了重复、被忽略，方案留在全拼，同步还把菜单栏选回全拼的「中」，只有到设置里点五笔才生效。所以这时方案按报告的规则走（schemeForSelectedInputMode:switchedIn:）：回到离开时的入口、只加了一个中文入口（#11911）照旧不改。中英状态仍按激活时算出的起点，switchedIn 不清，系统恢复输入源的那段时间也不改方案（MSIMESystemInputModeState）。
+        const BOOL unreported = MSIMEIsInputModeID(selected) && ![selected isEqualToString:state.current] &&
+            !MSIMESystemInputModeRestoring(state, NSProcessInfo.processInfo.systemUptime);
+        if (!MSIMERecordRestoredSystemInputMode(state, selected)) return;
+        if (unreported) {
+            NSString *target = [controller schemeForSelectedInputMode:selected switchedIn:state.switchedIn];
+            msime_macos_diagnostic_writef("input_mode_activation mode=%s scheme=%s target=%s switched_in=%d left=%s", selected.pathExtension.UTF8String ?: "",
+                                          controller->_appearance.inputScheme.UTF8String ?: "", target.UTF8String ?: "-", state.switchedIn ? 1 : 0,
+                                          state.left ? state.left.pathExtension.UTF8String : "-");
+            [controller switchToSelectedInputModeScheme:target];
+        }
         [controller syncSystemInputModeForClient:client];
     });
 }
@@ -5806,29 +5818,12 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     const BOOL reportConfirmsEnglishToChineseSwitch = englishToChineseModeSwitchPending &&
         !switchedIn && mode == MSIMEInputMode::Chinese;
     _englishToChineseModeSwitchPending = NO;
-    // 切进后报告的入口不是离开时的那个，是用户从别的输入源直接选了它，方案照它走（MSIMEReportReturnsToLeftInputMode）。
-    const BOOL returnedToLeftMode = MSIMEReportReturnsToLeftInputMode(state, switchedIn, value);
-    // 确知是回到离开时的入口时，哪个入口都不改方案（MSIMEReportRepeatsLeftInputMode）。设置里存的中文方案自己的入口没加进系统列表、报告的又是唯一可选的中文入口时，以存的方案为准（MSIMEReportIsOnlyChineseEntryIn，#11911）：在中文方案上不改，在 日、한、越、藏 上回到 lastChineseScheme。
-    NSString *target =
-        reportConfirmsEnglishToChineseSwitch || MSIMEReportRepeatsLeftInputMode(state, switchedIn, value) ? nil :
-        MSIMEReportIsOnlyChineseEntryIn(MSIMEEditionInfo(), scheme, _appearance.lastChineseScheme, value, [self inputModeAvailability])
-            ? (MSIMESchemeIsLanguageScheme(scheme) ? _appearance.lastChineseScheme : nil)
-            : MSIMESchemeForReportedInputMode(mode, scheme, _appearance.lastChineseScheme, [self inputModeAvailability], returnedToLeftMode);
-    // A mode whose scheme cannot run here (粤, 注 or 笔 without its dictionary) leaves the scheme alone. Adopting it only made the Engine fall back to the Chinese scheme used before it, so the menu bar said 粤 while the keys typed that scheme - shuangpin, for one user who had never picked Cantonese. The mode can be selectable without the dictionary: on macOS 27.0.1 the system turned 粤 on by itself after --register-input-source enabled the bundle, and it came back each time the user removed it.
-    if (target && !MSIMEInputSchemeAvailable(target, [self inputSchemeHostOptions])) target = nil;
+    NSString *target = reportConfirmsEnglishToChineseSwitch ? nil : [self schemeForSelectedInputMode:value switchedIn:switchedIn];
     // 诊断日志记下每一次被采纳的报告和它把方案改成了什么：模式名和方案名都不是输入内容。方案莫名其妙被改掉时（开盖后变成注音），这一行能说明是谁报告了哪个模式。
     msime_macos_diagnostic_writef("input_mode_report mode=%s action=adopted scheme=%s target=%s switched_in=%d left=%s", reported.UTF8String ?: "",
                                   scheme.UTF8String ?: "", target.UTF8String ?: "-", switchedIn ? 1 : 0,
                                   state.left ? state.left.pathExtension.UTF8String : "-");
-    if (target && ![target isEqualToString:scheme]) {
-        // The composition was typed under the old scheme and a scheme switch discards it, so commit it first, as the scheme menu does. A Korean syllable is text the user already wrote.
-        if (_session && _activeClient && [_view[@"editing_text"] length]) {
-            NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
-            if (finished) [self apply:finished];
-        }
-        _appearance.inputScheme = target;
-        [self applyPreferencesToSessionNow];
-    }
+    [self switchToSelectedInputModeScheme:target];
     const BOOL english = _appearance.englishMode;
     // 切进水杉后的第一次报告是系统落在了哪个入口上（通常是方案自己的「五」「双」或「中」），不是用户在水杉里选了中文，所以它不把英文改回中文：中英状态按激活时算出的起点走（应用规则，再是 default_ime_mode），和其它平台切进输入法时按默认模式重新起步一致。以前这次报告一律当成选中文，设了默认英文的人每次切进来都是中文，全局范围下此后每个新焦点也都是中文；它还会顶掉这个应用的英文规则。报告的是「英」时照样进英文，那是用户在输入菜单里明确选的。
     [self setEnglishInputMode:mode == MSIMEInputMode::English || (switchedIn && english) showHUD:NO];
@@ -5839,6 +5834,33 @@ static NSUInteger MSIMEAdaptiveHighlightIndex(NSArray<NSDictionary *> *entries, 
     [self syncSystemInputModeForClient:sender];
     if (english != _appearance.englishMode) [self showCurrentInputModeHUD];
     else if (![scheme isEqual:_appearance.inputScheme]) [self showInputSchemeHUD];
+}
+// 系统里选中的本 bundle 入口 `value` 要把方案换成什么，nil 表示不动方案。系统的模式报告和激活后的校准（scheduleSystemInputModeSyncForClient:）都按这一套规则走，`switchedIn` 是切进水杉后还没见到用户选择时读到的 MSIMESystemInputModeState::switchedIn。
+- (NSString *)schemeForSelectedInputMode:(NSString *)value switchedIn:(BOOL)switchedIn {
+    const MSIMESystemInputModeState &state = MSIMESharedSystemInputModeState();
+    NSString *scheme = _appearance.inputScheme;
+    // 切进后报告的入口不是离开时的那个，是用户从别的输入源直接选了它，方案照它走（MSIMEReportReturnsToLeftInputMode）。
+    const BOOL returnedToLeftMode = MSIMEReportReturnsToLeftInputMode(state, switchedIn, value);
+    // 确知是回到离开时的入口时，哪个入口都不改方案（MSIMEReportRepeatsLeftInputMode）。设置里存的中文方案自己的入口没加进系统列表、报告的又是唯一可选的中文入口时，以存的方案为准（MSIMEReportIsOnlyChineseEntryIn，#11911）：在中文方案上不改，在 日、한、越、藏 上回到 lastChineseScheme。
+    NSString *target =
+        MSIMEReportRepeatsLeftInputMode(state, switchedIn, value) ? nil :
+        MSIMEReportIsOnlyChineseEntryIn(MSIMEEditionInfo(), scheme, _appearance.lastChineseScheme, value, [self inputModeAvailability])
+            ? (MSIMESchemeIsLanguageScheme(scheme) ? _appearance.lastChineseScheme : nil)
+            : MSIMESchemeForReportedInputMode(MSIMEInputModeForID(value), scheme, _appearance.lastChineseScheme, [self inputModeAvailability], returnedToLeftMode);
+    // A mode whose scheme cannot run here (粤, 注 or 笔 without its dictionary) leaves the scheme alone. Adopting it only made the Engine fall back to the Chinese scheme used before it, so the menu bar said 粤 while the keys typed that scheme - shuangpin, for one user who had never picked Cantonese. The mode can be selectable without the dictionary: on macOS 27.0.1 the system turned 粤 on by itself after --register-input-source enabled the bundle, and it came back each time the user removed it.
+    if (target && !MSIMEInputSchemeAvailable(target, [self inputSchemeHostOptions])) target = nil;
+    return target;
+}
+// 把方案换成 schemeForSelectedInputMode:switchedIn: 给出的 `target`，nil 或与当前方案相同时什么也不做。
+- (void)switchToSelectedInputModeScheme:(NSString *)target {
+    if (!target || [target isEqualToString:_appearance.inputScheme]) return;
+    // The composition was typed under the old scheme and a scheme switch discards it, so commit it first, as the scheme menu does. A Korean syllable is text the user already wrote.
+    if (_session && _activeClient && [_view[@"editing_text"] length]) {
+        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+        if (finished) [self apply:finished];
+    }
+    _appearance.inputScheme = target;
+    [self applyPreferencesToSessionNow];
 }
 - (void)selectChineseMode:(id)sender {
     (void)sender;

@@ -29,6 +29,8 @@ Status: implemented
 
 激活校准先到时的顺序是：校准记下「中」，同步按双拼选回「双」，随后到达的「中」报告与记录不同、被采纳，按 `left` 判为用户的选择，方案改成全拼，同步再把菜单栏选回「中」。结果和报告先到时相同，菜单栏中间会经过一次「双」。
 
+激活校准先到、而报告的是方案自己的入口（五、双、粤、注、笔、日等）时，以前这份报告丢了：校准把 TIS 此刻选中的「五」记进 `current`，同步按全拼把菜单栏选回「中」（「中」不在列表里时选不上，菜单栏停在「五」），随后到达的「五」报告与记录相同，按 `repeat` 忽略，方案留在全拼。用户在系统设置里加了「水杉五笔」、从 ABC 直接选它，打出来的仍是拼音，只有到水杉设置里点五笔才生效；诊断日志里每次切进都是 `input_mode_report mode=Wubi action=ignored reason=repeat`。现在校准记下的入口还没有报告处理过（与记录前的 `current` 不同，且不在系统恢复输入源的那段时间里）时，按报告的同一套规则决定方案（`schemeForSelectedInputMode:switchedIn:`，内含 `MSIMEReportRepeatsLeftInputMode`、`MSIMEReportIsOnlyChineseEntryIn` 和词库可用性检查），再同步菜单栏，并记一行 `input_mode_activation`。校准不清 `switchedIn`、不动中英状态，所以随后到达的报告仍按切回处理，[macOS 恢复输入源时避免重复选择模式](2026-10-21-macos-input-source-restore.md) 里「当前已稳定在本输入法的另一模式时按当前应用的状态同步」对「英」的处理不变。
+
 诊断日志同时补了两行，用来对照一份报告是控制器自己请求的回执还是用户选的：`input_mode_select mode=…` 记控制器每一次请求系统换入口，`input_mode_report … action=ignored reason=own_select|repeat` 记没有被采纳的报告；被采纳的那一行多了 `left=`。模式名不是输入内容。
 
 ## Historical audit
@@ -36,7 +38,7 @@ Status: implemented
 - [macOS 从别的输入源切回时报告「中」不改双拼](2026-10-29-macos-keep-shuangpin-on-return.md)：决定被收窄。那篇对切进后的「中」一律保留方案，本篇只在报告的入口就是离开时的入口（或未知）时保留。`switchedIn` 的设置和清除时机、两种到达顺序的处理都沿用。
 - [macOS 英文按 Shift 回中文时保留双拼](2026-11-10-macos-shift-keeps-shuangpin.md)：部分重叠，不改。那篇的一次性标记只在 `switchedIn` 为假时起作用。
 - [macOS 切进水杉时的模式报告不把默认英文改回中文](2026-11-10-macos-switch-in-keeps-starting-english.md)：部分重叠，不改。中英状态继续看原始的 `switchedIn`。
-- [macOS 恢复输入源时避免重复选择模式](2026-10-21-macos-input-source-restore.md)：无关。激活校准的时序不变。
+- [macOS 恢复输入源时避免重复选择模式](2026-10-21-macos-input-source-restore.md)：部分重叠。激活校准的时序和对「中」「英」的同步不变；校准先于报告时，方案入口的选择改由校准按报告规则采纳，见 Decision。
 
 ## Alternatives considered
 
@@ -57,5 +59,7 @@ Status: implemented
 ## Testing
 
 `platforms/macos/tests/input/InputModeIdentifiersTest.mm`：离开时记下入口、连着离开两次不冲掉、新记录为 nil；离开时在「双」后切进报告「中」改用全拼（报告先到和校准先到两种顺序）；离开时在「中」回来还是「中」方案不动；`MSIMEReportRepeatsLeftInputMode` 只在入口已知且相同时为真。把判断换回旧规则时新断言失败。
+
+`ShortcutTest.mm` 的 `TestActivationAdoptsPickedSchemeMode`：校准先于报告时，离开在「中」、从 ABC 选「五」改成五笔且不选回「中」，随后的报告不再改动；进程刚启动落在「五」同样是五笔；离开时就在「五」、方案是全拼时不改并选回「中」；系统恢复输入源期间不改；报告先到时校准不重复处理。去掉校准里的采纳时第一条断言失败。
 
 `platforms/macos/tests/input/ShortcutTest.mm` 的 `TestSwitchBackKeepsShuangpin` 在真实控制器上跑同样三种情况，以及「离开时在双、方案是全拼、回来报告双」保持全拼、按过键后再报告双改成双拼；原有几段显式写明 `left` 未知。
