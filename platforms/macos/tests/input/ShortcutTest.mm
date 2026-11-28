@@ -3776,6 +3776,116 @@ static void TestNestedCommitKeepsTheNewerComposition() {
     [defaults removePersistentDomainForName:suite];
 }
 
+// 上屏前做完停顿重解的会话：第一次回一个新代次的视图（重解做了事），之后回已经做完。键按到达会话的顺序记进 calls。
+@interface PauseRerankOrderSession : ShortcutSession
+@property(nonatomic, copy) NSDictionary *finishedView;
+@end
+@implementation PauseRerankOrderSession
+- (NSDictionary *)finishPauseRerankWithError:(NSError **)error {
+    (void)error;
+    ++self.finishPauseRerankCalls;
+    [self recordCall:@"finish"];
+    NSDictionary *view = self.finishedView;
+    self.finishedView = nil;
+    if (!view) return @{@"status":@"done", @"moved":@NO, @"current":@YES, @"deferred":@YES};
+    return @{@"status":@"done", @"moved":@YES, @"deferred":@YES, @"view":view};
+}
+- (NSDictionary *)typeASCII:(uint8_t)ascii shift:(BOOL)shift error:(NSError **)error {
+    [self recordCall:[NSString stringWithFormat:@"type:%c", (char)ascii]];
+    return [super typeASCII:ascii shift:shift error:error];
+}
+@end
+
+// 每个对客户端的同步调用里，IMK 都可能处理下一个已经排着的键；这里在第一个同步调用里送进那个键。
+@interface KeyOrderClient : ShortcutClient
+@property(nonatomic, copy) void (^onSynchronousCall)(void);
+@end
+@implementation KeyOrderClient
+- (void)serviceQueuedKey {
+    void (^queued)(void) = self.onSynchronousCall;
+    self.onSynchronousCall = nil;
+    if (queued) queued();
+}
+- (NSRange)selectedRange {
+    const NSRange range = [super selectedRange];
+    [self serviceQueuedKey];
+    return range;
+}
+- (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
+    NSAttributedString *text = [super attributedSubstringFromRange:range];
+    [self serviceQueuedKey];
+    return text;
+}
+- (NSDictionary *)attributesForCharacterIndex:(NSUInteger)index lineHeightRectangle:(NSRect *)rect {
+    NSDictionary *attributes = [super attributesForCharacterIndex:index lineHeightRectangle:rect];
+    [self serviceQueuedKey];
+    return attributes;
+}
+- (void)insertText:(id)text replacementRange:(NSRange)range {
+    [super insertText:text replacementRange:range];
+    [self serviceQueuedKey];
+}
+- (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)range {
+    [super setMarkedText:text selectionRange:selection replacementRange:range];
+    [self serviceQueuedKey];
+}
+@end
+
+// #11517：快速打字时先按的键要先到会话。空格和组字中的标点上屏前要做完停顿重解，做完的视图以前经 apply: 写进标记文字、重画候选窗，这两步都是对客户端的同步调用；后一个键在里面先进了组字，空格或标点再上屏的就是带着它的组字，顺序颠倒。
+static void TestPauseRerankFinishKeepsKeyOrder() {
+    NSString *suite = [@"msime.pause-rerank-order." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    appearance.englishMode = NO;
+    appearance.smartPunctuation = NO;
+    appearance.pairedPunctuation = NO;
+    NSDictionary *(^composing)(NSString *, NSNumber *) = ^NSDictionary *(NSString *text, NSNumber *generation) {
+        return @{@"focused":@YES, @"session":@1, @"generation":generation, @"editing_text":text, @"preedit":text,
+                 @"caret_position":@(text.length),
+                 @"candidates":@[@{@"text":@"你好", @"highlighted":@YES, @"id":@{@"session":@1, @"generation":generation, @"index":@0}}]};
+    };
+    NSEvent *(^key)(unsigned short, NSString *) = ^NSEvent *(unsigned short code, NSString *characters) {
+        return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0
+                                 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
+    };
+    // 候选窗开着的空格、候选窗没画出来的空格、组字中的逗号。
+    for (NSDictionary *scenario in @[
+        @{@"code":@49, @"characters":@" ", @"visible":@YES},
+        @{@"code":@49, @"characters":@" ", @"visible":@NO},
+        @{@"code":@43, @"characters":@",", @"visible":@NO}
+    ]) {
+        @autoreleasepool {
+            ModeController *controller = [ModeController alloc];
+            PauseRerankOrderSession *session = [PauseRerankOrderSession new];
+            KeyOrderClient *client = [KeyOrderClient new];
+            TestCandidatePanel *panel = [TestCandidatePanel new];
+            panel.visible = [scenario[@"visible"] boolValue];
+            [controller setValue:appearance forKey:@"appearance"];
+            [controller setValue:session forKey:@"session"];
+            [controller setValue:client forKey:@"activeClient"];
+            [controller setValue:panel forKey:@"panel"];
+            [controller setValue:composing(@"nihao", @7) forKey:@"view"];
+            session.finishedView = composing(@"nihao", @8);
+            session.nextTransition = @{@"handled":@YES, @"commit":NSNull.null, @"view":composing(@"w", @9)};
+            __weak ModeController *weakController = controller;
+            __weak KeyOrderClient *weakClient = client;
+            client.onSynchronousCall = ^{ [weakController handleEvent:key(13, @"w") client:weakClient]; };
+            const unsigned short code = (unsigned short)[scenario[@"code"] unsignedIntegerValue];
+            assert([controller handleEvent:key(code, scenario[@"characters"]) client:client]);
+            NSString *outer = code == 49 ? [NSString stringWithFormat:@"command:%u", MSIME_COMMIT_CANDIDATE] : @"type:,";
+            const NSUInteger finished = [session.calls indexOfObject:@"finish"];
+            const NSUInteger committed = [session.calls indexOfObject:outer];
+            const NSUInteger nested = [session.calls indexOfObject:@"type:w"];
+            assert(finished != NSNotFound && committed != NSNotFound && nested != NSNotFound);
+            // 重解做完之后、这个键交给会话之前，客户端一次都没被调用，后一个键只能排在它后面。
+            assert(finished < committed && committed < nested);
+            assert(client.onSynchronousCall == nil);
+            if (MSIMEFocusedController == controller) MSIMEFocusedController = nil;
+        }
+    }
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 static void TestCandidatePanelSingleOwner() {
     ModeController *stale = [ModeController alloc];
     ModeController *current = [ModeController alloc];
@@ -15697,6 +15807,7 @@ int main(int argc, char **argv) {
         }
         if (argc == 2 && std::string(argv[1]) == "--nested-commit") {
             TestNestedCommitKeepsTheNewerComposition();
+            TestPauseRerankFinishKeepsKeyOrder();
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--translation-font-size") {

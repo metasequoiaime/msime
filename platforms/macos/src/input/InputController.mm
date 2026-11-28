@@ -4431,12 +4431,17 @@ static const NSTimeInterval kPauseRerankSliceGap = 0.001;
     [NSRunLoop.mainRunLoop addTimer:_settledTimer forMode:NSRunLoopCommonModes];
 }
 
-/// 上屏高亮项的键（空格、组字中的标点）交给会话之前调用：延后到停顿的逐键模型对当前组字的重解还没做完时，先当场做完、重画，再照新画出的高亮项上屏（host-api 的 `msime_client_finish_pause_rerank`）。不做的话，打完拼音马上按空格的人上屏的是不带模型的首选：2026-11-16 照这个宿主的空格回放 typing-chat-v1 test 的 220 段，打完立刻上屏只对 140 段，等重解完再上屏对 186 段。已经解完、没挂延后的模型或没有组字时立即返回。数字键和点选照用户看到的那一行上屏，不走这里。
-- (void)finishPauseRerankBeforeCommit {
-    if (!_session || !_activeClient || _focusPending || ![_view[@"editing_text"] length]) return;
+/// 上屏高亮项的键（空格、组字中的标点）交给会话之前调用：延后到停顿的逐键模型对当前组字的重解还没做完时，先当场做完，再照会话里新的高亮项上屏（host-api 的 `msime_client_finish_pause_rerank`）。不做的话，打完拼音马上按空格的人上屏的是不带模型的首选：2026-11-16 照这个宿主的空格回放 typing-chat-v1 test 的 220 段，打完立刻上屏只对 140 段，等重解完再上屏对 186 段。已经解完、没挂延后的模型或没有组字时立即返回 NO。数字键和点选照用户看到的那一行上屏，不走这里。
+///
+/// 做完的视图只记进 `_view`，不写标记文字、不重画候选窗，返回 YES 表示记了新视图，调用方随后的上屏会把文档和候选窗一起更新。写标记文字和重画时读光标都是对客户端的同步调用，IMK 会在里面处理下一个已经排着的键：先打 `nihao`、紧接着按空格和 `w`，`w` 会在空格交给会话之前进到组字里，上屏的是 `nihaow` 的首选，顺序颠倒（#11517）。
+- (BOOL)finishPauseRerankBeforeCommit {
+    if (!_session || !_activeClient || _focusPending || ![_view[@"editing_text"] length]) return NO;
     NSDictionary *finished = [_session finishPauseRerankWithError:nil];
     [self notePauseRerankReply:finished session:_session];
-    if ([finished[@"view"] isKindOfClass:NSDictionary.class]) [self apply:finished];
+    NSDictionary *view = finished[@"view"];
+    if (![view isKindOfClass:NSDictionary.class]) return NO;
+    _view = view;
+    return YES;
 }
 
 - (void)synchronizeCloudCandidates {
@@ -8798,8 +8803,14 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
                                  NSEventModifierFlagOption | NSEventModifierFlagCommand))) {
         // Space commits the highlighted item shown by the panel. Keep the
         // identity fence symmetric with numeric and mouse selection.
-        // 先把停顿重解做完：重画之后，读到的就是带着模型排出的高亮项。
-        [self finishPauseRerankBeforeCommit];
+        // 先把停顿重解做完。做完了就照会话里新的高亮项上屏：候选窗还画着重解之前的代次，它的身份会被当成过期；为它重画要同步读客户端的光标，下一键会在里面越过这个空格。
+        // 选了释义列时上屏的是用户看着的那一项的释义，不是中文，不先重解：重解会换掉高亮项，新代次也还没有释义。
+        if (_armedGlossColumn == 0 && [self finishPauseRerankBeforeCommit]) {
+            NSDictionary *committed = [_session command:MSIME_COMMIT_CANDIDATE error:nil];
+            if (committed) [self apply:committed];
+            else [self renderCandidates];
+            return YES;
+        }
         NSDictionary *identifier = MSIMERenderedHighlightedCandidateIdentity(_panel);
         if (identifier) {
             if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
@@ -8953,8 +8964,9 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         case 125: if (![_appearance navigationEnabled:@"arrows"]) return _panel.isVisible; command = MSIME_NEXT_CANDIDATE; break;
     }
     NSDictionary *transition = nil;
-    // 候选窗没画出来时的空格同样上屏首选（MSIME_COMMIT_CANDIDATE），先把停顿重解做完。
-    if (command == MSIME_COMMIT_CANDIDATE && event.keyCode == 49) [self finishPauseRerankBeforeCommit];
+    // 候选窗没画出来时的空格同样上屏首选（MSIME_COMMIT_CANDIDATE），先把停顿重解做完。做完的视图这时只在 `_view` 里，会话没接下这个键时要补画一次候选窗。
+    BOOL finishedPauseRerank = NO;
+    if (command == MSIME_COMMIT_CANDIDATE && event.keyCode == 49) finishedPauseRerank = [self finishPauseRerankBeforeCommit];
     if (command != UINT32_MAX) transition = [self candidateCommand:command];
     else if (event.characters.length == 1 && [event.characters characterAtIndex:0] <= 127) {
         const BOOL shift = (event.modifierFlags & NSEventModifierFlagShift) != 0;
@@ -8962,10 +8974,14 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         if (MSIMESchemeTrait(_view, msime::mac::scheme::FoldsLetterCase)) typed = (unichar)msime::mac::KoreanKeyLetter((char)typed, shift);
         _punctuationKeyInFlight = MSIMEASCIIPunctuation(typed) ? typed : 0;
         // 组字中的标点连同首选一起上屏（`nihao,` 写出「你好，」），与空格一样先把停顿重解做完。拼写用的符号（注音的声调键、双拼的 `;`）是输入，不是上屏。
-        if (_punctuationKeyInFlight && !MSIMESpellingSymbol(_view, typed)) [self finishPauseRerankBeforeCommit];
+        if (_punctuationKeyInFlight && !MSIMESpellingSymbol(_view, typed)) finishedPauseRerank = [self finishPauseRerankBeforeCommit];
         transition = [_session typeASCII:(uint8_t)typed shift:shift error:nil];
     }
-    if (!transition) { _punctuationKeyInFlight = 0; return NO; }
+    if (!transition) {
+        _punctuationKeyInFlight = 0;
+        if (finishedPauseRerank) [self renderCandidates];
+        return NO;
+    }
     [self apply:transition];
     // A punctuation key is the only route that arms the space conversion, as in the reference, whose punctuation handler is the one caller: a candidate picked with Space or a digit never arms, even when its text ends in a mark.
     if (command == UINT32_MAX && event.characters.length == 1 && MSIMEASCIIPunctuation([event.characters characterAtIndex:0]))

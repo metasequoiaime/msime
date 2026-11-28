@@ -22,7 +22,7 @@ macOS 0.60.0 上打字时偶尔「掉帧、小卡一下」。2026-11-16 这台�
 - **macOS 输入法在会话选项里写 `pause_rerank`。** `MSIMESessionOptions` 和 `phrase_preedit` 等宿主能力写在一起，选项文件里写 `false` 也照样打开。
 - **桌面上写了 `pause_rerank` 的宿主，ONNX 模型一律延后到停顿**（host-api `defers_to_pause` 的 `PAUSE_HOST_DEFERS_ON_DESKTOP`）。手机上照旧按一页超过 `PAUSE_HOST_KEYSTROKE_PAGE_MS`（4 ms）才延后。挂不挂、挂哪一档、池多大的规则都不变，变的只是模型在什么时候跑。Windows、Linux 不写 `pause_rerank`，行为不变。
 - **在打字的空隙里分片重解。** 会话挂着延后的模型时，`scheduleSettledRerank` 停顿 `kPauseRerankDelay`（40 ms）就调 `msime_client_start_settled_rerank`；其余会话（后台的 24M 落定模型）仍等 `kSettledRerankDelay`（150 ms），那个模型一次要一两百毫秒，提前起跑只会白算。宿主靠回复里的 `deferred` 区分两条路（host-api 的 `with_deferred`，`msime_client_start_settled_rerank` 和 `msime_client_finish_pause_rerank` 的每个回复都带），记在 `_deferredRerankSession`，换了会话就回到 150 ms，直到新会话的回复说明。返回 `continue` 时用 `kPauseRerankSliceGap`（1 ms）的计时器排下一片，run loop 先处理这期间到达的按键，按键最多等一片。返回里带 `view` 就应用，不只在 `moved` 时：每一片都推进候选代次，不收新视图的话，候选窗上画的是旧代次的身份，空格和数字键照它选词时会被会话当成过期而吞掉。
-- **上屏首选之前把重解做完。** 新接口 `msime_client_finish_pause_rerank`：会话挂着延后的模型时，一片片把当前组字解完，代次前进就交回新 `view`；没挂时回 `{"status":"none"}`，不碰后台的落定重排。macOS 在空格（候选窗可见时按画出的高亮项身份选词、不可见时 `MSIME_COMMIT_CANDIDATE`）和组字中的标点之前调 `finishPauseRerankBeforeCommit`，应用新视图后再照新画出的高亮项上屏。数字键和点选照用户看到的那一行上屏，不调。
+- **上屏首选之前把重解做完。** 新接口 `msime_client_finish_pause_rerank`：会话挂着延后的模型时，一片片把当前组字解完，代次前进就交回新 `view`；没挂时回 `{"status":"none"}`，不碰后台的落定重排。macOS 在空格和组字中的标点之前调 `finishPauseRerankBeforeCommit`，做完时只记下新视图、不写客户端，照会话里新的高亮项上屏，见[上屏前做完停顿重解时不碰客户端](2026-11-28-macos-pause-rerank-finish-key-order.md)。数字键和点选照用户看到的那一行上屏，不调。
 - **延后的模型照样给上屏后联想排序。** runtime 的 `orders_prediction` 和 `order_prediction` 通过 `prediction_scorer` 认按键上的打分器，没有时认延后的那一个；`set_deferred_scorer` 同时下发联想候选池开关。不这样的话，把模型从按键上挪走以后，联想就不再按模型排。手机上延后的那一档不报在预算之内，照旧不排。
 
 ## 测量
