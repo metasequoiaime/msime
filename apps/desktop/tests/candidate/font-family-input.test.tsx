@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { FontFamilyInput } from "../../../../packages/ui/src/candidate/font-family-input";
+import { cssValue } from "../support/css-value";
 
 afterEach(cleanup);
 
@@ -99,7 +100,7 @@ test("字段下方放不下时菜单往上弹", () => {
   fireEvent.focus(input);
   const menu = screen.getByRole("listbox", { name: "合成字体可用字体" }).parentElement!;
   expect(menu.style.top).toBe(`${window.innerHeight - 64}px`);
-  expect(menu.style.translate).toBe("0 -100%");
+  expect(menu.style.translate).toBe(cssValue("translate", "0 -100%"));
   expect(menu.style.maxHeight).toBe(`${Math.min(240, window.innerHeight - 72)}px`);
 });
 

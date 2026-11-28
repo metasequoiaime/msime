@@ -16,6 +16,12 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+// Timers still pending once the window has run its next rendering update. jsdom 31 schedules that update on the (faked) `setInterval` whenever styles change while an element has focus, to re-check whether it is still focusable, and stops it once the check has run; the sheet form autofocuses its target field, so its timer would otherwise be counted with the form's own.
+function pendingTimers(): number {
+  act(() => vi.advanceTimersByTime(Math.ceil(1000 / 60)));
+  return vi.getTimerCount();
+}
+
 function VerificationForm({
   client,
   variant,
@@ -102,7 +108,7 @@ test.each([
       name: variant === "page" ? "获取验证码" : "发送验证码",
     }) as HTMLButtonElement;
     expect(send.disabled).toBe(false);
-    expect(vi.getTimerCount()).toBe(0);
+    expect(pendingTimers()).toBe(0);
     await act(async () => {
       fireEvent.click(send);
     });
@@ -110,6 +116,6 @@ test.each([
     expect(screen.getByRole("textbox", { name: "6 位验证码" })).not.toBeNull();
     expect(screen.getByRole("button", { name: "60 秒后可重新发送" })).not.toBeNull();
     view.unmount();
-    expect(vi.getTimerCount()).toBe(0);
+    expect(pendingTimers()).toBe(0);
   },
 );

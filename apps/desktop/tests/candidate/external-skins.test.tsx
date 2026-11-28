@@ -30,6 +30,7 @@ import {
   type Snapshot,
 } from "@msime/ui";
 import { utilityCss } from "../support/utility-css";
+import { cssValue } from "../support/css-value";
 
 // 这里渲染的设置页不带宿主信息，轮播不列只在 iOS 提供的「原生」。
 const themeCatalog = offeredThemeCatalog(undefined);
@@ -269,10 +270,17 @@ test("the selection bar sheet follows the drawn mode and disappears when cards u
 });
 
 test("missing adopted stylesheets reports fallback without injecting inline styles", async () => {
+  // jsdom 31 implements constructed stylesheets on `Document.prototype`, so the browser without them is simulated by removing the accessor there as well as the per-test stub.
+  const supported = Object.getOwnPropertyDescriptor(Document.prototype, "adoptedStyleSheets");
   Reflect.deleteProperty(document, "adoptedStyleSheets");
-  render(packageCard({ ...sample, candidate: { dark: { showSelectedBar: false }, light: {} } }));
-  await screen.findByText("当前浏览器无法隐藏皮肤的选中条，其余配色照常预览。");
-  expect(screen.getByRole("article").querySelector("style")).toBeNull();
+  Reflect.deleteProperty(Document.prototype, "adoptedStyleSheets");
+  try {
+    render(packageCard({ ...sample, candidate: { dark: { showSelectedBar: false }, light: {} } }));
+    await screen.findByText("当前浏览器无法隐藏皮肤的选中条，其余配色照常预览。");
+    expect(screen.getByRole("article").querySelector("style")).toBeNull();
+  } finally {
+    if (supported) Object.defineProperty(Document.prototype, "adoptedStyleSheets", supported);
+  }
 });
 
 const imageCatalog: SkinCatalog = {
@@ -1544,7 +1552,9 @@ test("canvas card draws the nine-slice panel, its insets and the line gap instea
   expect(panel.style.getPropertyValue("border-image-source")).toBe(
     `url("${skinImageUrl(canvasImageData)}")`,
   );
-  expect(panel.style.getPropertyValue("border-image-slice")).toBe("8 8 8 8 fill");
+  expect(panel.style.getPropertyValue("border-image-slice")).toBe(
+    cssValue("border-image-slice", "8 8 8 8 fill"),
+  );
   expect(panel.style.getPropertyValue("border-image-width")).toBe("10px 6px 14px 7px");
   expect(card.querySelector(".container")?.hasAttribute("data-panel")).toBe(true);
   // 自由挂件按锚点与偏移画在卡片左上角。
