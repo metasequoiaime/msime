@@ -34,6 +34,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         wubi_profile: 0,
         helpcode: false,
         strict_quanpin_helpcode: false,
+        component_filter_backtick: false,
         show_helpcode: true,
         shuangpin_helpcode_modes: msime_engine::ShuangpinHelpcodeModes::default(),
         grid_helpcode: false,

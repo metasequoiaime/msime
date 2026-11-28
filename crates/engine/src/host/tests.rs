@@ -47,6 +47,7 @@ fn options(root: &Path) -> EngineOptions {
         wubi_profile: 0,
         helpcode: false,
         strict_quanpin_helpcode: false,
+        component_filter_backtick: false,
         show_helpcode: true,
         shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes::default(),
         grid_helpcode: false,

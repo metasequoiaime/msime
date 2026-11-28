@@ -969,6 +969,8 @@ impl HostSession {
         let helpcode = helpcode_for_scheme(&preferences, scheme);
         options.helpcode = helpcode.enabled;
         options.strict_quanpin_helpcode = helpcode.strict_filter;
+        // 部件辅助段只有全拼用，任何方案下都读全拼那一份。
+        options.component_filter_backtick = preferences.quanpin_helpcode.component_filter_backtick;
         options.grid_helpcode = helpcode.grid;
         options.precise_nine_key = preferences.touch_nine_key_precise;
         options.show_helpcode = helpcode.show_in_candidate_window;
@@ -2736,6 +2738,7 @@ impl HostOptions {
             wubi_dictionary: wubi,
             helpcode: helpcode.enabled,
             strict_quanpin_helpcode: helpcode.strict_filter,
+            component_filter_backtick: self.preferences.quanpin_helpcode.component_filter_backtick,
             show_helpcode: helpcode.show_in_candidate_window,
             // 双拼专属的触发方式；其它方案给默认值，引擎只在双拼下读它。手改出互斥组合的文档在消费端再归一一次，与 `PreferencesStore::save` 的写入端归一一致。
             shuangpin_helpcode_modes: shuangpin_helpcode_modes(helpcode.modes),
