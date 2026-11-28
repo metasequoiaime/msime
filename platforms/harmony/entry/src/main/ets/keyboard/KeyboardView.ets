@@ -604,6 +604,8 @@ struct KeyboardView {
   /** View 的 `punctuation_marks` 顿号开关：顿号键面跟它画。 */
   @State enumerationCommaBackslash: boolean = true;
   @State enumerationCommaSlash: boolean = false;
+  /** View 的 `punctuation_marks` 里保留英文的键：这些键画 ASCII 面。 */
+  @State preserveEnglish: string = '';
   /** Fullwidth ASCII, mirrored from the session for the panel's 全 tile. */
   @State fullWidth: boolean = false;
   /** Candidate translations, mirrored from the session for the panel's 译 tile and the strip's 译 pill. */
@@ -1178,6 +1180,7 @@ struct KeyboardView {
       this.hollowBrackets = state.hollowBrackets;
       this.enumerationCommaBackslash = state.enumerationCommaBackslash;
       this.enumerationCommaSlash = state.enumerationCommaSlash;
+      this.preserveEnglish = state.preserveEnglish;
       this.engineScheme = state.scheme;
       this.compositionEditing = ReadingRowEditPolicy.keepsExpanded(this.compositionEditing, this.touchReadingRowEditable());
       // 切到粤拼时简繁磁贴改看粤拼自己的字形（`cantonese_simplified_output`），切回来再看全局开关。
@@ -1492,7 +1495,7 @@ struct KeyboardView {
   private typeZhuyinMark(symbol: string): void {
     const chinese: string | undefined = ChineseSymbolFaces.face(
       symbol, this.cornerQuotes, this.hollowBrackets,
-      this.enumerationCommaBackslash, this.enumerationCommaSlash);
+      this.enumerationCommaBackslash, this.enumerationCommaSlash, this.preserveEnglish);
     KeyboardSession.shared.commitThenInsert(
       this.chinesePunctuation && chinese !== undefined ? chinese : symbol);
   }
@@ -3712,7 +3715,7 @@ struct KeyboardView {
     if (this.japanesePunctuationFaces()) return JapaneseSymbolFaces.face(symbol);
     const chinese: string | undefined = ChineseSymbolFaces.face(
       symbol, this.cornerQuotes, this.hollowBrackets,
-      this.enumerationCommaBackslash, this.enumerationCommaSlash);
+      this.enumerationCommaBackslash, this.enumerationCommaSlash, this.preserveEnglish);
     // 韩语、越南语和藏文的标点就是键帽上的 ASCII。
     return !this.english && !this.koreanFace() && !this.vietnameseFace() && !this.tibetanFace()
       && chinese !== undefined

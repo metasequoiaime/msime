@@ -19954,6 +19954,21 @@ group("notices are shown from client-core's answer and their links leave the app
   check(!NoticePolicy.ownPage("https://msime.app"), "a link does not");
 });
 
+group("preserved English keys keep their ASCII faces (contract v7, #11890)", () => {
+  const preserved: string = ChineseSymbolFaces.preserveEnglish({
+    preserve_english_punctuation: ["`", "\\", "'", "/", "ab", "`"],
+  });
+  check(preserved === "`\\'/", "single-character keys are joined once each");
+  check(ChineseSymbolFaces.preserveEnglish(undefined) === "", "a missing set preserves nothing");
+  check(ChineseSymbolFaces.preserveEnglish({ quotes: "curly" }) === "", "nor does a View without the field");
+  check(ChineseSymbolFaces.face("\\", false, false, true, false, preserved) === undefined,
+    "a preserved backslash has no Chinese face");
+  check(ChineseSymbolFaces.face("'", true, false, true, false, preserved) === undefined,
+    "a preserved quote ignores the quote style");
+  check(ChineseSymbolFaces.face('"', true, false, true, false, preserved) === "『", "other keys keep their faces");
+  check(ChineseSymbolFaces.face(",", false, false, true, false, preserved) === "，", "and the comma too");
+});
+
 group("quote and bracket styles change only the faces and pairs of their own keys", () => {
   check(ChineseSymbolFaces.face("'", false, false) === "‘", "the default ' face");
   check(ChineseSymbolFaces.face("'", true, false) === "「", "corner quotes draw 「 on '");
