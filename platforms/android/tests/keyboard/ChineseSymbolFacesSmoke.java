@@ -63,6 +63,16 @@ public final class ChineseSymbolFacesSmoke {
             "slash keeps its ASCII face while disabled by default");
         check(ChineseSymbolFaces.face("\\", true, ChineseSymbolFaces.Marks.DEFAULT).equals("、"),
             "the default marks keep backslash as the ideographic comma key");
+        // 契约第 7 版：View 报告的保留英文的键画 ASCII 面，其余键照旧；日文键面不看这个集合。
+        ChineseSymbolFaces.Marks preserved = ChineseSymbolFaces.Marks.of("corner", "solid", true, false, "`\\'");
+        check(ChineseSymbolFaces.face("`", true, preserved).equals("`")
+                && ChineseSymbolFaces.face("\\", true, preserved).equals("\\")
+                && ChineseSymbolFaces.face("'", true, preserved).equals("'"), "preserved keys keep their ASCII faces");
+        check(ChineseSymbolFaces.face("\"", true, preserved).equals("『")
+                && ChineseSymbolFaces.face(",", true, preserved).equals("，"), "other keys keep their Chinese faces");
+        check(ChineseSymbolFaces.japaneseFace("\\").equals("、"), "Japanese faces ignore the preserved set");
+        check(!new ChineseSymbolFaces.Marks(false, false, true, false, null).preservesEnglish("`"),
+            "a missing set preserves nothing");
         // 日语方案的键面与引擎 policy.json 的 japanese 表逐字一致：键面画什么就上屏什么。
         check(ChineseSymbolFaces.japaneseFace(",").equals("、")
                 && ChineseSymbolFaces.japaneseFace("\\").equals("、"), "Japanese comma and ideographic comma");
