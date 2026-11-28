@@ -5582,6 +5582,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         hollow_brackets: false,
         enumeration_comma_backslash: true,
         enumeration_comma_slash: false,
+        preserve_english_punctuation: msime_engine::PreservedEnglish::NONE,
         frequency_mode: "promote".into(),
         frequency_trigger_count: 1,
         frequency_linear_step: 1,
@@ -10972,6 +10973,7 @@ fn view_reports_the_applied_punctuation_marks() {
             "brackets": "solid",
             "enumeration_comma_backslash": true,
             "enumeration_comma_slash": false,
+            "preserve_english_punctuation": [],
         })
     );
     let before = runtime.view().generation;
@@ -10989,6 +10991,7 @@ fn view_reports_the_applied_punctuation_marks() {
             "brackets": "hollow",
             "enumeration_comma_backslash": true,
             "enumeration_comma_slash": false,
+            "preserve_english_punctuation": [],
         })
     );
 }

@@ -15,6 +15,7 @@ struct PunctuationSettingsView: View {
   @State private var spacing = false
   @State private var quoteStyle = "curly"
   @State private var bracketStyle = "solid"
+  @State private var preserveEnglish: [String] = []
   @State private var saveFailed = false
 
   var body: some View {
@@ -34,6 +35,20 @@ struct PunctuationSettingsView: View {
         .accessibilityIdentifier("bracketStyle")
       } footer: {
         Text("中文标点下输入 ' 和 \" 时的引号、输入 [ ] 时的括号。直角引号：' 出「」，\" 出『』。")
+      }
+      .designRow()
+      Section {
+        NavigationLink {
+          PreserveEnglishPunctuationList(selection: storedPreserveEnglish())
+        } label: {
+          HStack {
+            SettingsOptionLabel(title: "保留英文的标点", info: "选中的键在中文标点下照样输出英文标点，其余键不变")
+            Spacer(minLength: 8)
+            Text(preserveEnglish.isEmpty ? "无" : preserveEnglish.joined(separator: " "))
+              .foregroundStyle(.secondary).lineLimit(1)
+          }
+        }
+        .accessibilityIdentifier("preserveEnglishPunctuation")
       }
       .designRow()
       Section {
@@ -114,6 +129,21 @@ struct PunctuationSettingsView: View {
     }
   }
 
+  /// 共享偏好 `preserve_english_punctuation`：按契约顺序写；空集合等于缺省，从文档里删掉这个键。
+  private func storedPreserveEnglish() -> Binding<[String]> {
+    SharedPreferenceBinding.custom(state: $preserveEnglish, onSave: { saved in
+      saveFailed = !saved
+      if !saved { reload() }
+    }) { document, keys in
+      let ordered = PreserveEnglishPunctuationList.keys.map(\.ascii).filter(keys.contains)
+      if ordered.isEmpty {
+        document.removeValue(forKey: "preserve_english_punctuation")
+      } else {
+        document["preserve_english_punctuation"] = ordered
+      }
+    }
+  }
+
   /// A binding that writes the shared document as it changes; a refused write puts the stored value back so the page never shows a setting the keyboard does not have.
   private func stored<Value>(_ key: String, _ state: Binding<Value>) -> Binding<Value> {
     SharedPreferenceBinding.topLevel(key, state: state) { saved in
@@ -137,5 +167,42 @@ struct PunctuationSettingsView: View {
     // 等于缺省值时文档里没有这两个键，缺键就是弯引号、实心括号。
     quoteStyle = preferences["quote_style"] as? String ?? "curly"
     bracketStyle = preferences["bracket_style"] as? String ?? "solid"
+    // 空集合时文档里没有这个键。
+    preserveEnglish = preferences["preserve_english_punctuation"] as? [String] ?? []
+  }
+}
+
+/// 「保留英文的标点」的逐键选择：标点契约第 7 版 `preserveEnglish` 段的 21 个键，按契约顺序，每行画出这个键和它在中文标点下原本出的字。
+struct PreserveEnglishPunctuationList: View {
+  static let keys: [(ascii: String, chinese: String)] = [
+    (",", "，"), (".", "。"), ("?", "？"), ("!", "！"), (";", "；"), (":", "："), ("(", "（"), (")", "）"),
+    ("[", "【"), ("]", "】"), ("\\", "、"), ("`", "·"), ("$", "￥"), ("^", "……"), ("_", "——"), ("{", "「"),
+    ("}", "」"), ("\"", "“ ”"), ("'", "‘ ’"), ("<", "《"), (">", "》"),
+  ]
+
+  @Binding var selection: [String]
+
+  var body: some View {
+    Form {
+      Section {
+        ForEach(Self.keys, id: \.ascii) { key in
+          Toggle(isOn: Binding(get: { selection.contains(key.ascii) }, set: { on in
+            var next = selection.filter { $0 != key.ascii }
+            if on { next.append(key.ascii) }
+            selection = Self.keys.map(\.ascii).filter(next.contains)
+          })) {
+            HStack(spacing: 12) {
+              Text(key.ascii).font(.body.monospaced()).frame(minWidth: 20, alignment: .leading)
+              Text(key.chinese).foregroundStyle(.secondary)
+            }
+          }
+          .accessibilityLabel("\(key.ascii) 保留英文，原为 \(key.chinese)")
+          .accessibilityIdentifier("preserveEnglish.\(key.ascii)")
+        }
+      }
+      .designRow()
+    }
+    .designPage()
+    .navigationTitle("保留英文的标点").navigationBarTitleDisplayMode(.inline)
   }
 }

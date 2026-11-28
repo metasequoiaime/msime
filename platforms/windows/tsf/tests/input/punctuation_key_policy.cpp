@@ -1,5 +1,6 @@
 #include "../../Global/CandidatePunctuationKeyPolicy.h"
 #include "../../Global/PairedPunctuationHostPolicy.h"
+#include "../../../common/PreservedEnglishPunctuation.h"
 #include <cstdio>
 #include <cstdlib>
 #include <string_view>
@@ -47,6 +48,34 @@ int main() {
     check(PairedPunctuationStepOverCandidate(L'\'', L"「") == L'」', "corner single quote is keyed to its own group");
     check(PairedPunctuationStepOverCandidate(L']', L"〗") == L'〗', "hollow bracket closes");
     check(PairedPunctuationStepOverCandidate(L'[', L"〖") == 0, "hollow opening never steps over");
+
+    // 保留英文的键（#11890）出的是键本身，跨不过补出的后半个。
+    check(PairedPunctuationStepOverCandidate(L'"', L"\"") == 0, "an ascii double quote never steps over");
+    check(PairedPunctuationStepOverCandidate(L'\'', L"'") == 0, "an ascii single quote never steps over");
+    check(PairedPunctuationStepOverCandidate(L')', L")") == 0, "an ascii paren never steps over");
+    {
+        using namespace msime::windows;
+        const std::uint32_t all = preserved_english_mask(",.?!;:()[]\\`$^_{}\"'<>");
+        for (const char key : metasequoia::punctuation_contract::preserve_english) {
+            const wchar_t wide = static_cast<wchar_t>(static_cast<unsigned char>(key));
+            const wchar_t *text = preserved_english_text(wide, all);
+            check(text && text[0] == wide && text[1] == L'\0', "every contract key outputs itself");
+            check(preserved_english_text(wide, 0) == nullptr, "an empty set preserves nothing");
+        }
+        check(preserved_english_text(L'/', all) == nullptr, "the slash is not a preservable key");
+        check(preserved_english_mask("/~a") == 0, "unknown keys are dropped");
+        std::uint32_t parsed = 1;
+        const std::wstring payload = preserved_english_payload(preserved_english_mask("`\\"));
+        check(payload == L"p\\`", "the payload keeps contract order");
+        check(parse_preserved_english(payload.c_str(), payload.size() + 1, parsed) &&
+                  parsed == preserved_english_mask("`\\"), "the payload round-trips");
+        check(parse_preserved_english(L"p", 2, parsed) && parsed == 0, "an empty set round-trips");
+        check(!parse_preserved_english(L"p``", 4, parsed), "a duplicate key is rejected");
+        check(!parse_preserved_english(L"p/", 3, parsed), "a key outside the contract is rejected");
+        check(!parse_preserved_english(L"q", 2, parsed), "another payload is rejected");
+        const wchar_t unterminated[2] = {L'p', L'`'};
+        check(!parse_preserved_english(unterminated, 2, parsed), "an unterminated payload is rejected");
+    }
 
     // GetPunctuation 查表后的换字：只换引号和方头括号，其余原样。
     check(std::wstring_view(StyledPunctuation(L"“", true, false)) == L"『", "corner left double quote");

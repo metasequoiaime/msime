@@ -30,6 +30,7 @@
 #include "ClientAgent.h"
 #include "InputSchemeTraits.h"
 #include "../common/CharacterSetOutputPolicy.h"
+#include "../common/PreservedEnglishPunctuation.h"
 #include "FullscreenForeground.h"
 #include "HostApiDiagnosticLine.h"
 #include "HelpcodeRoot.h"
@@ -807,6 +808,14 @@ msime::windows::TsfLocalConfig tsf_local_config(
   msime::windows::apply_punctuation_marks(config, string_preference("quote_style"),
                                           string_preference("bracket_style"),
                                           preferences.value("traditional_chinese_output", false));
+  // 保留英文的键（#11890）：TIP 自己的标点表对它们出键本身。缺键是空集合。
+  std::string preserved;
+  const auto preserve = preferences.find("preserve_english_punctuation");
+  if (preserve != preferences.end() && preserve->is_array())
+    for (const auto &key : *preserve)
+      if (key.is_string() && key.get_ref<const std::string &>().size() == 1)
+        preserved.push_back(key.get_ref<const std::string &>()[0]);
+  config.preserve_english = msime::windows::preserved_english_mask(preserved);
   return config;
 }
 

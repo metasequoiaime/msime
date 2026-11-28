@@ -26,6 +26,8 @@ export interface PunctuationMarksView {
   brackets?: string;
   enumeration_comma_backslash?: boolean;
   enumeration_comma_slash?: boolean;
+  /** 设成保留英文的键（契约第 7 版 `preserveEnglish` 段），单字符字符串，缺省为空。 */
+  preserve_english_punctuation?: string[];
 }
 
 export class ChineseSymbolFaces {
@@ -36,7 +38,10 @@ export class ChineseSymbolFaces {
     hollowBrackets: boolean,
     enumerationCommaBackslash: boolean = true,
     enumerationCommaSlash: boolean = false,
+    preserveEnglish: string = "",
   ): string | undefined {
+    // 保留英文的键在中文标点下原样上屏，没有中文键面。
+    if (symbol.length === 1 && preserveEnglish.includes(symbol)) return undefined;
     if (cornerQuotes && symbol === "'") return "「";
     if (cornerQuotes && symbol === '"') return "『";
     if (hollowBrackets && symbol === "[") return "〖";
@@ -59,6 +64,19 @@ export class ChineseSymbolFaces {
   /** View 报告顿号 `\` 键开着；缺省开。 */
   static enumerationCommaBackslash(marks: PunctuationMarksView | undefined): boolean {
     return marks === undefined || marks.enumeration_comma_backslash !== false;
+  }
+
+  /** View 报告的保留英文的键拼成一串；缺字段或格式不对的项不算。 */
+  static preserveEnglish(marks: PunctuationMarksView | undefined): string {
+    const keys: string[] | undefined = marks?.preserve_english_punctuation;
+    if (!Array.isArray(keys)) return "";
+    let joined: string = "";
+    for (const key of keys) {
+      if (typeof key === "string" && key.length === 1 && key.charCodeAt(0) < 0x80 && !joined.includes(key)) {
+        joined += key;
+      }
+    }
+    return joined;
   }
 
   /** View 报告顿号 `/` 键开着；缺省关。 */

@@ -31,9 +31,19 @@ public final class ChineseSymbolFaces {
      * 引号与方头括号样式，取自 View 的 `punctuation_marks`（host-api 已按繁体输出开关解析好 `corner_when_traditional`）。直角引号下 `'` 出「」、`"` 出『』，空心括号下 `[` `]` 出〖〗。`enumerationComma*` 是同一 View 的顿号键开关：`\` 缺省开、`/` 缺省关，顿号键面按它们画。
      */
     public record Marks(boolean cornerQuotes, boolean hollowBrackets,
-                        boolean enumerationCommaBackslash, boolean enumerationCommaSlash) {
-        /** 缺省：弯引号、实心括号、顿号只有 `\`，即没有这些偏好时的行为。 */
-        public static final Marks DEFAULT = new Marks(false, false, true, false);
+                        boolean enumerationCommaBackslash, boolean enumerationCommaSlash,
+                        String preserveEnglish) {
+        /** 缺省：弯引号、实心括号、顿号只有 `\`、没有保留英文的键，即没有这些偏好时的行为。 */
+        public static final Marks DEFAULT = new Marks(false, false, true, false, "");
+
+        public Marks {
+            preserveEnglish = preserveEnglish == null ? "" : preserveEnglish;
+        }
+
+        /** 设成保留英文的键（View 的 `preserve_english_punctuation`，契约第 7 版 `preserveEnglish` 段）：中文标点下原样上屏，键面画 ASCII，不跨过补出的后半个。 */
+        public boolean preservesEnglish(String ascii) {
+            return ascii != null && ascii.length() == 1 && preserveEnglish.contains(ascii);
+        }
 
         /** `quotes` 和 `brackets` 是 View 里的取值（"curly"|"corner"、"solid"|"hollow"），不认识的取值按缺省；顿号键按缺省开关。 */
         public static Marks of(String quotes, String brackets) {
@@ -42,8 +52,14 @@ public final class ChineseSymbolFaces {
 
         public static Marks of(String quotes, String brackets,
                                boolean enumerationCommaBackslash, boolean enumerationCommaSlash) {
+            return of(quotes, brackets, enumerationCommaBackslash, enumerationCommaSlash, "");
+        }
+
+        public static Marks of(String quotes, String brackets,
+                               boolean enumerationCommaBackslash, boolean enumerationCommaSlash,
+                               String preserveEnglish) {
             return new Marks("corner".equals(quotes), "hollow".equals(brackets),
-                enumerationCommaBackslash, enumerationCommaSlash);
+                enumerationCommaBackslash, enumerationCommaSlash, preserveEnglish);
         }
     }
 
@@ -80,6 +96,7 @@ public final class ChineseSymbolFaces {
     public static String face(String ascii, boolean chineseMode, Marks marks) {
         if (ascii == null || !chineseMode) return ascii == null ? "" : ascii;
         Marks styled = marks == null ? Marks.DEFAULT : marks;
+        if (styled.preservesEnglish(ascii)) return ascii;
         if (styled.cornerQuotes()) {
             if ("'".equals(ascii)) return "「";
             if ("\"".equals(ascii)) return "『";

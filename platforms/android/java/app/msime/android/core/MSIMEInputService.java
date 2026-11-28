@@ -5586,6 +5586,9 @@ public final class MSIMEInputService extends InputMethodService {
     /** 按下 `ascii` 是否该跨过光标右边那个补好的后半个；是的话返回它，并从记录里弹出。 */
     private String pairedClosingAhead(int ascii) {
         if (pairedPunctuationStack.isEmpty()) return null;
+        // 设成保留英文的键是普通字符，照常上屏 ASCII，不跨过补出的后半个。
+        if (ascii < 0x80 && !japaneseKeyfaces()
+            && punctuationMarks().preservesEnglish(String.valueOf((char) ascii))) return null;
         // 跨过是删掉光标后的字再写回去，读不出光标后的文字时不能确定删的就是那个后半个，宁可放弃这份记录照常输入。
         CharSequence following = textAfterCursor(1);
         if (following == null) {
@@ -6231,7 +6234,7 @@ public final class MSIMEInputService extends InputMethodService {
         return QuickPunctuationPolicy.entries(dedicatedEnglish,
             view == null ? -1 : InputViewValuePolicy.scheme(view, -1),
             view == null ? "none" : InputViewValuePolicy.textOr(view, "local_mode", "none"),
-            uriPeriodPrimary());
+            uriPeriodPrimary(), punctuationMarks().preserveEnglish());
     }
 
     private boolean quickPunctuationVisible() {

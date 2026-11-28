@@ -104,6 +104,8 @@ struct TsfLocalConfig {
   // 中文标点下 '\'' 出「」、'"' 出『』（直角引号），'[' ']' 出〖〗（空心括号）。由 apply_punctuation_marks 从偏好算出。
   bool corner_quotes = false;
   bool hollow_brackets = false;
+  // 中文标点下保留英文的键，位集按标点契约 `preserve_english` 顺序（common/PreservedEnglishPunctuation.h）。由偏好 `preserve_english_punctuation` 算出，缺省为空。
+  std::uint32_t preserve_english = 0;
 };
 // 按偏好 `quote_style`、`bracket_style` 和繁体输出开关设 corner_quotes、hollow_brackets。规则与 crates/client-core/src/punctuation.rs 的 `punctuation_marks` 相同：`corner_when_traditional` 在繁体输出打开时是直角引号，否则是弯引号；不认识的取值按缺省（弯引号、实心括号）。
 void apply_punctuation_marks(TsfLocalConfig &config, std::string_view quote_style, std::string_view bracket_style,

@@ -47,6 +47,7 @@ public final class ExpressionPage extends ReloadingDetailPage {
     private static final String[] BRACKET_STYLES = {"solid", "hollow"};
     private static final String[] BRACKET_STYLE_LABELS = {"实心 【 】", "空心 〖 〗"};
     private static final String BRACKET_STYLE_DESCRIPTION = "中文标点下 [ ] 键输出的括号";
+    private static final String PRESERVE_ENGLISH_DESCRIPTION = "选中的键在中文标点下照样输出英文标点，其余键不变";
     /** 中英混输的触发长度：共享偏好 `mixed_input.minimum_prefix` 的默认值和保存时校验的范围（client-core `MixedInputPreferences`）。 */
     private static final int MIXED_PREFIX_MIN = 1;
     private static final int MIXED_PREFIX_MAX = 8;
@@ -136,6 +137,9 @@ public final class ExpressionPage extends ReloadingDetailPage {
         punctuation.nav("方头括号样式", null, BRACKET_STYLE_LABELS[bracket],
             () -> pickStyle("方头括号样式", BRACKET_STYLE_DESCRIPTION, "bracket_style", BRACKET_STYLES,
                 BRACKET_STYLE_LABELS, bracket)).help(BRACKET_STYLE_DESCRIPTION);
+        List<String> preserved = preservedEnglish(values);
+        punctuation.nav("保留英文的标点", null, PreserveEnglishPunctuation.summary(preserved),
+            () -> pickPreservedEnglish(preserved)).help(PRESERVE_ENGLISH_DESCRIPTION);
         InputFeatureToggle paired = InputFeatureToggle.PAIRED_PUNCTUATION;
         punctuation.toggle("自动补全成对标点", null,
             values.optBoolean(paired.key(), paired.enabledByDefault()),
@@ -278,6 +282,29 @@ public final class ExpressionPage extends ReloadingDetailPage {
         for (int index = 0; index < values.length; index++) {
             String value = values[index];
             sheet.option(labels[index], index == selected, () -> savePreferences(edit -> edit.put(key, value)));
+        }
+        sheet.show();
+    }
+
+    /** 文档里的 `preserve_english_punctuation`，缺键是空集合。 */
+    private static List<String> preservedEnglish(JSONObject values) {
+        JSONArray stored = values.optJSONArray(PreserveEnglishPunctuation.KEY);
+        List<String> keys = new ArrayList<>();
+        if (stored != null) for (int index = 0; index < stored.length(); index++) keys.add(stored.optString(index, ""));
+        return PreserveEnglishPunctuation.selected(keys);
+    }
+
+    /** 逐键开关：点一项就保存并重新打开面板，接着选下一个键；空集合时删掉这个键，与缺省相同。 */
+    private void pickPreservedEnglish(List<String> current) {
+        OptionSheet sheet = new OptionSheet(requireContext(), "保留英文的标点", PRESERVE_ENGLISH_DESCRIPTION);
+        for (PreserveEnglishPunctuation.Key key : PreserveEnglishPunctuation.KEYS) {
+            sheet.option(PreserveEnglishPunctuation.label(key), current.contains(key.ascii()), () -> {
+                List<String> next = PreserveEnglishPunctuation.toggled(current, key.ascii());
+                savePreferences(edit -> {
+                    if (next.isEmpty()) edit.remove(PreserveEnglishPunctuation.KEY);
+                    else edit.put(PreserveEnglishPunctuation.KEY, new JSONArray(next));
+                }, () -> { if (isAdded()) pickPreservedEnglish(next); });
+            });
         }
         sheet.show();
     }

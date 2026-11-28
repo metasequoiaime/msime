@@ -90,8 +90,9 @@ enum SymbolLayerLayout {
   ]
 
   /// 键面为 `face` 的键怎样写出它。数字一律走符号键路径，这样组字时 1-9 能选候选，韩文、越南文或藏文的组字也会在数字之前结束。英文层上所有 ASCII 符号也走这条路径，没有 ASCII 键能打出的符号（… € · £）直接插入。中文层上 Engine 一对一写出的标点在 `chinesePunctuation`（Engine 此刻写中文标点）时发送对应的 ASCII 键，否则与 Android 设计层一样按键面原样插入，键面与写出的字始终一致；Engine 原样放行的 ASCII 键面（`- / @ # % * + = | ~ &`）保留符号键路径，让网址或拼写符号仍能进入组字；其余的按键面原样插入。`japanese` 时改用日文键面对应的 ASCII 键，规则相同。
+  /// 中文键面对应的 ASCII 键设成了保留英文（`preserveEnglish`，View 的 `preserve_english_punctuation`）时，Engine 会把它原样写成 ASCII，键面就对不上了，所以按键面原样插入。
   static func input(for face: String, chinese: Bool, japanese: Bool = false,
-                    chinesePunctuation: Bool) -> Input {
+                    chinesePunctuation: Bool, preserveEnglish: String = "") -> Input {
     let ascii = face.unicodeScalars.count == 1 && face.unicodeScalars.allSatisfy { $0.isASCII && $0.value > 0x20 && $0.value < 0x7F }
     if ascii, let scalar = face.unicodeScalars.first, ("0"..."9").contains(scalar) { return .symbol(face) }
     guard chinese else { return ascii ? .symbol(face) : .literal(face) }
@@ -99,7 +100,9 @@ enum SymbolLayerLayout {
       if let key = japaneseLayerKeys[face] { return chinesePunctuation ? .symbol(key) : .literal(face) }
       return ascii ? .symbol(face) : .literal(face)
     }
-    if let key = chineseLayerKeys[face] { return chinesePunctuation ? .symbol(key) : .literal(face) }
+    if let key = chineseLayerKeys[face] {
+      return chinesePunctuation && !preserveEnglish.contains(where: { String($0) == key }) ? .symbol(key) : .literal(face)
+    }
     return ascii && !engineTranslatedKeys.contains(face) ? .symbol(face) : .literal(face)
   }
 }

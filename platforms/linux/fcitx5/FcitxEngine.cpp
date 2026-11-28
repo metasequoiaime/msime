@@ -3827,7 +3827,12 @@ public:
     if (!marks.is_object()) return {};
     return msime::linux_host::punctuation_marks_from_view(
         marks.value("quotes", std::string{}), marks.value("brackets", std::string{}),
-        marks.value("enumeration_comma_backslash", true), marks.value("enumeration_comma_slash", false));
+        marks.value("enumeration_comma_backslash", true), marks.value("enumeration_comma_slash", false),
+        msime::linux_host::preserve_english_from_view(marks));
+  }
+  // 设成保留英文的键在中文标点下是普通字符：不补全、不跨过、不走成对标点那条路。日文表不看这个集合。
+  bool preservesEnglishKey(char ascii) const {
+    return !msime::linux_host::japanese_punctuation(view_) && viewPunctuationMarks().preserves_english(ascii);
   }
   // The session types Korean: jamo compose in the preedit, punctuation is always half-width ASCII and none of the Chinese punctuation helpers apply. The dedicated English mode keeps its own rules in every scheme.
   bool korean() const {
@@ -3864,8 +3869,9 @@ public:
   // the key is consumed and never reaches Engine.
   bool repeatSmartPunctuationToChinese(char ascii) {
     // 韩文、越南文和藏文的标点总是 ASCII，所以 ".." 仍是 ".."；注音的标点只取自 Engine。
+    // 设成保留英文的键连按也不变成中文标点。
     if (withoutHostPunctuation() || !chinese_punctuation_ || !smart_punctuation_ || !smart_punctuation_repeat_ ||
-        last_smart_punctuation_ != ascii ||
+        preservesEnglishKey(ascii) || last_smart_punctuation_ != ascii ||
         last_smart_punctuation_at_ == std::chrono::steady_clock::time_point{} ||
         composingOrCandidates())
       return false;
@@ -3941,7 +3947,8 @@ public:
                            preceding < 0x80 && std::isalnum(static_cast<int>(preceding)) != 0 &&
                            !composingOrCandidates() && !view_.value("dedicated_english", false) &&
                            view_.value("local_mode", std::string("none")) == "none" &&
-                           msime::linux_host::strict_json_value(view_, "scheme", 0u) != 3 && !withoutHostPunctuation();
+                           msime::linux_host::strict_json_value(view_, "scheme", 0u) != 3 && !withoutHostPunctuation() &&
+                           !preservesEnglishKey(ascii);
     const bool handled =
         apply(msime_client_punctuation_with_context(session_, value, preceding),
               std::move(spaceConvertPreceding), pairMode, ascii);
@@ -4032,6 +4039,7 @@ public:
     if (!pairedPunctuationEnabled()) return false;
     const auto typed = fcitx::Key::keySymToUTF8(sym);
     if (typed.size() != 1) return false;
+    if (preservesEnglishKey(typed[0])) return false;
     const bool japanese = msime::linux_host::japanese_punctuation(view_);
     const auto closing =
         msime::linux_host::paired_closing_for_key(typed[0], fullwidthOutput(), paired_tracker_,
@@ -4062,7 +4070,7 @@ public:
     else if (ascii == '\'' && !composing) mode = Mode::SingleQuote;
     else if (ascii == '(' || ascii == '[' || ascii == '<') mode = Mode::Bracket;
     else if (ascii == '{') mode = Mode::Brace;
-    if (mode == Mode::Unpaired || !pairedPunctuationEnabled()) return std::nullopt;
+    if (mode == Mode::Unpaired || !pairedPunctuationEnabled() || preservesEnglishKey(ascii)) return std::nullopt;
     const auto value = static_cast<uint8_t>(ascii);
     bool handled = punctuation(value, mode);
     if (handled && pair_inserted_ && ascii == '<')

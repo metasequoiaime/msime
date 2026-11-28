@@ -76,10 +76,26 @@ inline constexpr char smart_punctuation_ascii_mark(
   return 0;
 }
 
-inline constexpr bool is_space_conversion_key(
+// 设成保留英文的键（View 的 preserve_english_punctuation）不出中文标点，没有可转回的字。
+inline bool is_space_conversion_key(
     char value, const msime::input::PunctuationMarks &marks) {
+  if (marks.preserves_english(value)) return false;
   return !chinese_punctuation_mark(value).empty() ||
          is_enumeration_comma_key(value, marks);
+}
+
+// View.punctuation_marks.preserve_english_punctuation（单字符字符串数组）拼成一串键；缺字段或格式不对时为空。
+template <class Json>
+inline std::string preserve_english_from_view(const Json &marks) {
+  std::string keys;
+  const auto found = marks.find("preserve_english_punctuation");
+  if (found == marks.end() || !found->is_array()) return keys;
+  for (const auto &entry : *found) {
+    if (!entry.is_string()) continue;
+    const auto &key = entry.template get_ref<const std::string &>();
+    if (key.size() == 1) keys.push_back(key.front());
+  }
+  return keys;
 }
 
 inline constexpr bool is_auto_paired_opening_key(char value) {

@@ -2098,7 +2098,12 @@ msime::linux_host::PunctuationMarks view_punctuation_marks(const Json &view) {
   if (!marks.is_object()) return {};
   return msime::linux_host::punctuation_marks_from_view(
       marks.value("quotes", std::string{}), marks.value("brackets", std::string{}),
-        marks.value("enumeration_comma_backslash", true), marks.value("enumeration_comma_slash", false));
+        marks.value("enumeration_comma_backslash", true), marks.value("enumeration_comma_slash", false),
+        msime::linux_host::preserve_english_from_view(marks));
+}
+// 设成保留英文的键在中文标点下是普通字符：不补全、不跨过、不走成对标点那条路。
+bool preserves_english_key(const Json &view, guint key) {
+  return key <= 0x7f && view_punctuation_marks(view).preserves_english(static_cast<char>(key));
 }
 using msime::linux_host::normalize_punctuation_pair;
 using msime::linux_host::paired_closing_from_text;
@@ -2309,6 +2314,7 @@ bool try_skip_paired_closing(IBusEngine *engine, guint key, guint flags) {
     paired_modifiers |= static_cast<std::uint32_t>(
         msime::linux_host::PairedPunctuationModifier::Mod5);
   const bool japanese = msime::linux_host::japanese_punctuation(s.view);
+  if (!japanese && preserves_english_key(s.view, key)) return false;
   const auto closing = msime::linux_host::paired_closing_for_key(
       static_cast<char>(key), s.fullwidth, s.paired_tracker,
       view_punctuation_marks(s.view).corner_quotes, japanese);
@@ -8389,7 +8395,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     const bool paired_punctuation_enabled =
         s.paired_punctuation &&
         !msime::linux_host::paired_punctuation_excluded_client(
-            s.focused_client);
+            s.focused_client) &&
+        (msime::linux_host::japanese_punctuation(s.view) || !preserves_english_key(s.view, key));
     if (!without_host_punctuation && s.chinese_punctuation && paired_punctuation_enabled &&
         !(flags & (IBUS_CONTROL_MASK | IBUS_MOD1_MASK | IBUS_SUPER_MASK)) &&
         (key == IBUS_quotedbl ||
@@ -8441,7 +8448,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     // 记下的是一个 ASCII 标点字符，键值是无符号的。char 在此平台有符号，直接比较既
     // 触发 -Werror=sign-compare（新编译器上整个 IBus 宿主因此编不出来），也会让任何
     // 高位为 1 的字节提升成一个巨大的无符号数去和键值比。按 unsigned char 取值。
-    if (!without_host_punctuation && s.chinese_punctuation && s.smart_punctuation_repeat &&
+    // 设成保留英文的键不会因为连按或跟在字母数字后而变成中文标点，按普通字符交给下面的标点路线（引擎交回宿主）。
+    const bool preserved_english_key =
+        !msime::linux_host::japanese_punctuation(s.view) && preserves_english_key(s.view, key);
+    if (!without_host_punctuation && !preserved_english_key && s.chinese_punctuation && s.smart_punctuation_repeat &&
         static_cast<guint>(static_cast<unsigned char>(s.last_smart_punctuation)) == key &&
         s.last_smart_punctuation_time != 0 &&
         g_get_monotonic_time() - s.last_smart_punctuation_time <=
@@ -8467,7 +8477,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         return;
         }
     }
-    if (!without_host_punctuation && s.chinese_punctuation && s.smart_punctuation &&
+    if (!without_host_punctuation && !preserved_english_key && s.chinese_punctuation && s.smart_punctuation &&
         is_smart_punctuation_key(key) &&
         s.smart_punctuation_rejected != static_cast<char>(key) &&
         smart_punctuation_preceded_by_ascii_alphanumeric(s)) {

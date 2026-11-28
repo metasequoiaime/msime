@@ -60,6 +60,7 @@ fn options(root: &Path) -> EngineOptions {
         hollow_brackets: false,
         enumeration_comma_backslash: true,
         enumeration_comma_slash: false,
+        preserve_english_punctuation: crate::punctuation::PreservedEnglish::NONE,
         frequency_mode: "promote".into(),
         frequency_trigger_count: 1,
         frequency_linear_step: 1,

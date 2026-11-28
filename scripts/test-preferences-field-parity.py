@@ -66,7 +66,8 @@ RUST_ONLY: dict[str, set[str]] = {
         "touch_fourteen_key_letter_widths",
         # WebDAV 设置同步连接属于本机凭据配置；原生设置页尚未在六端开放，packages/ui 迁移期不新增设置入口。
         "settings_sync_webdav",
-
+        # 按键保留英文（#11890）：规则在 client-core 与 View，六个宿主都读；控件只在 Windows、iOS、Android 的原生标点设置里。packages/ui 迁移期只修缺陷、不加新设置，冻结的 AppKit 回退窗口也不加控件，macOS、Linux、HarmonyOS 的入口随各自原生设置迁移接入，期间经偏好文档设置。
+        "preserve_english_punctuation",
     },
     "KeybindingPreferences": {
         # 单按 Shift 进入大写英文（#11846）只由 macOS 宿主读取；packages/ui 迁移期只修缺陷、不加新设置，冻结的 AppKit 回退窗口也不加控件，界面随 macOS 原生设置迁移接入。

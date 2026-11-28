@@ -50,14 +50,27 @@ public final class InputViewValuePolicy {
         return textOr(object == null ? null : object.opt(key), fallback);
     }
 
-    /** View 的 `punctuation_marks`：引号与方头括号样式。缺失或取值不认识时是缺省（弯引号、实心括号）。 */
+    /** View 的 `punctuation_marks`：引号与方头括号样式、顿号键和保留英文的键。缺失或取值不认识时是缺省（弯引号、实心括号、`\` 出顿号、没有保留英文的键）。 */
     public static app.msime.android.ChineseSymbolFaces.Marks punctuationMarks(JSONObject view) {
         JSONObject marks = view == null ? null : view.optJSONObject("punctuation_marks");
         if (marks == null) return app.msime.android.ChineseSymbolFaces.Marks.DEFAULT;
         return app.msime.android.ChineseSymbolFaces.Marks.of(
             textOr(marks, "quotes", "curly"), textOr(marks, "brackets", "solid"),
             booleanValue(marks, "enumeration_comma_backslash", true),
-            booleanValue(marks, "enumeration_comma_slash", false));
+            booleanValue(marks, "enumeration_comma_slash", false),
+            preserveEnglish(marks.optJSONArray("preserve_english_punctuation")));
+    }
+
+    /** `preserve_english_punctuation` 的单字符键拼成一串；缺失或格式不对的项不算。 */
+    static String preserveEnglish(org.json.JSONArray keys) {
+        if (keys == null) return "";
+        StringBuilder joined = new StringBuilder();
+        for (int index = 0; index < keys.length(); index++) {
+            Object key = keys.opt(index);
+            if (key instanceof String text && text.length() == 1 && text.charAt(0) < 0x80
+                && joined.indexOf(text) < 0) joined.append(text);
+        }
+        return joined.toString();
     }
 
     /** Read the input view's editing text using the shared strict text policy. */

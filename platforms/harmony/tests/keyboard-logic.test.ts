@@ -7511,6 +7511,16 @@ group("quick punctuation prints one glyph and sends another", () => {
     QuickPunctuationPolicy.entries(false, 0, "emoji")[0].face === ",",
     "a local mode falls back to ASCII",
   );
+  // 保留英文的键（#11890）在中文表里画 ASCII，与 Engine 原样写出的字一致；日文表和注音不看这个集合。
+  const preserved: PunctuationEntry[] = QuickPunctuationPolicy.entries(false, 0, "none", ",\\");
+  check(
+    preserved[0].face === "," && preserved[0].input === "," && preserved[4].face === "\\"
+      && preserved[1].face === "。",
+    "a preserved key shows the ASCII it types",
+  );
+  check(QuickPunctuationPolicy.entries(false, 0, "none", "") === chinese, "an empty set keeps the Chinese menu");
+  check(QuickPunctuationPolicy.entries(false, 3, "none", "\\") === japanese, "Japanese ignores the set");
+  check(QuickPunctuationPolicy.entries(false, 6, "none", ",")[0].face === "，", "Zhuyin ignores the set");
 });
 
 group("bounds Harmony smart punctuation editor context", () => {
@@ -19952,6 +19962,21 @@ group("notices are shown from client-core's answer and their links leave the app
   check(NoticePolicy.ownPage("data:text/html;base64,AAAA"), "the card's own page loads in place");
   check(NoticePolicy.ownPage("about:blank"), "as does its blank start");
   check(!NoticePolicy.ownPage("https://msime.app"), "a link does not");
+});
+
+group("preserved English keys keep their ASCII faces (contract v7, #11890)", () => {
+  const preserved: string = ChineseSymbolFaces.preserveEnglish({
+    preserve_english_punctuation: ["`", "\\", "'", "/", "ab", "`"],
+  });
+  check(preserved === "`\\'/", "single-character keys are joined once each");
+  check(ChineseSymbolFaces.preserveEnglish(undefined) === "", "a missing set preserves nothing");
+  check(ChineseSymbolFaces.preserveEnglish({ quotes: "curly" }) === "", "nor does a View without the field");
+  check(ChineseSymbolFaces.face("\\", false, false, true, false, preserved) === undefined,
+    "a preserved backslash has no Chinese face");
+  check(ChineseSymbolFaces.face("'", true, false, true, false, preserved) === undefined,
+    "a preserved quote ignores the quote style");
+  check(ChineseSymbolFaces.face('"', true, false, true, false, preserved) === "『", "other keys keep their faces");
+  check(ChineseSymbolFaces.face(",", false, false, true, false, preserved) === "，", "and the comma too");
 });
 
 group("quote and bracket styles change only the faces and pairs of their own keys", () => {

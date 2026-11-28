@@ -9931,6 +9931,61 @@ fn enumeration_comma_keys_default_omitted_and_roundtrip() {
     assert_eq!(store.load().unwrap(), saved);
 }
 
+// 按键保留英文（#11890）：缺省空集合不写进文档，没有这个键的旧文档按空集合读；合法集合能保存读回，未知键、非 ASCII、重复键在保存时拒绝，磁盘上的文件不变。
+#[test]
+fn preserve_english_punctuation_default_omitted_and_validated_on_save() {
+    let defaults = Preferences::default();
+    assert!(defaults.preserve_english_punctuation.is_empty());
+    let written = serde_json::to_value(&defaults).unwrap();
+    assert!(written.get("preserve_english_punctuation").is_none());
+    assert!(serde_json::from_value::<Preferences>(written)
+        .unwrap()
+        .preserve_english_punctuation
+        .is_empty());
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                preserve_english_punctuation: vec!["`".into(), "\\".into()],
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    let on_disk = fs::read(store.path()).unwrap();
+    let document: serde_json::Value = serde_json::from_slice(&on_disk).unwrap();
+    assert_eq!(
+        document["preferences"]["preserve_english_punctuation"],
+        serde_json::json!(["`", "\\"])
+    );
+    assert_eq!(store.load().unwrap(), saved);
+
+    for invalid in [
+        vec!["/".to_owned()],
+        vec!["a".to_owned()],
+        vec!["·".to_owned()],
+        vec!["`".to_owned(), "`".to_owned()],
+    ] {
+        let rejected = store.save(
+            saved.revision,
+            Preferences {
+                preserve_english_punctuation: invalid.clone(),
+                ..Preferences::default()
+            },
+        );
+        assert!(
+            matches!(
+                rejected,
+                Err(PreferencesError::InvalidPreserveEnglishPunctuation)
+            ),
+            "{invalid:?}: {rejected:?}"
+        );
+        assert_eq!(fs::read(store.path()).unwrap(), on_disk, "{invalid:?}");
+    }
+}
+
 /// `value` 里每一个对象（数组元素里的除外）的键路径。
 fn object_paths(value: &serde_json::Value, path: &mut Vec<String>, found: &mut Vec<Vec<String>>) {
     let serde_json::Value::Object(object) = value else {

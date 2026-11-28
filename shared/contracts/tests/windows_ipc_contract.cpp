@@ -193,7 +193,8 @@ int main()
     static_assert(FanyImeWorkerReplyType::UiLessCandidatesChanged == 35);
     static_assert(FanyImeWorkerReplyType::HostOnlineCandidates == 36);
     static_assert(FanyImeWorkerReplyType::PreferenceTransition == 37);
-    static_assert(FanyImeWorkerReplyType::MaxKnown == FanyImeWorkerReplyType::PreferenceTransition);
+    static_assert(FanyImeWorkerReplyType::PreserveEnglishPunctuationChanged == 38);
+    static_assert(FanyImeWorkerReplyType::MaxKnown == FanyImeWorkerReplyType::PreserveEnglishPunctuationChanged);
     static_assert(FanyImeVoiceControl::Start == 1);
     static_assert(FanyImeVoiceControl::Stop == 2);
     static_assert(FanyImeVoiceControl::Cancel == 3);

@@ -736,6 +736,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// View 的 `punctuation_marks` 顿号开关：`\` 缺省开、`/` 缺省关，快照里读到什么用什么。
   private var currentEnumerationCommaBackslash = true
   private var currentEnumerationCommaSlash = false
+  /// View 报告的保留英文的键；变了就重画符号键面。
+  private var currentPreserveEnglishPunctuation = ""
   private var currentNineKeySpellings: [String] = []
   private var currentNineKeySingleCharacter = false
   private var currentNineKeyStrokes = ""
@@ -926,9 +928,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   ]
 
   /// 按引号与方头括号样式（View 的 `punctuation_marks`）取中文键面：直角引号下 `'` 画「、`"` 画『，空心括号下 `[` `]` 画〖〗，其余与 `chineseSymbolFaces` 相同。这些键经 Engine 上屏，键面与写出的字一致。顿号键随 View 的顿号开关：`\` 关着时画 `\`，`/` 开着时画 `、`。不是 private：键面测试会固定它。
+  /// 设成保留英文的键（`preserveEnglish`，View 的 `preserve_english_punctuation`）画 ASCII，与 Engine 原样交回的字一致。
   static func chineseSymbolFace(_ ascii: String, cornerQuotes: Bool, hollowBrackets: Bool,
                                 enumerationCommaBackslash: Bool = true,
-                                enumerationCommaSlash: Bool = false) -> String? {
+                                enumerationCommaSlash: Bool = false,
+                                preserveEnglish: String = "") -> String? {
+    if ascii.utf8.count == 1, preserveEnglish.contains(ascii) { return ascii }
     switch ascii {
     case "'" where cornerQuotes: return "「"
     case "\"" where cornerQuotes: return "『"
@@ -981,11 +986,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   static func zhuyinSymbolText(_ symbol: String, chinesePunctuation: Bool, cornerQuotes: Bool = false,
                                hollowBrackets: Bool = false,
                                enumerationCommaBackslash: Bool = true,
-                               enumerationCommaSlash: Bool = false) -> String {
+                               enumerationCommaSlash: Bool = false,
+                               preserveEnglish: String = "") -> String {
     chinesePunctuation
       ? chineseSymbolFace(symbol, cornerQuotes: cornerQuotes, hollowBrackets: hollowBrackets,
                           enumerationCommaBackslash: enumerationCommaBackslash,
-                          enumerationCommaSlash: enumerationCommaSlash) ?? symbol : symbol
+                          enumerationCommaSlash: enumerationCommaSlash,
+                          preserveEnglish: preserveEnglish) ?? symbol : symbol
   }
 
   /// Whether the Zhuyin symbol panel writes Chinese marks now.
@@ -3724,7 +3731,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let shown = ascii.flatMap { sendsChinesePunctuation
         ? Self.chineseSymbolFace($0, cornerQuotes: currentCornerQuotes, hollowBrackets: currentHollowBrackets,
                                  enumerationCommaBackslash: currentEnumerationCommaBackslash,
-                                 enumerationCommaSlash: currentEnumerationCommaSlash) ?? $0
+                                 enumerationCommaSlash: currentEnumerationCommaSlash,
+                                 preserveEnglish: currentPreserveEnglishPunctuation) ?? $0
         : $0 }
       letterGridCornerLabels[ObjectIdentifier(button)]?.text = shown
       letterGridCornerLabels[ObjectIdentifier(button)]?.isHidden = shown == nil || !letterCornerHintsEnabled
@@ -4216,7 +4224,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func typeSymbolLayerFace(_ face: String) {
     switch SymbolLayerLayout.input(for: face, chinese: symbolLayerIsChinese, japanese: inputScheme.isJapanese,
-                                   chinesePunctuation: symbolLayerEngineWritesChinesePunctuation) {
+                                   chinesePunctuation: symbolLayerEngineWritesChinesePunctuation,
+                                   preserveEnglish: currentPreserveEnglishPunctuation) {
     case .symbol(let key):
       countKeyPress(TypingKeyID.character(key))
       handleSymbol(key)
@@ -5351,7 +5360,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         symbol, chinesePunctuation: zhuyinWritesChinesePunctuation,
         cornerQuotes: currentCornerQuotes, hollowBrackets: currentHollowBrackets,
         enumerationCommaBackslash: currentEnumerationCommaBackslash,
-        enumerationCommaSlash: currentEnumerationCommaSlash))
+        enumerationCommaSlash: currentEnumerationCommaSlash,
+        preserveEnglish: currentPreserveEnglishPunctuation))
       return
     }
 
@@ -5440,6 +5450,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let paired = session.sharedPreferences?["paired_punctuation"] as? Bool ?? true
     // The closing half of a pair the keyboard closed is already to the right of the caret, so its key moves past it rather than writing a second one. Only between compositions: a key pressed mid-spelling commits the spelling with its mark.
     if paired && !hasComposition
+      && !currentPreserveEnglishPunctuation.contains(punctuation)
       && pairedPunctuation.stepOver(ascii: punctuation, editor: editor, following: textDocumentProxy.documentContextAfterInput) {
       clearSmartPunctuationArming()
       textDocumentProxy.adjustTextPosition(byCharacterOffset: 1)
@@ -7442,7 +7453,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Korean and Vietnamese write half-width ASCII marks, the same menu English offers.
     guard isChineseMode, !isInLocalMode, !inputScheme.writesAsciiPunctuation else { return [",", ".", "?", "!", ":", ";", "@"] }
     if inputScheme.isJapanese { return ["、", "。", "？", "！", "「", "」", "・"] }
-    return KeyboardLayoutPreference.quickPunctuationSymbols
+    let symbols = KeyboardLayoutPreference.quickPunctuationSymbols
+    // 中文键面对应的键设成了保留英文（View 的 `preserve_english_punctuation`，#11890）时 Engine 原样写出 ASCII，这一项就画这个键，键面与上屏一致；注音的标点先走注音规则，不看这个集合。
+    guard !currentPreserveEnglishPunctuation.isEmpty, !inputScheme.isZhuyin else { return symbols }
+    return symbols.map { face in
+      guard let key = KeyboardPunctuationContext.engineInput(
+        for: face, japanese: false, enumerationCommaBackslash: currentEnumerationCommaBackslash,
+        enumerationCommaSlash: currentEnumerationCommaSlash),
+        key != face, currentPreserveEnglishPunctuation.contains(key) else { return face }
+      return key
+    }
   }
 
   private func updateLetterRowInsets() {
@@ -7638,7 +7658,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       let styled = japaneseComma ? Self.japaneseSymbolFace(face.ascii) : Self.chineseSymbolFace(
         face.ascii, cornerQuotes: currentCornerQuotes, hollowBrackets: currentHollowBrackets,
         enumerationCommaBackslash: currentEnumerationCommaBackslash,
-        enumerationCommaSlash: currentEnumerationCommaSlash) ?? face.chinese
+        enumerationCommaSlash: currentEnumerationCommaSlash,
+        preserveEnglish: currentPreserveEnglishPunctuation) ?? face.chinese
       let title = sendsChinesePunctuation ? styled : face.ascii
       guard face.key.configuration?.title != title || face.key.accessibilityLabel != "符号 \(title)" else { continue }
       face.key.configuration?.title = title
@@ -8965,11 +8986,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 样式在偏好改动后空闲重建时才变；变了就重画受影响的键面。
     if currentCornerQuotes != snapshot.cornerQuotes || currentHollowBrackets != snapshot.hollowBrackets
       || currentEnumerationCommaBackslash != snapshot.enumerationCommaBackslash
-      || currentEnumerationCommaSlash != snapshot.enumerationCommaSlash {
+      || currentEnumerationCommaSlash != snapshot.enumerationCommaSlash
+      || currentPreserveEnglishPunctuation != snapshot.preserveEnglishPunctuation {
       currentCornerQuotes = snapshot.cornerQuotes
       currentHollowBrackets = snapshot.hollowBrackets
       currentEnumerationCommaBackslash = snapshot.enumerationCommaBackslash
       currentEnumerationCommaSlash = snapshot.enumerationCommaSlash
+      currentPreserveEnglishPunctuation = snapshot.preserveEnglishPunctuation
       updateSymbolKeyFaces()
       if !symbolLayerKeys.isEmpty { updateSymbolLayerFaces() }
     }

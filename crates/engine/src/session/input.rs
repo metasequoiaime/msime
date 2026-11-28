@@ -1306,7 +1306,13 @@ impl InputSession {
         } else {
             !self.engine.current_scheme_type().uses_chinese_punctuation()
         };
-        if ascii_marks && self.local_mode == LocalInputMode::None {
+        // 设成保留英文的键（契约第 7 版）在中文标点下同样是半角 ASCII：组字中先上屏组字再跟这个键，空闲时交回宿主。日文表和「始终英文标点」锁不看这个集合。
+        let preserved = !ascii_marks
+            && self.chinese_punctuation_enabled
+            && self.punctuation_lock != 2
+            && !self.is_japanese()
+            && self.punctuation.marks().preserve_english.contains(value);
+        if (ascii_marks || preserved) && self.local_mode == LocalInputMode::None {
             if !self.has_composition() {
                 self.reset_commit_context();
                 return KeyResult::unhandled();

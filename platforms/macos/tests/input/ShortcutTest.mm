@@ -9412,6 +9412,13 @@ static void TestEnglishModePunctuationAndWidthOutput() {
                                                   @"enumeration_comma_slash":@YES}} forKey:@"view"];
     assert(type(EnglishKey(@"\\", 42, 0)) == nil);
     assert([type(EnglishKey(@"/", 44, 0)) isEqual:@"、"]);
+    // 保留英文的键（View 的 preserve_english_punctuation）在英文模式的中文标点下也原样交给应用，其余键照旧。
+    [controller setValue:@{@"editing_text":@"", @"candidates":@[],
+                           @"punctuation_marks":@{@"preserve_english_punctuation":@[@"`", @"\\", @"\""]}} forKey:@"view"];
+    assert(type(EnglishKey(@"`", 50, 0)) == nil);
+    assert(type(EnglishKey(@"\\", 42, 0)) == nil);
+    assert(type(quote) == nil);
+    assert([type(comma) isEqual:@"，"]);
     [controller setValue:@{@"editing_text":@"", @"candidates":@[]} forKey:@"view"];
     [controller setEnglishInputMode:NO];
 

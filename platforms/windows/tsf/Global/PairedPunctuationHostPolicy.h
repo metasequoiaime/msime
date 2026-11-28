@@ -114,6 +114,9 @@ inline wchar_t PairedPunctuationStepOverCandidate(wchar_t key, std::wstring_view
 {
     if (resolved.size() != 1)
         return 0;
+    // 出的是键本身（保留英文的键，#11890）就不是补出的后半个。
+    if (resolved[0] == key)
+        return 0;
     // 引号按键判断，但要看出的是哪一组：直角引号样式下这个键的后半个是』或」。
     if (key == L'"')
         return resolved[0] == L'『' || resolved[0] == L'』' ? L'』' : L'”';

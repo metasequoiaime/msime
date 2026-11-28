@@ -116,6 +116,7 @@ pub(super) const SHARED_FIELDS: &[&str] = &[
     "bracket_style",
     "enumeration_comma_backslash",
     "enumeration_comma_slash",
+    "preserve_english_punctuation",
     "navigation",
     "word_character",
     "second_third_candidate",

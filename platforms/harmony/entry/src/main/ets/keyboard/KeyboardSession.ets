@@ -711,6 +711,8 @@ export interface KeyboardState {
   /** View 报告的顿号键开关：顿号键面随它画。 */
   readonly enumerationCommaBackslash: boolean;
   readonly enumerationCommaSlash: boolean;
+  /** View 报告的保留英文的键：这些键画 ASCII 面。 */
+  readonly preserveEnglish: string;
   /** 候选是上屏后联想而不是组字的候选，见 `NextWordPredictionPolicy`：回车按空闲处理（照常换行或执行编辑器动作），长按不管理候选，候选栏按偏好放关闭键。 */
   readonly prediction: boolean;
 }
@@ -5913,6 +5915,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         enumerationCommaBackslash:
           ChineseSymbolFaces.enumerationCommaBackslash(view.punctuation_marks),
         enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view.punctuation_marks),
+      preserveEnglish: ChineseSymbolFaces.preserveEnglish(view.punctuation_marks),
         prediction: NextWordPredictionPolicy.showing(view.prediction, entries.length)
       });
     }
@@ -5986,6 +5989,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       enumerationCommaBackslash:
         ChineseSymbolFaces.enumerationCommaBackslash(view.punctuation_marks),
       enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view.punctuation_marks),
+      preserveEnglish: ChineseSymbolFaces.preserveEnglish(view.punctuation_marks),
       prediction: NextWordPredictionPolicy.showing(view.prediction, entries.length)
     });
     if (this.onCandidateWidth !== undefined) {
@@ -6094,6 +6098,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       enumerationCommaBackslash:
         ChineseSymbolFaces.enumerationCommaBackslash(view?.punctuation_marks),
       enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view?.punctuation_marks),
+      preserveEnglish: ChineseSymbolFaces.preserveEnglish(view?.punctuation_marks),
       // 译文页是某个组字候选的几种译法，不是上屏后联想。
       prediction: false
     });
@@ -8841,7 +8846,9 @@ export class KeyboardSession implements HardwareKeyTarget {
   private canArmSmartPunctuationRepeat(ascii: number, preceding: number): boolean {
     const view: EngineView | undefined = this.lastView;
     const dedicatedEnglish: boolean = view?.dedicated_english ?? this.englishMode;
-    return this.smartPunctuation && this.smartPunctuationRepeat
+    // 设成保留英文的键连按也不转成中文标点。
+    return !ChineseSymbolFaces.preserveEnglish(view?.punctuation_marks).includes(String.fromCharCode(ascii))
+      && this.smartPunctuation && this.smartPunctuationRepeat
       && this.chinesePunctuation && this.punctuationLock === 'follow'
       && !dedicatedEnglish && this.localMode === 'none'
       && SchemeTraits.hostSmartPunctuation(SchemeTraits.fromName(this.schemeName))

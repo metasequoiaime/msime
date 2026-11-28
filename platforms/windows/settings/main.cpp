@@ -15312,12 +15312,35 @@ private:
     // 「更多选项」：方头括号样式、智能标点总开关和它的四个细分开关。细分开关只在智能标点打开时才起作用，所以总开关关着时变灰，值不动。搜索落在其中任何一行时展开。Windows 没有「大写锁定时使用英文标点」一行（HostCapabilities 的 caps_lock_punctuation 只在 macOS 为真）。
     auto rows = add_fold(
         punctuation, L"更多选项",
-        punctuation_more_open_ || focus_row_ == L"方头括号样式" || focus_row_ == L"智能标点" ||
+        punctuation_more_open_ || focus_row_ == L"方头括号样式" || focus_row_ == L"保留英文的标点" ||
+            focus_row_ == L"智能标点" ||
             focus_row_ == L"重复标点转中文" || focus_row_ == L"中文标点后按空格转换" ||
             focus_row_ == L"数字后直出" || focus_row_ == L"字母后直出",
         [this](bool expanded) { punctuation_more_open_ = expanded; });
     select_row(rows, 0xE8C1, L"方头括号样式", L"中文标点下 [ ] 键输出的括号",
                L"bracket_style", {{L"solid", L"实心 【 】"}, {L"hollow", L"空心 〖 〗"}}, L"solid");
+    // 保留英文的标点（#11890）：21 个键各一个复选框，规则在 PunctuationSettings.h，与 iOS、Android 相同。
+    {
+      const auto stored = document_.Strings(ps::preserve_english_key);
+      std::vector<Check> keys;
+      for (auto const &key : ps::preservable_keys) {
+        bool on = false;
+        for (auto const &value : stored)
+          on = on || value == key.ascii;
+        keys.push_back({ps::preserve_english_label(key), on, [this, ascii = std::wstring(key.ascii)](bool checked) {
+                          change([&](PreferencesDocument &doc) {
+                            const auto next = ps::preserve_english_toggled(
+                                doc.Strings(ps::preserve_english_key), ascii, checked);
+                            if (next.empty())
+                              doc.Remove(ps::preserve_english_key);
+                            else
+                              doc.SetOrderedStrings(ps::preserve_english_key, next);
+                          }, false);
+                        }});
+      }
+      add_row(rows, 0xE8C1, L"保留英文的标点", std::wstring(ps::preserve_english_description), nullptr,
+              checks_panel(std::move(keys), 96));
+    }
     // 智能标点（SmartPunctuationRow）：用户切换时连同数字后直出、字母后直出一起写成同一个值，TIP 的 ResolvePunctuation 要所在一侧的直出也开着才输出 ASCII。四个键默认都是开（client-core 的 smart_punctuation_default，读进来的文档总带着这些键，这里的回退值只是与它一致）。只写过总开关的旧文档在说明里多一句提示，不改写存储。
     const bool smart = document_.Boolean(L"smart_punctuation", true);
     const bool inert =

@@ -905,7 +905,8 @@ bool CMetasequoiaIME::_QueueRepeatedSmartPunctuationReplacement(WCHAR wch)
     }
 
     const WCHAR *chinese = _pCompositionProcessorEngine->GetPunctuation(wch);
-    if (chinese == nullptr || chinese[0] == L'\0' || chinese[1] != L'\0')
+    // 保留英文的键出的是键本身，没有可换成的中文标点，第二下照常输入。
+    if (chinese == nullptr || chinese[0] == L'\0' || chinese[1] != L'\0' || chinese[0] == wch)
     {
         return false;
     }

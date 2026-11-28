@@ -8,6 +8,10 @@ The contract holds stateless simple mappings plus the opening/closing pairs for 
 
 `enumerationComma` 列出中文标点下哪些 ASCII 键可以出顿号「、」：`\` 和 `/`。和 `simple` 不同，这一段是「可被偏好关掉的键」——共享偏好 `enumeration_comma_backslash`（默认开）与 `enumeration_comma_slash`（默认关）各自控制一个键，没打开的键不是中文标点，按普通字符交回宿主；两个键至少保留一个（都关时按「`\` 开」读）。`\` 同时留在 `simple` 里：它从第 1 版起就是无条件映射，`is_supported` 与 `simple` 的读者看到的行为不变；`/` 只在这一段，不打开偏好时 `is_supported('/')` 为假。`enumeration_comma_output` 给出某个键启用时出的字，宿主是否启用要读 View 的 `punctuation_marks`，不自己解析偏好。
 
+## 按键保留英文（第 7 版）
+
+`preserveEnglish` 列出用户可以逐键设成「保留英文」的键：正好是中文表会改写的 21 个键（`simple` 的 17 个、交替引号 `"` `'`、嵌套书名号 `<` `>`），顺序与 `simple`、`alternating`、`nested` 相同，`generate.py` 拒绝多一个或少一个。共享偏好 `preserve_english_punctuation` 记一组键，缺省为空，行为与第 6 版逐字相同。集合里的键在中文标点下不出中文标点，按普通字符交回宿主（引擎返回 `None`，组字中先上屏组字再跟这个 ASCII 键），其余键照旧。不引入新字：每个键要么出原来的中文标点，要么出它自己，所以宿主的手抄表只需要少认几个键。只作用于中文表，`japanese` 不受影响；`/` 只在 `enumerationComma` 里，由自己的开关决定，不在这一段。`\` 进集合后不再参与「至少留一个顿号键」的归一，View 的 `enumeration_comma_backslash` 报告为假，两个顿号开关可以同时关。宿主读 View 的 `punctuation_marks.preserve_english_punctuation`（单字符字符串数组，按契约顺序），不自己解析偏好。见 `.agents/notes/implemented/feature/2026-11-26-issue-11890-punctuation-retain-english.md`。
+
 ## `{` `}` 固定出「」（第 5 版）
 
 第 5 版把 `{` `}` 从 `alternating` 和 `styles.cornerQuotes` 挪进 `simple`：`Shift+[` 固定出「，`Shift+]` 固定出」，不交替，也不随引号样式换字，与 `'` `"` 的弯引号（或 corner 样式下的同一组直角引号）并存。第 3 版曾让它们分别交替出「」和『』，与 macOS 宿主的固定「/」不一致，见 `.agents/notes/implemented/feature/2026-10-29-brace-keys-fixed-corner-brackets.md`。Windows 与 Linux 的空格转换不认这两个键出的「」，macOS 宿主把 `{` 出的「转回 `{`。

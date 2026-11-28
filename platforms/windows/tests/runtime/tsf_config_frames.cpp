@@ -1,3 +1,4 @@
+#include "../../common/PreservedEnglishPunctuation.h"
 #include "ReplyCodec.h"
 #include "../../tsf/Global/PairedPunctuationHostPolicy.h"
 #include "windows_ipc.h"
@@ -44,7 +45,7 @@ int main() {
     auto frames = tsf_config_frames(config);
     // Every setting the TIP consumes gets a frame; it kept compiled defaults
     // because the Server encoded none of them.
-    require(frames.size() == 13);
+    require(frames.size() == 14);
     config.preference_revision = 42;
     const auto ordered = tsf_config_frames(config, true);
     require(ordered.size() == frames.size());
@@ -70,7 +71,8 @@ int main() {
         FanyImeWorkerReplyType::DedicatedEnglishChanged,
         FanyImeWorkerReplyType::SecondThirdCandidateChanged,
         FanyImeWorkerReplyType::PunctuationMarksChanged,
-        FanyImeWorkerReplyType::WubiCandidateSelectionChanged};
+        FanyImeWorkerReplyType::WubiCandidateSelectionChanged,
+        FanyImeWorkerReplyType::PreserveEnglishPunctuationChanged};
     for (size_t i = 0; i < frames.size(); ++i)
       require(frame_type(frames[i]) == expected[i]);
 
@@ -226,6 +228,15 @@ int main() {
       require(marks("semantic", "round", true) == L"q0b0");
     }
     static_assert(FanyImeWorkerReplyType::WubiCandidateSelectionChanged <
+            FanyImeWorkerReplyType::MaxKnown);
+    // 保留英文的键（#11890）单独一帧，追加在最后：缺省是 "p"，有键时按契约顺序跟在后面，契约外的键丢掉。
+    require(frame_text(tsf_config_frames(TsfLocalConfig{})[13]) == L"p");
+    {
+      TsfLocalConfig preserved;
+      preserved.preserve_english = msime::windows::preserved_english_mask("\\`/a\"`");
+      require(frame_text(tsf_config_frames(preserved)[13]) == L"p\\`\"");
+    }
+    static_assert(FanyImeWorkerReplyType::PreserveEnglishPunctuationChanged <=
             FanyImeWorkerReplyType::MaxKnown);
 
     // Caps Lock travels on its own frame rather than in the configuration set:

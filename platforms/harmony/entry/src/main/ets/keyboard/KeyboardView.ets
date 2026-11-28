@@ -604,6 +604,8 @@ struct KeyboardView {
   /** View 的 `punctuation_marks` 顿号开关：顿号键面跟它画。 */
   @State enumerationCommaBackslash: boolean = true;
   @State enumerationCommaSlash: boolean = false;
+  /** View 的 `punctuation_marks` 里保留英文的键：这些键画 ASCII 面。 */
+  @State preserveEnglish: string = '';
   /** Fullwidth ASCII, mirrored from the session for the panel's 全 tile. */
   @State fullWidth: boolean = false;
   /** Candidate translations, mirrored from the session for the panel's 译 tile and the strip's 译 pill. */
@@ -1178,6 +1180,7 @@ struct KeyboardView {
       this.hollowBrackets = state.hollowBrackets;
       this.enumerationCommaBackslash = state.enumerationCommaBackslash;
       this.enumerationCommaSlash = state.enumerationCommaSlash;
+      this.preserveEnglish = state.preserveEnglish;
       this.engineScheme = state.scheme;
       this.compositionEditing = ReadingRowEditPolicy.keepsExpanded(this.compositionEditing, this.touchReadingRowEditable());
       // 切到粤拼时简繁磁贴改看粤拼自己的字形（`cantonese_simplified_output`），切回来再看全局开关。
@@ -1492,7 +1495,7 @@ struct KeyboardView {
   private typeZhuyinMark(symbol: string): void {
     const chinese: string | undefined = ChineseSymbolFaces.face(
       symbol, this.cornerQuotes, this.hollowBrackets,
-      this.enumerationCommaBackslash, this.enumerationCommaSlash);
+      this.enumerationCommaBackslash, this.enumerationCommaSlash, this.preserveEnglish);
     KeyboardSession.shared.commitThenInsert(
       this.chinesePunctuation && chinese !== undefined ? chinese : symbol);
   }
@@ -3712,7 +3715,7 @@ struct KeyboardView {
     if (this.japanesePunctuationFaces()) return JapaneseSymbolFaces.face(symbol);
     const chinese: string | undefined = ChineseSymbolFaces.face(
       symbol, this.cornerQuotes, this.hollowBrackets,
-      this.enumerationCommaBackslash, this.enumerationCommaSlash);
+      this.enumerationCommaBackslash, this.enumerationCommaSlash, this.preserveEnglish);
     // 韩语、越南语和藏文的标点就是键帽上的 ASCII。
     return !this.english && !this.koreanFace() && !this.vietnameseFace() && !this.tibetanFace()
       && chinese !== undefined
@@ -6048,7 +6051,7 @@ struct KeyboardView {
 
   /** 拼音网格的 1 键（@#）：候选条换成当前模式的常用标点（与逗号长按的「常用标点」同一组），组字中也一样，Engine 下一次回报时换回它的候选。 */
   private showNineKeyQuickMarks(): void {
-    this.nineKeyQuickMarks = QuickPunctuationPolicy.entries(this.english, this.engineScheme, this.localMode);
+    this.nineKeyQuickMarks = QuickPunctuationPolicy.entries(this.english, this.engineScheme, this.localMode, this.preserveEnglish);
   }
 
   /** 点选 1 键放进来的一个标点：先清掉候选条，再与侧栏标点一样交给 Engine 的标点处理，组字中先上屏首选。空闲时标点不一定经过 Engine 回报（智能标点的连按替换就不经过），所以不能等 `onChanged` 来清。 */
@@ -10145,7 +10148,7 @@ struct KeyboardView {
                 })
             }, (bracket: string) => bracket + this.faceKey())
           } else if (this.punctuation) {
-            ForEach(QuickPunctuationPolicy.entries(this.english, this.engineScheme, this.localMode),
+            ForEach(QuickPunctuationPolicy.entries(this.english, this.engineScheme, this.localMode, this.preserveEnglish),
               (item: PunctuationEntry) => {
                 Text(item.face)
                   .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)

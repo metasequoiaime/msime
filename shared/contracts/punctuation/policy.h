@@ -5,7 +5,7 @@
 
 namespace metasequoia::punctuation_contract
 {
-inline constexpr int version = 6;
+inline constexpr int version = 7;
 struct Mapping
 {
     char input;
@@ -69,6 +69,29 @@ inline constexpr std::array<Mapping, 2> enumeration_comma = {{
     {'\\', "、"},
     {'/', "、"},
 }};
+inline constexpr std::array<char, 21> preserve_english = {{
+    ',',
+    '.',
+    '?',
+    '!',
+    ';',
+    ':',
+    '(',
+    ')',
+    '[',
+    ']',
+    '\\',
+    '`',
+    '$',
+    '^',
+    '_',
+    '{',
+    '}',
+    '"',
+    '\'',
+    '<',
+    '>',
+}};
 inline constexpr char nested_opening_input = '<';
 inline constexpr char nested_closing_input = '>';
 inline constexpr char nested_opening[] = "《";
@@ -118,5 +141,11 @@ constexpr const char *enumeration_comma_output(char input)
     for (const auto &mapping : enumeration_comma)
         if (mapping.input == input) return mapping.output;
     return nullptr;
+}
+constexpr bool is_preservable(char input)
+{
+    for (const auto value : preserve_english)
+        if (value == input) return true;
+    return false;
 }
 } // namespace metasequoia::punctuation_contract

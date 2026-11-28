@@ -343,7 +343,9 @@ constexpr std::uint32_t UiLessCandidatesChanged = 35;
 constexpr std::uint32_t HostOnlineCandidates = 36;
 // 已协商的偏好修订广播或焦点请求回执，载荷见 preference_transition.h。
 constexpr std::uint32_t PreferenceTransition = 37;
-constexpr std::uint32_t MaxKnown = PreferenceTransition;
+// 中文标点下保留英文的键（偏好 `preserve_english_punctuation`，标点契约第 7 版 `preserveEnglish` 段）。载荷 "p" 后跟集合里的键，按契约顺序；空集合是 "p"。TIP 的标点表对这些键出键本身。旧版 TIP 丢弃这个帧，这些键照旧出中文标点。
+constexpr std::uint32_t PreserveEnglishPunctuationChanged = 38;
+constexpr std::uint32_t MaxKnown = PreserveEnglishPunctuationChanged;
 // Source compatibility for the Server's historical spellings.
 constexpr std::uint32_t SwitchToEn = SwitchToEnglish;
 constexpr std::uint32_t SwitchToCn = SwitchToChinese;

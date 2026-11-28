@@ -77,6 +77,71 @@ pub enum BracketMarks {
     Hollow,
 }
 
+/// `policy.json` 第 7 版的 `preserveEnglish`：用户可以逐键设成「保留英文」的键，正好是中文表会改写的键（`SIMPLE`、交替引号、嵌套书名号），按契约顺序。
+pub const PRESERVABLE_ENGLISH: [u8; 21] = [
+    b',',
+    b'.',
+    b'?',
+    b'!',
+    b';',
+    b':',
+    b'(',
+    b')',
+    b'[',
+    b']',
+    b'\\',
+    b'`',
+    b'$',
+    b'^',
+    b'_',
+    b'{',
+    b'}',
+    b'"',
+    b'\'',
+    NESTED_OPENING_INPUT,
+    NESTED_CLOSING_INPUT,
+];
+
+/// 中文标点下保留英文的键（`preserve_english_punctuation` 偏好解析后的值）：第 i 位对应 `PRESERVABLE_ENGLISH[i]`。用位集而不是集合，`PunctuationMarks` 才能继续按值传递；不在契约里的键放不进来。缺省为空，与第 6 版逐字相同。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PreservedEnglish(u32);
+
+impl PreservedEnglish {
+    /// 空集合：所有键照常出中文标点。
+    pub const NONE: Self = Self(0);
+
+    /// 只收契约允许的键，其余忽略；校验和报错在偏好层（`client-core`）做。
+    pub fn from_keys(keys: impl IntoIterator<Item = u8>) -> Self {
+        let mut bits = 0;
+        for key in keys {
+            if let Some(index) = PRESERVABLE_ENGLISH.iter().position(|value| *value == key) {
+                bits |= 1 << index;
+            }
+        }
+        Self(bits)
+    }
+
+    pub fn contains(self, key: u8) -> bool {
+        PRESERVABLE_ENGLISH
+            .iter()
+            .position(|value| *value == key)
+            .is_some_and(|index| self.0 & (1 << index) != 0)
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// 集合里的键，按契约顺序。
+    pub fn keys(self) -> impl Iterator<Item = u8> {
+        PRESERVABLE_ENGLISH
+            .into_iter()
+            .enumerate()
+            .filter(move |(index, _)| self.0 & (1 << index) != 0)
+            .map(|(_, key)| key)
+    }
+}
+
 /// 已经解析好的标点样式与顿号键：宿主从偏好算出它（`corner_when_traditional` 在那之前就按繁体开关定成两者之一，「至少留一个」也已归一），引擎只认确定的值。缺省就是契约第 1 版的表加「只有 `\` 出顿号」。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PunctuationMarks {
@@ -86,6 +151,8 @@ pub struct PunctuationMarks {
     pub enumeration_comma_backslash: bool,
     /// `/` 键出顿号「、」。
     pub enumeration_comma_slash: bool,
+    /// 中文标点下原样交回 ASCII 的键（契约 `preserveEnglish`）。缺省为空。
+    pub preserve_english: PreservedEnglish,
 }
 
 impl Default for PunctuationMarks {
@@ -95,6 +162,7 @@ impl Default for PunctuationMarks {
             brackets: BracketMarks::Solid,
             enumeration_comma_backslash: true,
             enumeration_comma_slash: false,
+            preserve_english: PreservedEnglish::default(),
         }
     }
 }
@@ -133,6 +201,11 @@ impl Default for PunctuationPolicy {
 impl PunctuationPolicy {
     /// 将 ASCII 按键转成中文标点并推进引号与嵌套状态；没有映射的键（如 `@`、`-`）返回 `None`。
     pub fn translate(&mut self, key: u8) -> Option<&'static str> {
+        // 设成保留英文的键不是中文标点（契约第 7 版）：和关掉的顿号键一样返回 `None`，按普通字符交回宿主；引号键不推进交替，书名号键不动嵌套。
+        if self.marks.preserve_english.contains(key) {
+            self.last_alternating_quote = None;
+            return None;
+        }
         if self.marks.brackets == BracketMarks::Hollow {
             if let Some(&(_, output)) = HOLLOW_BRACKETS.iter().find(|(input, _)| *input == key) {
                 self.last_alternating_quote = None;
@@ -267,7 +340,12 @@ mod tests {
             "../../../shared/contracts/punctuation/policy.json"
         ))
         .expect("policy.json");
-        assert_eq!(spec["contractVersion"], 6);
+        assert_eq!(spec["contractVersion"], 7);
+        let preserve = spec["preserveEnglish"].as_array().expect("preserveEnglish");
+        assert_eq!(preserve.len(), PRESERVABLE_ENGLISH.len());
+        for (key, row) in PRESERVABLE_ENGLISH.iter().zip(preserve) {
+            assert_eq!(row.as_str().map(str::as_bytes), Some(&[*key][..]));
+        }
         let simple = spec["simple"].as_array().expect("simple");
         assert_eq!(simple.len(), SIMPLE.len());
         for ((input, output), row) in SIMPLE.iter().zip(simple) {
@@ -455,6 +533,60 @@ mod tests {
         assert_eq!(policy.translate(b','), Some("，"));
     }
 
+    /// 契约第 7 版：集合里的键返回 `None`（宿主按 ASCII 输出），其余键照旧；引号键不推进交替，书名号键不动嵌套。缺省空集合与第 6 版逐字相同。
+    #[test]
+    fn preserved_keys_fall_back_to_ascii() {
+        let keys = ",.?!;:()[]\\`$^_{}\"\"''<<>>";
+        let mut plain = PunctuationPolicy::default();
+        let mut empty = PunctuationPolicy::default();
+        empty.set_marks(PunctuationMarks {
+            preserve_english: PreservedEnglish::from_keys([]),
+            ..PunctuationMarks::default()
+        });
+        assert_eq!(
+            translate_all(&mut empty, keys),
+            translate_all(&mut plain, keys)
+        );
+
+        let mut policy = PunctuationPolicy::default();
+        policy.set_marks(PunctuationMarks {
+            preserve_english: PreservedEnglish::from_keys(*b"`\\\"<"),
+            ..PunctuationMarks::default()
+        });
+        assert_eq!(policy.translate(b'`'), None);
+        assert_eq!(policy.translate(b'\\'), None);
+        assert_eq!(policy.translate(b'"'), None);
+        assert_eq!(policy.translate(b'<'), None);
+        assert_eq!(policy.translate(b','), Some("，"));
+        assert_eq!(policy.translate(b'\''), Some("‘"));
+        assert_eq!(policy.translate(b'>'), Some("》"));
+        // 保留英文的 `"` 没有推进交替：取消后第一下仍是前引号。
+        policy.set_marks(PunctuationMarks::default());
+        assert_eq!(policy.translate(b'"'), Some("“"));
+        assert_eq!(policy.translate(b'<'), Some("《"));
+    }
+
+    /// 契约外的键放不进集合；`/` 只由自己的顿号开关决定。
+    #[test]
+    fn preserved_set_only_holds_contract_keys() {
+        let set = PreservedEnglish::from_keys(*b"/~a`");
+        assert_eq!(set.keys().collect::<Vec<_>>(), vec![b'`']);
+        assert!(!set.contains(b'/'));
+        assert!(PreservedEnglish::from_keys(*b"/~").is_empty());
+        let all = PreservedEnglish::from_keys(PRESERVABLE_ENGLISH);
+        assert_eq!(all.keys().collect::<Vec<_>>(), PRESERVABLE_ENGLISH.to_vec());
+        let mut policy = PunctuationPolicy::default();
+        policy.set_marks(PunctuationMarks {
+            enumeration_comma_slash: true,
+            preserve_english: all,
+            ..PunctuationMarks::default()
+        });
+        for key in PRESERVABLE_ENGLISH {
+            assert_eq!(policy.translate(key), None);
+        }
+        assert_eq!(policy.translate(b'/'), Some("、"));
+    }
+
     /// The idle map of test_input_session.cpp:850-885, as recorded in the qp_idle_chinese_punctuation golden.
     #[test]
     fn idle_map_in_recorded_order() {
@@ -610,6 +742,7 @@ mod tests {
                 brackets: BracketMarks::Solid,
                 enumeration_comma_backslash: true,
                 enumeration_comma_slash: false,
+                preserve_english: PreservedEnglish::default(),
             }
         );
         let mut styled = styled(QuoteMarks::Curly, BracketMarks::Solid);

@@ -14632,6 +14632,7 @@ const CORNER_HOLLOW: crate::punctuation::PunctuationMarks = crate::punctuation::
     brackets: crate::punctuation::BracketMarks::Hollow,
     enumeration_comma_backslash: true,
     enumeration_comma_slash: false,
+    preserve_english: crate::punctuation::PreservedEnglish::NONE,
 };
 
 #[test]
@@ -14713,6 +14714,42 @@ fn japanese_scheme_commits_japanese_punctuation() {
             key as char
         );
     }
+}
+
+/// 契约第 7 版的按键保留英文（#11890）：空闲时集合里的键交回宿主按 ASCII 输出，组字中先上屏组字再跟这个 ASCII 键；其余键照旧出中文标点。日文表不看这个集合。
+#[test]
+fn preserved_english_keys_stay_ascii_in_chinese_punctuation() {
+    let preserved = crate::punctuation::PunctuationMarks {
+        preserve_english: crate::punctuation::PreservedEnglish::from_keys(*b"`\\(\"<,"),
+        ..crate::punctuation::PunctuationMarks::default()
+    };
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| options.punctuation_marks = preserved);
+    for key in *b"`\\(\"<" {
+        let idle = session.punctuation(key);
+        assert!(
+            !idle.handled && idle.commit.is_none(),
+            "key {}",
+            key as char
+        );
+    }
+    assert_eq!(session.punctuation(b')').commit.as_deref(), Some("）"));
+    assert_eq!(session.punctuation(b'\'').commit.as_deref(), Some("‘"));
+    assert_eq!(session.punctuation(b'>').commit.as_deref(), Some("》"));
+    type_text(&mut session, "nihao");
+    let composed = session.punctuation(b'`');
+    assert!(composed.handled);
+    assert_eq!(composed.commit.as_deref(), Some("你好`"));
+    assert!(!session.input.has_composition());
+
+    // 日语方案的 `,` `(` 仍走日文表。
+    let mut japanese = fixture.session_with(|options| {
+        options.punctuation_marks = preserved;
+        options.scheme = SchemeType::JapaneseRomaji;
+    });
+    assert_eq!(japanese.punctuation(b',').commit.as_deref(), Some("、"));
+    assert_eq!(japanese.punctuation(b'(').commit.as_deref(), Some("（"));
+    assert_eq!(japanese.punctuation(b'\\').commit.as_deref(), Some("、"));
 }
 
 #[test]

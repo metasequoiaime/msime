@@ -4,8 +4,9 @@
 int main()
 {
     using namespace metasequoia::punctuation_contract;
-    if (version != 6 || simple.size() != 17 || alternating.size() != 2 || corner_quotes.size() != 2 ||
-        hollow_brackets.size() != 2 || enumeration_comma.size() != 2 || japanese.size() != 15)
+    if (version != 7 || simple.size() != 17 || alternating.size() != 2 || corner_quotes.size() != 2 ||
+        hollow_brackets.size() != 2 || enumeration_comma.size() != 2 || japanese.size() != 15 ||
+        preserve_english.size() != 21)
         return 1;
     if (!is_supported(',') || !is_supported('"') || !is_supported('<') || !is_supported('_') || is_supported('a'))
         return 1;
@@ -59,6 +60,13 @@ int main()
         std::string_view(jp_period) != "。" || !jp_open || std::string_view(jp_open) != "「" ||
         !jp_close || std::string_view(jp_close) != "」" || !jp_slash ||
         std::string_view(jp_slash) != "・" || japanese_output('a'))
+        return 1;
+    // 第 7 版：可设成「保留英文」的键正好是中文表会改写的键；`/` 只是可关掉的顿号键，日文表也不在其中。
+    for (const auto value : preserve_english)
+        if (!is_supported(value))
+            return 1;
+    if (!is_preservable('`') || !is_preservable('\\') || !is_preservable('"') || !is_preservable('>') ||
+        is_preservable('/') || is_preservable('~') || is_preservable('a'))
         return 1;
     if (nested_opening_input != '<' || nested_closing_input != '>' || std::string_view(nested_opening_inner) != "〈")
         return 1;

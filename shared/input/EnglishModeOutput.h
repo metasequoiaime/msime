@@ -4,6 +4,8 @@
 #include <string>
 #include <string_view>
 
+#include "../contracts/punctuation/policy.h"
+
 namespace msime::input {
 
 // English mode never reaches the engine's punctuation policy (crates/engine/src/punctuation.rs), because the session is closed or ignored while the IME is off. The "always Chinese punctuation" lock, and a Ctrl+. or toolbar toggle made in English mode, still have to convert marks there, as they do on Windows with the IME closed (KeyEventSink.cpp's FUNCTION_PUNCTUATION and FUNCTION_DOUBLE_SINGLE_BYTE branches), so the hosts carry a forward copy of its contract (shared/contracts/punctuation/policy.h). This is deliberately not the Linux host's chinese_punctuation_mark: that table is the reverse Space rewrite, maps '/' to 、 and has no alternating quotes.
@@ -19,17 +21,31 @@ struct PunctuationMarks {
   bool hollow_brackets = false;
   bool enumeration_comma_backslash = true;
   bool enumeration_comma_slash = false;
+  // 设成保留英文的键（View 的 preserve_english_punctuation，契约第 7 版 preserveEnglish 段）：这些键在中文标点下原样输出 ASCII，补全、跨过、空格转换都把它们当普通字符。
+  std::string preserve_english;
+
+  bool preserves_english(char value) const {
+    return preserve_english.find(value) != std::string::npos;
+  }
 };
 
-// View.punctuation_marks 转成本机结构；旧 View 缺少顿号字段时沿用「反斜杠开、斜杠关」。
+// View.punctuation_marks 转成本机结构；旧 View 缺少顿号字段时沿用「反斜杠开、斜杠关」，缺少保留英文的键时为空。`preserve_english` 只收契约里的键，宿主解析 JSON 数组后按字符拼好传进来。
 inline PunctuationMarks punctuation_marks_from_view(std::string_view quotes,
                                                      std::string_view brackets,
-                                                     bool backslash = true, bool slash = false) {
-  return {quotes == "corner", brackets == "hollow", backslash, slash};
+                                                     bool backslash = true, bool slash = false,
+                                                     std::string_view preserve_english = {}) {
+  PunctuationMarks marks{quotes == "corner", brackets == "hollow", backslash, slash, {}};
+  for (const char value : preserve_english)
+    if (metasequoia::punctuation_contract::is_preservable(value) && !marks.preserves_english(value))
+      marks.preserve_english.push_back(value);
+  return marks;
 }
 
 inline std::string english_mode_chinese_punctuation(
     char value, EnglishPunctuationState &state, const PunctuationMarks &marks) {
+  // 保留英文的键不出中文标点，引号也不推进交替，和引擎一致。
+  if (marks.preserves_english(value))
+    return {};
   switch (value) {
   case ',': return "，";
   case '.': return "。";
@@ -97,7 +113,7 @@ inline std::string english_mode_output(char32_t character, bool keypad,
   const auto value = static_cast<char>(character);
   if (chinese_punctuation && !keypad) {
     // 固定表保留全角人民币；实际按键输出按当前宽度选择，不改其他中文标点。
-    if (value == '$' && !fullwidth)
+    if (value == '$' && !fullwidth && !marks.preserves_english(value))
       return "¥";
     auto mark = english_mode_chinese_punctuation(value, state, marks);
     if (!mark.empty())

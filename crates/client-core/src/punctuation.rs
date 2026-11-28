@@ -11,7 +11,80 @@ pub enum QuoteMarks {
     Corner,
 }
 
-/// 中文标点下引号键和方头括号键实际出哪一组字、`\` 和 `/` 谁出顿号。引擎、View 和 Windows Server 都只认解析好的值；View 里序列化成 `{"quotes": "curly"|"corner", "brackets": "solid"|"hollow", "enumeration_comma_backslash": bool, "enumeration_comma_slash": bool}`。
+/// 标点契约第 7 版的 `preserveEnglish`：可以设成「保留英文」的键，正好是中文表会改写的键，按契约顺序。`matches_the_contract` 测试把它和 `policy.json` 比对；引擎里有同一张表（`msime_engine::PRESERVABLE_ENGLISH`）。
+pub const PRESERVABLE_ENGLISH_PUNCTUATION: [char; 21] = [
+    ',', '.', '?', '!', ';', ':', '(', ')', '[', ']', '\\', '`', '$', '^', '_', '{', '}', '"',
+    '\'', '<', '>',
+];
+
+/// `preserve_english_punctuation` 偏好合法：每项正好是一个允许的键，且不重复。
+pub fn preserve_english_keys_valid(keys: &[String]) -> bool {
+    let mut seen = Vec::with_capacity(keys.len());
+    keys.iter().all(|key| {
+        let mut characters = key.chars();
+        let (Some(character), None) = (characters.next(), characters.next()) else {
+            return false;
+        };
+        if !PRESERVABLE_ENGLISH_PUNCTUATION.contains(&character) || seen.contains(&character) {
+            return false;
+        }
+        seen.push(character);
+        true
+    })
+}
+
+/// 中文标点下保留英文的键，按契约顺序。View 里序列化成单字符字符串的数组。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PreservedEnglish(u32);
+
+impl PreservedEnglish {
+    pub const NONE: Self = Self(0);
+
+    /// 只收允许的键；偏好已经过 `validate`，这里不再报错。
+    pub fn from_keys<'a>(keys: impl IntoIterator<Item = &'a str>) -> Self {
+        let mut bits = 0;
+        for key in keys {
+            let mut characters = key.chars();
+            if let (Some(character), None) = (characters.next(), characters.next()) {
+                if let Some(index) = PRESERVABLE_ENGLISH_PUNCTUATION
+                    .iter()
+                    .position(|value| *value == character)
+                {
+                    bits |= 1 << index;
+                }
+            }
+        }
+        Self(bits)
+    }
+
+    pub fn contains(self, key: char) -> bool {
+        PRESERVABLE_ENGLISH_PUNCTUATION
+            .iter()
+            .position(|value| *value == key)
+            .is_some_and(|index| self.0 & (1 << index) != 0)
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// 集合里的键，按契约顺序。
+    pub fn keys(self) -> impl Iterator<Item = char> {
+        PRESERVABLE_ENGLISH_PUNCTUATION
+            .into_iter()
+            .enumerate()
+            .filter(move |(index, _)| self.0 & (1 << index) != 0)
+            .map(|(_, key)| key)
+    }
+}
+
+impl serde::Serialize for PreservedEnglish {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.keys().map(String::from))
+    }
+}
+
+/// 中文标点下引号键和方头括号键实际出哪一组字、`\` 和 `/` 谁出顿号、哪些键保留英文。引擎、View 和 Windows Server 都只认解析好的值；View 里序列化成 `{"quotes": "curly"|"corner", "brackets": "solid"|"hollow", "enumeration_comma_backslash": bool, "enumeration_comma_slash": bool, "preserve_english_punctuation": [string]}`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct PunctuationMarks {
     pub quotes: QuoteMarks,
@@ -20,6 +93,8 @@ pub struct PunctuationMarks {
     pub enumeration_comma_backslash: bool,
     /// `/` 键在中文标点下出顿号「、」。
     pub enumeration_comma_slash: bool,
+    /// 中文标点下原样输出 ASCII 的键（契约 `preserveEnglish`）。`\` 在里面时 `enumeration_comma_backslash` 为假。
+    pub preserve_english_punctuation: PreservedEnglish,
 }
 
 impl Default for PunctuationMarks {
@@ -30,11 +105,12 @@ impl Default for PunctuationMarks {
             brackets: BracketStyle::Solid,
             enumeration_comma_backslash: true,
             enumeration_comma_slash: false,
+            preserve_english_punctuation: PreservedEnglish::NONE,
         }
     }
 }
 
-/// 从偏好算出生效的标点样式与顿号键，这是唯一的解析处：`corner_when_traditional` 在繁体输出打开时是直角引号，否则是弯引号；「至少留一个」在这里归一，两个顿号键都关掉时按「`\` 开」读，采用 Windows IPC 无效值的反斜杠回退。Windows Server 读偏好 JSON 时照抄样式规则（`server_main.cpp` 的 `tsf_local_config`）。
+/// 从偏好算出生效的标点样式、顿号键与保留英文的键，这是唯一的解析处：`corner_when_traditional` 在繁体输出打开时是直角引号，否则是弯引号；「至少留一个」在这里归一，两个顿号键都关掉时按「`\` 开」读，采用 Windows IPC 无效值的反斜杠回退。`\` 设成保留英文时不出顿号，也不参与这条归一（#11890），所以两个顿号键可以同时关。Windows Server 读偏好 JSON 时照抄样式规则（`server_main.cpp` 的 `tsf_local_config`）。
 pub fn punctuation_marks(preferences: &Preferences) -> PunctuationMarks {
     let corner = match preferences.quote_style {
         QuoteStyle::Curly => false,
@@ -42,6 +118,12 @@ pub fn punctuation_marks(preferences: &Preferences) -> PunctuationMarks {
         QuoteStyle::CornerWhenTraditional => preferences.traditional_chinese_output,
     };
     let slash = preferences.enumeration_comma_slash;
+    let preserve = PreservedEnglish::from_keys(
+        preferences
+            .preserve_english_punctuation
+            .iter()
+            .map(String::as_str),
+    );
     PunctuationMarks {
         quotes: if corner {
             QuoteMarks::Corner
@@ -49,8 +131,10 @@ pub fn punctuation_marks(preferences: &Preferences) -> PunctuationMarks {
             QuoteMarks::Curly
         },
         brackets: preferences.bracket_style,
-        enumeration_comma_backslash: preferences.enumeration_comma_backslash || !slash,
+        enumeration_comma_backslash: !preserve.contains('\\')
+            && (preferences.enumeration_comma_backslash || !slash),
         enumeration_comma_slash: slash,
+        preserve_english_punctuation: preserve,
     }
 }
 
@@ -816,5 +900,116 @@ mod tests {
         assert!(normalized.enumeration_comma_backslash);
         assert!(!normalized.enumeration_comma_slash);
         assert_eq!(normalized, marks(true, false));
+    }
+
+    /// 允许的键就是标点契约第 7 版 `preserveEnglish` 段，按同样的顺序。
+    #[test]
+    fn preservable_keys_match_the_contract() {
+        let spec: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../shared/contracts/punctuation/policy.json"
+        ))
+        .expect("policy.json");
+        let keys: Vec<char> = spec["preserveEnglish"]
+            .as_array()
+            .expect("preserveEnglish")
+            .iter()
+            .map(|key| key.as_str().expect("key").chars().next().expect("char"))
+            .collect();
+        assert_eq!(keys, PRESERVABLE_ENGLISH_PUNCTUATION);
+    }
+
+    fn keys(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_owned()).collect()
+    }
+
+    /// 21 个允许键都能单独或一起设上；契约外的键（含只是顿号开关的 `/`）、非 ASCII、多字符、空串和重复都不收。
+    #[test]
+    fn preserve_english_keys_are_validated() {
+        assert!(preserve_english_keys_valid(&[]));
+        for key in PRESERVABLE_ENGLISH_PUNCTUATION {
+            assert!(preserve_english_keys_valid(&[key.to_string()]), "{key}");
+        }
+        let all: Vec<String> = PRESERVABLE_ENGLISH_PUNCTUATION
+            .iter()
+            .map(char::to_string)
+            .collect();
+        assert!(preserve_english_keys_valid(&all));
+        for invalid in [
+            keys(&["/"]),
+            keys(&["~"]),
+            keys(&["a"]),
+            keys(&["@"]),
+            keys(&["·"]),
+            keys(&["，"]),
+            keys(&["、"]),
+            keys(&[""]),
+            keys(&["``"]),
+            keys(&["`\\"]),
+            keys(&["`", "`"]),
+            keys(&["\\", ",", "\\"]),
+        ] {
+            assert!(!preserve_english_keys_valid(&invalid), "{invalid:?}");
+            let preferences = Preferences {
+                preserve_english_punctuation: invalid.clone(),
+                ..Preferences::default()
+            };
+            assert!(preferences.validate().is_err(), "{invalid:?}");
+        }
+    }
+
+    /// 缺省空集合时解析结果与没有这个字段时逐字相同；集合里的键进 `preserve_english_punctuation`，按契约顺序报告。
+    #[test]
+    fn punctuation_marks_carry_the_preserved_keys() {
+        assert_eq!(
+            punctuation_marks(&Preferences::default()),
+            PunctuationMarks::default()
+        );
+        let marks = punctuation_marks(&Preferences {
+            preserve_english_punctuation: keys(&["\"", "`"]),
+            ..Preferences::default()
+        });
+        assert_eq!(
+            marks
+                .preserve_english_punctuation
+                .keys()
+                .collect::<Vec<_>>(),
+            vec!['`', '"']
+        );
+        assert!(marks.enumeration_comma_backslash);
+        assert_eq!(
+            serde_json::to_value(marks).unwrap()["preserve_english_punctuation"],
+            serde_json::json!(["`", "\""])
+        );
+        assert_eq!(
+            serde_json::to_value(PunctuationMarks::default()).unwrap()
+                ["preserve_english_punctuation"],
+            serde_json::json!([])
+        );
+    }
+
+    /// `\` 设成保留英文后不出顿号，也不参与「至少留一个顿号键」：两个顿号开关都关时不再按「`\` 开」读（#11890 维护者确认）。`/` 照自己的开关。
+    #[test]
+    fn preserved_backslash_leaves_the_enumeration_comma_normalization() {
+        let marks = |backslash, slash| {
+            punctuation_marks(&Preferences {
+                enumeration_comma_backslash: backslash,
+                enumeration_comma_slash: slash,
+                preserve_english_punctuation: keys(&["\\"]),
+                ..Preferences::default()
+            })
+        };
+        for (backslash, slash) in [(true, false), (false, false), (true, true), (false, true)] {
+            let resolved = marks(backslash, slash);
+            assert!(!resolved.enumeration_comma_backslash, "{backslash} {slash}");
+            assert_eq!(resolved.enumeration_comma_slash, slash);
+            assert!(resolved.preserve_english_punctuation.contains('\\'));
+        }
+        // 只保留别的键时，归一照旧。
+        let other = punctuation_marks(&Preferences {
+            enumeration_comma_backslash: false,
+            preserve_english_punctuation: keys(&["`"]),
+            ..Preferences::default()
+        });
+        assert!(other.enumeration_comma_backslash);
     }
 }
