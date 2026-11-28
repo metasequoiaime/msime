@@ -413,8 +413,7 @@ fn key_matches(key: &str, parts: &Query) -> bool {
 
 /// 用部件全拼筛选候选：`parts` 是拼音后面的辅助段（例如 `cheng` 后的 `chong`），按全拼书写，部件之间可以用 `'` 分隔。保留末字的某种拆法按顺序包含这些部件的候选（规则见 `key_matches`），其余丢掉，留下的行保持原来的顺序。多字词看末字；末字不在拆字表里的行（含非汉字）都被丢掉。`parts` 去掉 `'` 后为空时原样返回；含小写字母和 `'` 以外的字符时什么也不留。
 ///
-/// 这里只提供筛选本身，还没有接进会话；触发键、开关和默认值见 `.agents/notes/proposed/feature/2026-11-27-component-pinyin-helpcode.md`。
-#[allow(dead_code)]
+/// 全拼组字后按反引号打开的部件辅助段经 `QuanpinEngine::query` 和会话的混排列表用到它（`SessionOptions::component_filter_backtick`），触发条件和默认值见 `.agents/notes/implemented/feature/2026-11-27-component-pinyin-helpcode.md`。
 pub fn component_filter(candidates: Vec<WordItem>, parts: &str) -> Vec<WordItem> {
     if !parts
         .bytes()

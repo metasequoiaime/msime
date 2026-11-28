@@ -60,6 +60,8 @@ pub struct SessionOptions {
     pub helpcode: bool,
     /// 一码辅助码严格筛选，默认关闭以保持原有重排行为。
     pub strict_quanpin_helpcode: bool,
+    /// 全拼组字后按反引号进入部件辅助段，用部件全拼筛当前候选（#11804）：拼音完整、光标在末尾、不在本地模式和专用英文里时，反引号记进输入串，后面的字母按部件全拼筛末字，退格可以删回去；上屏、学词和云候选只用反引号前的拼音。不依赖 `helpcode` 和辅助码表。默认关，关着时反引号照旧是标点。
+    pub component_filter_backtick: bool,
     /// 双拼辅助码的触发方式（Windows `[helpcode]` 组的双拼专属键）；只在双拼方案下生效。
     pub shuangpin_helpcode_modes: ShuangpinHelpcodeModes,
     /// 十四／十八键组码后可以放下分隔符输入辅助码（[`crate::Session::grid_helpcode`]），默认关；还要 `helpcode` 开着、码表非空。
@@ -152,6 +154,7 @@ impl SessionOptions {
             autocorrect_types: 0,
             helpcode: false,
             strict_quanpin_helpcode: false,
+            component_filter_backtick: false,
             shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
             grid_helpcode: false,
             precise_nine_key: false,

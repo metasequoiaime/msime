@@ -695,12 +695,14 @@ impl InputSession {
                 !request.end_helpcodes.is_empty()
                     || active_shuangpin_helpcode_length(request, self.shuangpin_profile()) > 0
             }
+            // 部件辅助段在筛候选时同样算激活的辅助码：英文、符号、联系人、整句混排和云候选让位。
             SchemeType::Quanpin => {
-                request.enable_quanpin_helpcode
-                    && detect_active_helpcode_length(
-                        &request.raw_input,
-                        &request.raw_input_with_cases,
-                    ) > 0
+                !request.component_filter_parts.is_empty()
+                    || (request.enable_quanpin_helpcode
+                        && detect_active_helpcode_length(
+                            &request.raw_input,
+                            &request.raw_input_with_cases,
+                        ) > 0)
             }
         }
     }

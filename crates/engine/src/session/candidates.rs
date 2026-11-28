@@ -201,12 +201,17 @@ impl InputSession {
                 // 先复制原始行到可复用的显示缓冲，再按索引原地重排，避免重新分配每个字符串。
                 clone_candidate_rows(&decoded, &mut reranked);
                 order.reorder(&mut reranked);
-                self.mixed_candidates = self.mixed_from(reranked, japanese.as_ref());
+                let mixed = self.mixed_from(reranked, japanese.as_ref());
+                self.mixed_candidates = self.apply_component_filter(mixed);
                 // 学习使用字典给出的顺序，因此另存未重排的混排列表。
-                self.ranking_candidates = Some(self.mixed_from(decoded, japanese.as_ref()));
+                let ranking = self.mixed_from(decoded, japanese.as_ref());
+                self.ranking_candidates = Some(self.apply_component_filter(ranking));
                 self.personal_reranked = true;
             }
-            None => self.mixed_candidates = self.mixed_from(decoded, japanese.as_ref()),
+            None => {
+                let mixed = self.mixed_from(decoded, japanese.as_ref());
+                self.mixed_candidates = self.apply_component_filter(mixed);
+            }
         }
     }
 
