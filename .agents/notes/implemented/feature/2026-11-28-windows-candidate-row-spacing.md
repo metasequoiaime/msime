@@ -14,7 +14,7 @@ Status: implemented
 - `CandidateWindowStyle` 加两个 `std::optional<unsigned>`，`valid()` 各限 0–16，纳入 `operator==`，让改值重新排版（`set_style` 走 `invalidate_geometry()`）。
 - `CandidateWindowStyleSettings.h` 投影两个键；类型错、越界或整份文档不合法时照旧整份拒绝，候选窗保留之前的样式。
 - `CandidateCardSize.h` 新增 `CandidateRowStyle`（两个 `optional<double>`）并作为 `candidate_card_metrics` 的最后一个参数，`CandidateCardInput`、`candidate_card_size`、`candidate_expand_card_size` 一路带下去。设置了行高时 `row_padding = 2 × 值`、`candidate_row = line + row_padding`，压过皮肤的 `item_extra_height`；设置了行距时 `item_gap = 值`、`column_gap` 在皮肤原本的 6 DIP（`fit_content` 时是 0）之上再加值、间距大于 0 时高亮铺满整行（`selection_inset = 0`）。命中区、卷轴展开的步进、卡片高度都从同一份 metrics 来，所以点击区与画面不会错位。
-- 设置界面：Windows 11 原生设置的「窗口样式」标签加「行高」「行距」两行（滑块 0–16，旁边「跟随皮肤」把键写回 `null`，说明随数值就地改写）；预览按用户值画行内上下留白与列表间距。Windows 7 兼容设置的候选外观页把两个键加进可选数字字段（第一项「跟随皮肤」写回空值）。这两个键在设置同步字段表里本来就有，账号同步不需要改。
+- 设置界面：Windows 11 原生设置的「窗口样式」标签加「行高」「行距」两行（滑块 0–16，旁边「跟随皮肤」把键写回 `null`，说明随数值就地改写）；预览按用户值画行内上下留白与列表间距。Windows 7 兼容设置的候选外观页把两个键加进可选数字字段（第一项「跟随皮肤」写回空值）。这两个键在设置同步字段表里本来就有，账号同步不需要改。两个键缺省时共享序列化不写，Windows 7 的 `PreferencesStore::save` 只允许白名单里的叶字段补上路径，所以它们和 `candidate_corner_radius` 一起列进可选整数（或 null）的白名单；漏了这一步时第一次选数值被拒成 `invalid_change`，`windows7-settings` 测试因此以 0xc0000409 退出。
 
 只做 Windows：issue 是 `platform/windows`；其他平台按界面迁移顺序各自接入，共享字段与校验没有动。
 
