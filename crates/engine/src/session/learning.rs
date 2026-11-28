@@ -29,7 +29,7 @@ use crate::user_dictionary::journal::is_user_deleted;
 use crate::user_dictionary::picks::{clear_pick_transition, record_pick_transition};
 use crate::user_dictionary::ranking::{
     adjust_candidate_ranking, adjust_english_candidate_ranking, learn_quick_phrase_bypass,
-    learn_quick_phrase_selection, RankingRequest,
+    learn_quick_phrase_selection, promote_default_above_prefix_group, RankingRequest,
 };
 use crate::user_dictionary::typo_profile::{
     is_storable_autocorrect_suppression, is_storable_shuangpin_suppression, ShuangpinTypoOutcome,
@@ -212,12 +212,6 @@ impl InputSession {
             })
             .count();
         let default_behind_leaders = leading > 0 && index == leading;
-        if self.frequency.mode == FrequencyAdjustmentMode::Disabled
-            || index == 0
-            || default_behind_leaders
-        {
-            return None;
-        }
         if !selected_source.is_dictionary()
             || !self
                 .engine
@@ -225,6 +219,13 @@ impl InputSession {
                 .learns_into_main_dictionary()
         {
             return None;
+        }
+        if self.frequency.mode == FrequencyAdjustmentMode::Disabled {
+            return None;
+        }
+        // 默认上屏（第 0 条，或混输里紧跟英文、日文行的那条拼音首选）以前什么也不记：它已经是自己完整编码的首位，没有往上挪的座位。同一个词在更短的编码下却要和别的词按权重竞争（#11955：ciku 上屏的词库，打 cik 时排第三），所以这里把它抬到那个短编码的那一组之上。
+        if index == 0 || default_behind_leaders {
+            return self.promote_default_candidate(index, self.frequency);
         }
         self.adjust_candidate_frequency(index, self.frequency, false)
     }
@@ -324,6 +325,51 @@ impl InputSession {
             },
         });
         match adjusted {
+            Ok(changed) => {
+                if changed {
+                    self.engine.reset_cache();
+                }
+                None
+            }
+            Err(_) => Some(diagnostics::FREQUENCY_NOT_PERSISTED.to_owned()),
+        }
+    }
+
+    /// #11955：默认上屏也记一次使用，抬到它在更短编码里的位置。选中词已经在自己完整编码的首位，座位算术没有目标可挪；这次处理的是末段只按了首字母的那一组（`ci'ku` → `ci'k`）。只认拼音与双拼的普通组字：单音节（首字母表）、五笔、粤语、临时英文和个人上下文模式都不参与。
+    fn promote_default_candidate(
+        &mut self,
+        index: usize,
+        options: FrequencyAdjustmentOptions,
+    ) -> Option<String> {
+        if self.is_wubi() || self.local_mode != LocalInputMode::None || self.dedicated_english {
+            return None;
+        }
+        let selected = self.ranking_list().get(index)?;
+        // 单音节不参与：首字母表不成组，抬到那组之上等于让每个单字母查询的首选都跟着最近一次上屏变。
+        if segment_count(&selected.canonical_pinyin) < 2 {
+            return None;
+        }
+        let request = self.engine.request();
+        let mut context_key = request.normalized_segmentation.clone();
+        if context_key.is_empty() {
+            context_key = request.segmentation.clone();
+        }
+        let main_db = self.paths.dictionary(assets::MAIN_DICTIONARY);
+        let user_db = self.journal_path();
+        let promoted = promote_default_above_prefix_group(&RankingRequest {
+            main_db: &main_db,
+            user_db,
+            context_key: &context_key,
+            ordered: self.ranking_list(),
+            entry_key: selected.canonical_pinyin.as_str(),
+            value: &selected.word,
+            mode: options.mode,
+            linear_step: options.linear_step,
+            trigger_count: options.trigger_count,
+            force_top: false,
+            kind: PersonalDictionaryKind::Pinyin,
+        });
+        match promoted {
             Ok(changed) => {
                 if changed {
                     self.engine.reset_cache();
@@ -1142,6 +1188,104 @@ mod tests {
         );
         assert_eq!(
             fixture.journal_count("SELECT count(*) FROM candidate_selection_state"),
+            0
+        );
+    }
+
+    /// #11955：ciku 空格上屏「词库」后，打 cik 时它排到第一位；它已经是那一组里最重的词时不再重复写记录。双拼把末键读成辅助码，`ci` 的单字行让这条路径跑出候选（与报告者的实际词库一样）。
+    #[test]
+    fn a_default_pick_is_promoted_above_its_shorter_code() {
+        let fixture = Fixture::new(
+            &[
+                ("ci", "词", 300_000),
+                ("ci'ke", "此刻", 500_000),
+                ("ci'ku", "词库", 100_000),
+                ("ci'kuan", "此款", 80_000),
+                ("ci'kong", "磁控", 70_000),
+            ],
+            &[],
+        );
+        let options = frequency(FrequencyAdjustmentMode::Promote, 1, 1);
+        let create = || {
+            fixture.session(|o| {
+                o.frequency = options;
+                o.scheme = SchemeType::Shuangpin;
+                o.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+            })
+        };
+        let mut session = create();
+        type_text(&mut session, "cik");
+        assert_eq!(
+            words(&session)[0],
+            "此刻",
+            "前提：ci'k 这一组里此刻比词库重（报告者截图里的第三位是词库）"
+        );
+        cancel(&mut session);
+        type_text(&mut session, "ciku");
+        assert_eq!(words(&session)[0], "词库");
+        let result = session.select(0);
+        assert_eq!(result.commit.as_deref(), Some("词库"));
+        assert_eq!(result.diagnostic, None);
+        assert_eq!(
+            fixture.journal_count(
+                "SELECT weight FROM user_dictionary_operations WHERE dictionary='pinyin' AND key='ci''ku' AND value='词库'"
+            ),
+            501_000,
+            "抬到 ci'k 这一组里最高权重之上"
+        );
+        type_text(&mut session, "cik");
+        assert_eq!(words(&session)[0], "词库");
+        // 已经在组内最高：再按一次空格上屏，不再写记录。
+        cancel(&mut session);
+        type_text(&mut session, "ciku");
+        session.select(0);
+        assert_eq!(
+            fixture.journal_count(
+                "SELECT weight FROM user_dictionary_operations WHERE dictionary='pinyin' AND key='ci''ku' AND value='词库'"
+            ),
+            501_000
+        );
+        // 记录落在词库里，新会话照旧生效。
+        let mut session = create();
+        type_text(&mut session, "cik");
+        assert_eq!(words(&session)[0], "词库");
+    }
+
+    /// 调频关闭时默认上屏什么也不记：这次的使用记录也是调频的一部分。
+    #[test]
+    fn disabled_frequency_does_not_promote_default_picks() {
+        let fixture = Fixture::new(
+            &[("ci'ke", "此刻", 500_000), ("ci'ku", "词库", 100_000)],
+            &[],
+        );
+        let mut session = fixture.session(|o| {
+            o.frequency = frequency(FrequencyAdjustmentMode::Disabled, 1, 1);
+            o.scheme = SchemeType::Shuangpin;
+            o.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+        });
+        type_text(&mut session, "ciku");
+        assert_eq!(words(&session)[0], "词库");
+        session.select(0);
+        assert_eq!(
+            fixture.journal_count("SELECT count(*) FROM user_dictionary_operations"),
+            0
+        );
+    }
+
+    /// 单音节上屏不动首字母表：否则每选一个字，下次打首字母的首选都会跟着变。
+    #[test]
+    fn a_single_syllable_pick_is_not_promoted() {
+        let fixture = Fixture::new(&[("ci", "词", 300_000), ("ci'ku", "词库", 100_000)], &[]);
+        let mut session = fixture.session(|o| {
+            o.frequency = frequency(FrequencyAdjustmentMode::Promote, 1, 1);
+            o.scheme = SchemeType::Shuangpin;
+            o.shuangpin_profile = ShuangpinProfileKind::Xiaohe;
+        });
+        type_text(&mut session, "ci");
+        assert_eq!(words(&session)[0], "词");
+        session.select(0);
+        assert_eq!(
+            fixture.journal_count("SELECT count(*) FROM user_dictionary_operations"),
             0
         );
     }

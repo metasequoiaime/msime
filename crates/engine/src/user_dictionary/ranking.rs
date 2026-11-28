@@ -5,12 +5,16 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 
 use super::journal::{
-    open_dictionary_for_writing, open_journal, pinyin_segments, pinyin_table, write_upsert,
-    MISSING_ROW, UNSTORABLE_ENTRY,
+    open_dictionary_for_writing, open_existing_read_only, open_journal, pinyin_segments,
+    pinyin_table, write_upsert, MISSING_ROW, UNSTORABLE_ENTRY,
 };
 use super::learning_clock::{ranking_timestamp, write_weight_at};
 use super::positions::is_fixed;
 use crate::error::{EngineError, Result};
+use crate::pinyin::jianpin::{
+    build_key_like_pattern, extract_initial_token, key_prefix_upper_bound,
+};
+use crate::pinyin::syllables::is_intact;
 use crate::types::{
     CandidateSource, FrequencyAdjustmentMode, FrequencyAdjustmentOptions, PersonalDictionaryKind,
     WordItem,
@@ -536,6 +540,97 @@ pub fn adjust_candidate_ranking(request: &RankingRequest<'_>) -> Result<bool> {
     transaction.commit()?;
     main_transaction.commit()?;
     Ok(true)
+}
+
+/// #11955：默认上屏（第 0 条）也记一次使用。这一行在它自己完整编码里已经是最重的一行，[`adjust_candidate_ranking`] 的座位算术没有目标可挪；这条记录处理的是同一个词在更短编码里的位置：把末段换成它的首字母，得到下次能覆盖到它的那一组（`ci'ku` → `ci'k`），把它抬到组内最高权重之上，下次打这个短编码时它排第一位。
+///
+/// 只在两音节及以上的词上生效：单音节的「那一组」是首字母表，一行首字母覆盖成百上千个单字，抬到那组之上会让每次单字母查询的首选都跟着最近一次上屏变，不是这次要改的行为。选中行已经是这一组里最重（或这一组只有它自己）时什么也不写，所以高频词和已经抬过的词不会每次上屏都写一条记录。
+pub fn promote_default_above_prefix_group(request: &RankingRequest<'_>) -> Result<bool> {
+    if request.kind != PersonalDictionaryKind::Pinyin
+        || request.mode == FrequencyAdjustmentMode::Disabled
+    {
+        return Ok(false);
+    }
+    let Some(group) = prefix_group_segments(request.entry_key) else {
+        return Ok(false);
+    };
+    let Some(table) = pinyin_table(request.entry_key) else {
+        return Ok(false);
+    };
+    // 先用只读连接看要不要写，默认上屏远多于调频，不能让每次空格都开一个写事务。
+    let Some(dictionary) = open_existing_read_only(request.main_db)? else {
+        return Ok(false);
+    };
+    let current: Option<i64> = dictionary
+        .prepare_cached(&format!(
+            "SELECT \"weight\" FROM \"{table}\" WHERE \"key\"=?1 AND \"value\"=?2"
+        ))?
+        .query_row(params![request.entry_key, request.value], |row| row.get(0))
+        .optional()?;
+    let Some(current) = current else {
+        return Ok(false);
+    };
+    let pattern = build_key_like_pattern(&group);
+    let prefix = &pattern[..pattern.len().saturating_sub(1)];
+    let upper = key_prefix_upper_bound(prefix);
+    let ceiling: Option<i64> = dictionary
+        .prepare_cached(&format!(
+            "SELECT MAX(\"weight\") FROM \"{table}\" WHERE \"key\">=?1 AND \"key\"<?2"
+        ))?
+        .query_row(params![prefix, upper], |row| row.get(0))?;
+    let Some(ceiling) = ceiling else {
+        return Ok(false);
+    };
+    // 这一行已经是这一组里最重的（或与最重并列）就不用写：再抬一次只会让每次默认上屏都追加一条记录。抬不过组内最高的那一行时同样不写，留给调频的既有算术处理。
+    if current >= ceiling {
+        return Ok(false);
+    }
+    let weight = clamp_managed_weight(ceiling.saturating_add(REBALANCE_GAP));
+    if weight <= ceiling {
+        return Ok(false);
+    }
+    drop(dictionary);
+    let mut main = open_dictionary_for_writing(request.main_db)?;
+    let main_transaction = main.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let journal = open_journal(request.user_db)?;
+    let transaction = Transaction::new_unchecked(&journal, TransactionBehavior::Immediate)?;
+    let timestamp = ranking_timestamp(
+        &transaction,
+        request.kind,
+        request.entry_key,
+        std::iter::once(request.value),
+    )?;
+    update_ranked_weight(
+        &main_transaction,
+        &transaction,
+        request.kind,
+        request.entry_key,
+        request.value,
+        weight,
+        timestamp,
+    )?;
+    transaction.commit()?;
+    main_transaction.commit()?;
+    Ok(true)
+}
+
+/// 「末段换成首字母」的那一组切分（`ci'ku` → `ci'k`）。单音节、末段不是完整音节、首字母就是整段时返回 `None`。
+fn prefix_group_segments(entry_key: &str) -> Option<Vec<String>> {
+    let segments = pinyin_segments(entry_key);
+    if segments.len() < 2 {
+        return None;
+    }
+    let (last, leading) = segments.split_last()?;
+    if !is_intact(last) {
+        return None;
+    }
+    let initial = extract_initial_token(last);
+    if initial.is_empty() || initial == last {
+        return None;
+    }
+    let mut group = leading.to_vec();
+    group.push(initial.to_owned());
+    Some(group)
 }
 
 /// J:929-1101；`ordered` 可混有临时英文模式的生成行，`kind` 不参与英文排序。
