@@ -274,5 +274,27 @@ int main() {
     EnglishPunctuationState off_state;
     assert(english_mode_output('/', false, true, false, off_state, default_marks).empty());
   }
+  // 契约第 7 版：View 报告的保留英文的键在英文模式的中文标点下也原样交回（全角照常），引号不推进交替；不在契约里的键丢掉，重复的只留一个；这些键不再触发空格转换。
+  {
+    const auto preserved =
+        msime::input::punctuation_marks_from_view("curly", "solid", false, false, "`\\\"$/~``");
+    assert(preserved.preserve_english == "`\\\"$");
+    EnglishPunctuationState state;
+    for (const char key : {'`', '\\', '"', '$'}) {
+      assert(english_mode_output(key, false, true, false, state, preserved).empty());
+      assert(!is_space_conversion_key(key, preserved));
+    }
+    assert(english_mode_output('$', false, true, true, state, preserved) == "＄");
+    assert(english_mode_output('\'', false, true, false, state, preserved) == "‘");
+    assert(english_mode_output(',', false, true, false, state, preserved) == "，");
+    assert(is_space_conversion_key(',', preserved));
+    // 取消保留后第一下仍是前引号。
+    assert(english_mode_output('"', false, true, false, state, {}) == "“");
+    for (const auto key : metasequoia::punctuation_contract::preserve_english) {
+      const auto one = msime::input::punctuation_marks_from_view("curly", "solid", true, false, std::string(1, key));
+      EnglishPunctuationState fresh;
+      assert(english_mode_output(key, false, true, false, fresh, one).empty());
+    }
+  }
   return 0;
 }
