@@ -16,7 +16,15 @@ pub trait AccountApi: Send + Sync + 'static {
     }
     fn login(&self, challenge: &str, credential: &str) -> Result<AccountTokens, AccountError>;
     fn refresh(&self, refresh_token: &str) -> Result<AccountTokens, AccountError>;
+    /// 刷新令牌的详细版本：没拿到响应时是 [`AccountFailure::network`]，会话据此把刷新时的断网报成 `account_network`，而不是笼统的 `account_unavailable`。
+    fn refresh_detailed(&self, refresh_token: &str) -> Result<AccountTokens, AccountFailure> {
+        self.refresh(refresh_token).map_err(Into::into)
+    }
     fn profile(&self, access_token: &str) -> Result<AccountProfile, AccountError>;
+    /// 读取资料的详细版本，保留服务端返回的状态码、错误码和有没有拿到响应。
+    fn profile_detailed(&self, access_token: &str) -> Result<AccountProfile, AccountFailure> {
+        self.profile(access_token).map_err(Into::into)
+    }
     fn rename(&self, display_name: &str, access_token: &str) -> Result<(), AccountError>;
     fn logout(&self, access_token: &str, all: bool) -> Result<(), AccountError>;
     fn delete_account(&self, access_token: &str) -> Result<(), AccountError>;
