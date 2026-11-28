@@ -170,7 +170,7 @@ const PAUSE_SLICE: std::time::Duration = std::time::Duration::from_millis(8);
 
 /// 跑不进逐键预算、延后到停顿的逐键模型（`Runtime::set_deferred_scorer`）：在会话线程上带着它重解当前组字，一次一片（[`PAUSE_SLICE`]）。
 ///
-/// - 解完了：回 `status: done`，`moved` 表示候选内容是否改变；代次前进时附带新 `view`，文字不变也要更新候选身份。
+/// - 解完了：回 `status: done`，`moved` 表示候选文字是否改变；代次前进时附带新 `view`，文字不变（例如只换了来源或注释）也要更新候选身份。候选视图什么都没变时代次不动、不带 `view`，宿主画着的身份照旧有效（`Runtime::settle_deferred_scorer`，#11819）。
 /// - 这一片没解完：回 `status: continue`，宿主让排队的输入先走（鸿蒙用 `setTimeout(0)`），没有新按键就再调 `msime_client_start_settled_rerank`；有新按键就不再调，按键照常处理，下次停顿接着用已经打过的分。代次前进时同样附带 `view`。
 ///
 /// 没有延后的模型时是 `None`，照常走落定重排。不放到工作线程：重解要用引擎，会话只在它自己的线程上。
@@ -185,7 +185,7 @@ fn deferred_on_session(session: &mut HostSession) -> Option<Result<Value, String
         Ok(msime_input_runtime::DeferredSettle::Continue { moved }) => ("continue", moved),
         Err(error) => return Some(Err(error.to_string())),
     };
-    // 重解会使旧候选身份过期；文字没换位置时也要把新代次交回宿主。
+    // 重解改变了候选视图时代次前进、旧身份过期：文字没换位置（只换了来源、注释这类）时也要把新代次交回宿主。什么都没变时代次不动，不发视图。
     Some(if session.runtime.generation() != generation {
         let view = session.runtime.view();
         session.lifecycle_view(pending, &view);
