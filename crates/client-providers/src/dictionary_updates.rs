@@ -12,7 +12,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+mod check_lock;
 mod withdrawal;
+
+use check_lock::CheckLock;
 
 const API: &str =
     "https://api.github.com/repos/metasequoiaime/msime-dictionary/releases?per_page=100";
@@ -154,7 +157,7 @@ fn is_generation(name: &str) -> bool {
     name.len() == 64 && name.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-/// 删掉再也用不上的旧版本，持着 `update.lock` 调用。每个版本是 `generations/` 下的清单 `<桌面代次>.json`，加上它指向的桌面代次和语言代次目录。留下：当前选择和可回退的上一个（`installed.json`）、输入法最近一次加载的（`loaded.json`，也照顾还没有占用凭证的旧版输入法进程）、以及有会话持着 [`GenerationLease`] 的。其余版本先逐个取独占锁，取到之后不会再有会话开始用它，再删目录、校验标记、清单和锁文件；同一个语言代次被留下的版本引用时不删。目录删不掉（Windows 上有文件正被打开）时清单留着，下次再试。没有清单指向的代次目录（例如下载完却因关掉开关没有发布的那一代）不在这里删，留着下次发布时直接用。失败都只是少删，不影响检查结果。
+/// 删掉再也用不上的旧版本，持着 [`CheckLock`] 调用。每个版本是 `generations/` 下的清单 `<桌面代次>.json`，加上它指向的桌面代次和语言代次目录。留下：当前选择和可回退的上一个（`installed.json`）、输入法最近一次加载的（`loaded.json`，也照顾还没有占用凭证的旧版输入法进程）、以及有会话持着 [`GenerationLease`] 的。其余版本先逐个取独占锁，取到之后不会再有会话开始用它，再删目录、校验标记、清单和锁文件；同一个语言代次被留下的版本引用时不删。目录删不掉（Windows 上有文件正被打开）时清单留着，下次再试。没有清单指向的代次目录（例如下载完却因关掉开关没有发布的那一代）不在这里删，留着下次发布时直接用。失败都只是少删，不影响检查结果。
 fn remove_old_versions(state: &Path) {
     let folder = root(state);
     let generations = folder.join("generations");
@@ -561,16 +564,12 @@ fn automatic_check_due(status: &UpdateStatus, now: u64) -> bool {
 pub fn status(context: &UpdateContext) -> UpdateStatus {
     let mut status: UpdateStatus =
         read(&root(&context.state_root).join("status.json")).unwrap_or_default();
-    // 上次进程退出后不让界面永远停在下载中；活动任务仍持有跨进程锁。
-    if matches!(status.phase.as_str(), "checking" | "downloading") {
-        if let Ok(lock) =
-            file_lock::open_private_lock_file(root(&context.state_root).join("update.lock"))
-        {
-            if let Ok(Some(_idle)) = file_lock::ScopedFileLock::try_exclusive(lock) {
-                status.phase = "interrupted".into();
-                status.error = Some("dictionary_update_interrupted".into());
-            }
-        }
+    // 上次进程退出后不让界面永远停在下载中；进行中的检查持着 [`CheckLock`]。
+    if matches!(status.phase.as_str(), "checking" | "downloading")
+        && CheckLock::idle(&root(&context.state_root))
+    {
+        status.phase = "interrupted".into();
+        status.error = Some("dictionary_update_interrupted".into());
     }
     status.enabled = read::<Config>(&root(&context.state_root).join("config.json"))
         .unwrap_or_default()
@@ -611,9 +610,7 @@ pub fn configure(context: &UpdateContext, enabled: bool) -> Result<UpdateStatus,
 pub fn rollback(context: &UpdateContext) -> Result<UpdateStatus, UpdateError> {
     let folder = root(&context.state_root);
     storage::create_directory_and_check(&folder)?;
-    let _lock = file_lock::ScopedFileLock::exclusive(file_lock::open_private_lock_file(
-        folder.join("update.lock"),
-    )?)?;
+    let _lock = CheckLock::acquire(&folder)?;
     let mut installed: Installed = read(&folder.join("installed.json"))?;
     if let Some(previous) = &installed.previous {
         validate_selection(previous, &context.baseline)?;
@@ -931,6 +928,8 @@ fn plan(
 }
 
 /// 安装 `set` 这一代。`status.downloaded_bytes` 按完成的字节累加：下载的按收到的字节，从本机复用的整份计入，结束时正好加上 `set` 的总长度，所以成功时进度停在总量上。下载途中开关被关掉（[`switched_off`]）时停下并报 [`UpdateError::Cancelled`]：有数据进来时每写一次状态查一次，停滞的连接等这次连接或读取超时，之后不再换源（[`SwitchAware`]）。
+///
+/// 先在 `resources.lock` 之外把每个文件备齐（[`gather`]），再交给 ResourceStore 复制进新代次：那把锁在状态目录里，iOS 上是 App Group 共享容器，持着它等网络时应用一被挂起就会被系统以 `0xdead10cc` 杀掉（#11973），所以它只罩住本机的复制和发布。
 fn install(
     context: &UpdateContext,
     set: &ResourceSet,
@@ -938,8 +937,41 @@ fn install(
     status: &mut UpdateStatus,
     enabled_at_start: bool,
 ) -> Result<(), UpdateError> {
-    let folder = root(&context.state_root);
     let start = status.downloaded_bytes;
+    let generation = set.generation().map_err(|_| UpdateError::Invalid)?;
+    // 这一代已经发布过（例如下载完却因关掉开关没有发布的那一代）时 ResourceStore 只校验它、不取字节，这里也就不必下载。
+    let published = std::fs::symlink_metadata(
+        root(&context.state_root)
+            .join("generations")
+            .join(&generation),
+    )
+    .is_ok();
+    let mut sources = if published {
+        BTreeMap::new()
+    } else {
+        gather(context, set, transport, status, enabled_at_start)?
+    };
+    // ResourceStore 始终重新校验，备好的字节损坏或被换掉也进不了新代次。
+    store(&context.state_root)
+        .install(set, |file| {
+            sources
+                .remove(&file.name)
+                .ok_or_else(|| io::Error::other("dictionary update source missing"))
+        })
+        .map_err(|_| UpdateError::Integrity)?;
+    status.downloaded_bytes = start + set.artifacts.iter().map(|a| a.size).sum::<u64>();
+    Ok(())
+}
+
+/// 不持任何锁，按 `set` 的顺序为每个文件备好已校验的字节：本机已有相同字节的直接打开，其余下载到 `dictionary-updates/.partial-downloads/`（[`download_file`]）。交出的句柄读完丢掉时，下载的那份随之删除。
+fn gather(
+    context: &UpdateContext,
+    set: &ResourceSet,
+    transport: &dyn Transport,
+    status: &mut UpdateStatus,
+    enabled_at_start: bool,
+) -> Result<BTreeMap<String, Box<dyn Read>>, UpdateError> {
+    let folder = root(&context.state_root);
     let cancel = AtomicBool::new(false);
     let files = SwitchAware {
         files: transport.files(),
@@ -947,48 +979,29 @@ fn install(
         enabled_at_start,
         cancel: &cancel,
     };
-    // ResourceStore 把取字节的错误一律折成 I/O 错误；这里记下原因，好让网络失败和取消照实报告。
-    let mut failure = None;
-    let installed = store(&context.state_root).install(set, |file| {
-        // 复用当前资源的字节；ResourceStore 始终重新校验，损坏缓存不能被带进新代次。发布包不带的日文词典和五笔码表在已装的资源包里，新版本没改这份文件时从那里取，不重新下载（五笔码表近百 MB）。
-        let active = selected(&context.state_root, &context.baseline);
+    let active = selected(&context.state_root, &context.baseline);
+    let mut sources = BTreeMap::new();
+    for file in &set.artifacts {
+        // 复用当前资源的字节。发布包不带的日文词典和五笔码表在已装的资源包里，新版本没改这份文件时从那里取，不重新下载（五笔码表近百 MB）。
         let candidates = [
             Some(context.resources.join(&file.name)),
             context.languages.as_ref().map(|p| p.join(&file.name)),
             active
+                .as_ref()
                 .and_then(|s| directory(&context.state_root, &s.desktop).ok())
                 .map(|p| p.join(&file.name)),
             on_demand_pack(&file.name).and_then(|pack| {
                 crate::resource_packs::installed_file(&context.state_root, pack, &file.name)
             }),
         ];
-        for path in candidates.into_iter().flatten() {
-            if msime_path_trust::reject_symlinked_components(&path).is_err() {
-                continue;
-            }
-            if let Ok(mut source) = File::open(&path) {
-                if source.metadata()?.len() != file.size {
-                    continue;
-                }
-                let mut digest = Sha256::new();
-                let mut buffer = [0u8; 64 * 1024];
-                loop {
-                    let count = source.read(&mut buffer)?;
-                    if count == 0 {
-                        break;
-                    }
-                    digest.update(&buffer[..count]);
-                }
-                if hex::encode(digest.finalize()) == file.sha256 {
-                    status.downloaded_bytes += file.size;
-                    let _ = write(&folder.join("status.json"), status);
-                    return Ok(Box::new(File::open(path)?) as Box<dyn Read>);
-                }
-            }
+        if let Some(local) = reusable(candidates.into_iter().flatten(), file)? {
+            status.downloaded_bytes += file.size;
+            let _ = write(&folder.join("status.json"), status);
+            sources.insert(file.name.clone(), Box::new(local) as Box<dyn Read>);
+            continue;
         }
         if switched_off(&folder, enabled_at_start) {
-            failure = Some(UpdateError::Cancelled);
-            return Err(io::Error::other(UpdateError::Cancelled));
+            return Err(UpdateError::Cancelled);
         }
         let offset = status.downloaded_bytes;
         let mut reported = offset;
@@ -1010,27 +1023,49 @@ fn install(
             },
         );
         match downloaded {
-            Ok(source) => Ok(Box::new(source) as Box<dyn Read>),
-            Err(error) => {
-                // 最后一个源停滞到读取超时时，开关可能已在等待中被关掉：这次失败是用户要求停下，不报网络错误。
-                let error = if switched_off(&folder, enabled_at_start) {
-                    UpdateError::Cancelled
-                } else {
-                    error
-                };
-                let reported = io::Error::other(error.to_string());
-                failure = Some(error);
-                Err(reported)
+            Ok(source) => {
+                sources.insert(file.name.clone(), Box::new(source) as Box<dyn Read>);
             }
+            // 最后一个源停滞到读取超时时，开关可能已在等待中被关掉：这次失败是用户要求停下，不报网络错误。
+            Err(_) if switched_off(&folder, enabled_at_start) => {
+                return Err(UpdateError::Cancelled)
+            }
+            Err(error) => return Err(error),
         }
-    });
-    match installed {
-        Ok(_) => {
-            status.downloaded_bytes = start + set.artifacts.iter().map(|a| a.size).sum::<u64>();
-            Ok(())
-        }
-        Err(_) => Err(failure.unwrap_or(UpdateError::Integrity)),
     }
+    Ok(sources)
+}
+
+/// 第一个长度和 SHA-256 都与 `file` 相符的本机文件，打开着交出；路径上有符号链接的跳过。
+fn reusable(
+    candidates: impl Iterator<Item = PathBuf>,
+    file: &Artifact,
+) -> Result<Option<File>, UpdateError> {
+    for path in candidates {
+        if msime_path_trust::reject_symlinked_components(&path).is_err() {
+            continue;
+        }
+        let Ok(mut source) = File::open(&path) else {
+            continue;
+        };
+        if source.metadata()?.len() != file.size {
+            continue;
+        }
+        let mut digest = Sha256::new();
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let count = source.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            digest.update(&buffer[..count]);
+        }
+        if hex::encode(digest.finalize()) == file.sha256 {
+            source.rewind()?;
+            return Ok(Some(source));
+        }
+    }
+    Ok(None)
 }
 
 fn now() -> u64 {
@@ -1040,7 +1075,7 @@ fn now() -> u64 {
         .as_secs()
 }
 
-/// 在后台线程执行。跨进程取锁，自动检查每天至多一次；手动检查不受节流影响。开关关着时发起的手动检查不受开关影响；开始时开着、下载途中被关掉的检查（自动或手动）停下不发布，已收到的字节留给下次续传。
+/// 在后台线程执行。取 [`CheckLock`]，自动检查每天至多一次；手动检查不受节流影响。开关关着时发起的手动检查不受开关影响；开始时开着、下载途中被关掉的检查（自动或手动）停下不发布，已收到的字节留给下次续传。
 pub fn check(context: &UpdateContext, automatic: bool) -> Result<UpdateStatus, UpdateError> {
     check_with(
         context,
@@ -1059,10 +1094,7 @@ fn check_with(
 ) -> Result<UpdateStatus, UpdateError> {
     let folder = root(&context.state_root);
     storage::create_directory_and_check(&folder)?;
-    let Some(_lock) = file_lock::ScopedFileLock::try_exclusive(file_lock::open_private_lock_file(
-        folder.join("update.lock"),
-    )?)?
-    else {
+    let Some(_lock) = CheckLock::try_acquire(&folder)? else {
         return Ok(status(context));
     };
     let mut status = status(context);
@@ -1199,7 +1231,7 @@ fn check_with(
         }
         other => other,
     };
-    // 装好了新版本或确认已是最新时回收旧版本；仍持着 update.lock，不会和另一次安装交错。
+    // 装好了新版本或确认已是最新时回收旧版本；仍持着 CheckLock，不会和另一次安装交错。
     if result.is_ok() && matches!(status.phase.as_str(), "ready" | "current") {
         remove_old_versions(&context.state_root);
     }
