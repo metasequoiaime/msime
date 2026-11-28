@@ -7399,6 +7399,62 @@ static void TestShiftChordRecoversWithoutFlagsChanged() {
     }
 }
 
+// #11914：按住 Shift / Control 时点了、拖了或滚了鼠标，是一次修饰键点击（游戏里 Shift+点击加选单位、Ctrl+点击强制攻击，编辑器里 Shift+点击扩展选区，Shift+滚轮横向滚动），不是轻点。以前松开时照样切换中英文，英文模式下点一次 Shift+鼠标就进了中文，之后游戏的字母快捷键全被拿去组拼音。
+static MSIMEModifierTap::MouseState gMouse;
+static MSIMEModifierTap::MouseState SyntheticMouse() { return gMouse; }
+
+static void TestModifierTapIgnoresModifierClicks() {
+    for (const unsigned short code : {56, 60, 59, 62}) {
+        const auto flag = code == 56 || code == 60 ? NSEventModifierFlagShift : NSEventModifierFlagControl;
+        auto down = TapEvent(NSEventTypeFlagsChanged, code, flag, 1.0);
+        auto up = TapEvent(NSEventTypeFlagsChanged, code, 0, 1.1);
+        MSIMEModifierTap tap;
+        gHeldKeys.clear();
+        gMouse = {};
+        tap.setKeyHeldProbe(&SyntheticKeyHeld);
+        tap.setMouseProbe(&SyntheticMouse);
+        // 不碰鼠标的单按照常切换；鼠标移动不计入，计数不变。
+        assert(!tap.observe(down, true, true));
+        assert(tap.observe(up, true, true));
+        // 按住期间完成了一次点击（按下和松开都在修饰键松开之前）。
+        tap.reset();
+        assert(!tap.observe(down, true, true));
+        gMouse.events += 2;
+        assert(!tap.observe(up, true, true));
+        // 松开修饰键时鼠标键还按着：拖框选到一半。
+        tap.reset();
+        assert(!tap.observe(down, true, true));
+        gMouse.buttonHeld = true;
+        assert(!tap.observe(up, true, true));
+        // 先按住鼠标再按修饰键，即使松开前鼠标已经抬起也不算轻点。
+        tap.reset();
+        assert(!tap.observe(down, true, true));
+        gMouse.buttonHeld = false;
+        ++gMouse.events;
+        assert(!tap.observe(up, true, true));
+        // 之后不碰鼠标的下一次单按恢复正常，计数从新一轮按下时重新取。
+        assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, code, flag, 2.0), true, true));
+        assert(tap.observe(TapEvent(NSEventTypeFlagsChanged, code, 0, 2.1), true, true));
+        // reset 保留注入的鼠标替身，否则后面的断言会读到真实计数。
+        tap.reset();
+        gMouse.events += 5;
+        assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, code, flag, 3.0), true, true));
+        assert(tap.observe(TapEvent(NSEventTypeFlagsChanged, code, 0, 3.1), true, true));
+    }
+    // 双侧 Shift 组成同一轮：第二侧按下不重新取计数，两侧之间的点击仍然取消。
+    MSIMEModifierTap tap;
+    gHeldKeys.clear();
+    gMouse = {};
+    tap.setKeyHeldProbe(&SyntheticKeyHeld);
+    tap.setMouseProbe(&SyntheticMouse);
+    assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 1.0), true, true));
+    gMouse.events += 2;
+    assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, 60, NSEventModifierFlagShift, 1.1), true, true));
+    assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 1.2), true, true));
+    assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, 60, 0, 1.3), true, true));
+    gMouse = {};
+}
+
 // 焦点和鼠标监视器是系统边界，用替身驱动真实控制器，CI 无需辅助功能授权。
 @interface EditableShiftController : ModeController
 @property(nonatomic, strong) id focusIdentity;
@@ -17992,6 +18048,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestInputModeGlyphIconsPreference(); }
         @autoreleasepool { TestModifierTapSurvivesALostRelease(); }
         @autoreleasepool { TestShiftTapRecoversAfterLostReleaseFollowingShiftedKey(); }
+        @autoreleasepool { TestModifierTapIgnoresModifierClicks(); }
         // Caps Lock 的完整真实运行循环由 caps-lock 独立进程覆盖，避免其他窗口留下的通知和计时器污染。
         @autoreleasepool { TestPunctuationAfterCompositionKeepsRawInput(appearance); }
         @autoreleasepool { TestStaleClientDeactivation(); }

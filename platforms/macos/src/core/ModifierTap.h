@@ -1,7 +1,9 @@
 #pragma once
 #import <AppKit/AppKit.h>
 #include <cmath>
+#include <cstdint>
 #include <set>
+#include "EditableShiftFocus.h"
 
 // Observe the complete key stream; only a short, isolated modifier release toggles.
 // Engine composition remains owned by the normal host mode-switch operation.
@@ -10,12 +12,21 @@ public:
     /// Whether a key code is being held on the keyboard right now. A test drives a synthetic
     /// keyboard and has to answer for it; the default reads the HID system's own view.
     using KeyHeldProbe = bool (*)(unsigned short);
+    /// Mouse activity seen by the session: how many button, drag and scroll events have been delivered so far, and whether a button is down now. A test drives a synthetic mouse; the default reads the window server's counters.
+    struct MouseState {
+        uint64_t events = 0;
+        bool buttonHeld = false;
+    };
+    using MouseProbe = MouseState (*)();
     void reset() {
         const auto probe = held_;
+        const auto mouse = mouse_;
         *this = MSIMEModifierTap{};
         held_ = probe;
+        mouse_ = mouse;
     }
     void setKeyHeldProbe(KeyHeldProbe probe) { held_ = probe ? probe : &MSIMEModifierTap::physicallyHeld; }
+    void setMouseProbe(MouseProbe probe) { mouse_ = probe ? probe : &MSIMEModifierTap::sessionMouse; }
     // Shift 被其他字符打断后，同一轮按住期间的 Shift+空格应交回正常输入。
     bool shiftChordInterrupted() const { return shiftChordInterrupted_; }
     bool observe(NSEvent *event, bool shiftEnabled, bool controlEnabled) {
@@ -53,9 +64,10 @@ public:
         const auto required = shift ? NSEventModifierFlagShift : NSEventModifierFlagControl;
         const double time = event.timestamp;
         const bool sameModifier = (shift || control) && required == armedModifier_;
+        // A click, drag or scroll while the modifier is down makes it a modifier-click (Shift+click to extend a selection or add units in a game, Shift+scroll to scroll sideways), not a tap. Before #11914 such a release still toggled the mode, so the letters a game takes as hotkeys started composing pinyin after the next Shift+click. The window server counts those events even when the click lands in another process, so a monitor that misses them cannot let a tap through.
         const bool toggle = armed_ && sameModifier && flags == 0 &&
             previous == required && enabled && !anyKeyHeld() && std::isfinite(time) &&
-            time >= pressedAt_ && time - pressedAt_ < 0.5;
+            time >= pressedAt_ && time - pressedAt_ < 0.5 && mouseQuietSincePress();
         // 上一轮 Shift 组合取消了 tap，但它的松开通知可能丢失；若两侧实际都已松开，
         // 当前这次按下应作为新一轮轻点重新布防，避免后续每次单按都继承旧状态。
         const unsigned short otherModifier = event.keyCode == 56 ? 60 : 56;
@@ -64,6 +76,7 @@ public:
             armed_ = true;
             armedModifier_ = required;
             pressedAt_ = time;
+            mouseAtPress_ = mouse_();
         }
         // Both sides of the same modifier form one tap, timed from the first
         // press and completed only when the last side is released.
@@ -75,6 +88,7 @@ public:
             armed_ = true;
             armedModifier_ = required;
             pressedAt_ = time;
+            mouseAtPress_ = mouse_();
         }
         return toggle;
     }
@@ -98,7 +112,17 @@ private:
     static bool physicallyHeld(unsigned short key) {
         return CGEventSourceKeyState(kCGEventSourceStateHIDSystemState, key) != false;
     }
+    bool mouseQuietSincePress() const {
+        if (mouseAtPress_.buttonHeld) return false;
+        const MouseState now = mouse_();
+        return !now.buttonHeld && now.events == mouseAtPress_.events;
+    }
+    static MouseState sessionMouse() {
+        return {msime::mac::EditableShiftMouseEvents(), msime::mac::EditableShiftMouseButtonHeld()};
+    }
     KeyHeldProbe held_ = &MSIMEModifierTap::physicallyHeld;
+    MouseProbe mouse_ = &MSIMEModifierTap::sessionMouse;
+    MouseState mouseAtPress_;
     std::set<unsigned short> keys_;
     NSEventModifierFlags modifiers_ = 0;
     NSEventModifierFlags armedModifier_ = 0;
