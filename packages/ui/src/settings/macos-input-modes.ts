@@ -55,6 +55,16 @@ export function macosInputModeEntriesFor(edition?: EditionInfo): readonly MacosI
   });
 }
 
+/** 菜单栏里代表这个方案的入口，与原生 `MSIMEInputModeIDForSchemeIn`（`platforms/macos/src/input/InputModeIdentifiers.h`）一致：本版本声明了方案自己的模式时是它，否则是主模式 `Hans`。全拼没有自己的模式，就是 `Hans`（「水杉全拼」）；五笔版的五笔、日文版的日语也落在 `Hans` 上。 */
+export function macosInputModeEntryForScheme(
+  scheme: InputScheme,
+  edition?: EditionInfo,
+): MacosInputModeEntry {
+  const entries = macosInputModeEntriesFor(edition);
+  // 每个版本都声明 `Hans`，它总排在第一个。
+  return entries.find((entry) => entry.scheme === scheme) ?? entries[0];
+}
+
 /** 点了「打开键盘设置」之后多久内反复读取列表：用户在系统设置里添加时，设置窗口不一定会重新获得焦点。 */
 export const INPUT_MODE_RECHECK_MS = 3000;
 export const INPUT_MODE_RECHECK_WINDOW_MS = 120_000;

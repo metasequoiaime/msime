@@ -37,6 +37,10 @@ BOOL Available(NSString *identifier) {
     return [identifier isEqualToString:MSIMEChineseInputModeID] || gEnglishModeEnabled;
 }
 
+// 只有这几个入口加进了系统的输入法列表，用来模拟用户只加了「水杉双拼」之类的情形（#11911）。
+NSSet<NSString *> *gListedModes = nil;
+BOOL Listed(NSString *identifier) { return [gListedModes containsObject:identifier]; }
+
 void require(bool condition, const char *message) {
     if (!condition) {
         std::fprintf(stderr, "%s\n", message);
@@ -279,6 +283,44 @@ int main() {
                         !MSIMEReportRepeatsLeftInputMode(state, YES, MSIMEChineseInputModeID) &&
                         !MSIMEReportRepeatsLeftInputMode(state, NO, MSIMEShuangpinInputModeID),
                     "Only a switch-in report naming the mode left on repeats it.");
+        }
+        {
+            // #11911：只加了「水杉双拼」、设置里是全拼。系统报告的「双」是唯一可选的中文入口，不说明用户想换方案；方案自己的入口在列表里、还有别的中文入口可选、或报告的是换语言的入口时，报告仍是用户的选择。
+            NSDictionary *full = @{};
+            gListedModes = [NSSet setWithArray:@[MSIMEShuangpinInputModeID, MSIMEEnglishInputModeID]];
+            require(MSIMEReportIsOnlyChineseEntryIn(full, @"quanpin", @"quanpin", MSIMEShuangpinInputModeID, Listed) &&
+                        MSIMEReportIsOnlyChineseEntryIn(full, @"wubi", @"quanpin", MSIMEShuangpinInputModeID, Listed),
+                    "The only listed Chinese entry was taken as a choice to leave a scheme whose own entry is missing.");
+            require(!MSIMEReportIsOnlyChineseEntryIn(full, @"shuangpin", @"quanpin", MSIMEShuangpinInputModeID, Listed) &&
+                        !MSIMEReportIsOnlyChineseEntryIn(full, @"quanpin", @"quanpin", MSIMEEnglishInputModeID, Listed) &&
+                        !MSIMEReportIsOnlyChineseEntryIn(full, @"quanpin", @"quanpin", @"com.apple.keylayout.ABC", Listed) &&
+                        !MSIMEReportIsOnlyChineseEntryIn(full, @"quanpin", @"quanpin", MSIMEShuangpinInputModeID, nullptr),
+                    "A report that is not about leaving the saved scheme was treated as the only Chinese entry.");
+            gListedModes = [NSSet setWithArray:@[MSIMEShuangpinInputModeID, MSIMEChineseInputModeID]];
+            require(!MSIMEReportIsOnlyChineseEntryIn(full, @"quanpin", @"quanpin", MSIMEShuangpinInputModeID, Listed),
+                    "双 picked while 中 is listed was not taken as a choice.");
+            gListedModes = [NSSet setWithArray:@[MSIMEShuangpinInputModeID, MSIMEWubiInputModeID]];
+            require(!MSIMEReportIsOnlyChineseEntryIn(full, @"quanpin", @"quanpin", MSIMEShuangpinInputModeID, Listed),
+                    "双 picked over a listed 五 was not taken as a choice.");
+            gListedModes = [NSSet setWithArray:@[MSIMEShuangpinInputModeID, MSIMEJapaneseInputModeID]];
+            require(!MSIMEReportIsOnlyChineseEntryIn(full, @"quanpin", @"quanpin", MSIMEJapaneseInputModeID, Listed) &&
+                        MSIMEReportIsOnlyChineseEntryIn(full, @"quanpin", @"quanpin", MSIMEShuangpinInputModeID, Listed),
+                    "日 is a language switch, and a listed 日 is not another way to type Chinese.");
+            // 存的是全拼、列表里只有「双」和「日」：在 日 上选回 双 时按存的中文方案（全拼）的入口判断，不按「日」自己的入口；存的中文方案就是双拼时不算。
+            require(MSIMEReportIsOnlyChineseEntryIn(full, @"japanese", @"quanpin", MSIMEShuangpinInputModeID, Listed) &&
+                        MSIMEReportIsOnlyChineseEntryIn(full, @"korean", @"quanpin", MSIMEShuangpinInputModeID, Listed) &&
+                        !MSIMEReportIsOnlyChineseEntryIn(full, @"japanese", @"shuangpin", MSIMEShuangpinInputModeID, Listed),
+                    "Picking 双 from 日 judged the 日 entry instead of the saved Chinese scheme's entry.");
+            gListedModes = [NSSet set];
+            require(!MSIMEReportIsOnlyChineseEntryIn(full, @"quanpin", @"quanpin", MSIMEShuangpinInputModeID, Listed),
+                    "A report the input source list does not reflect yet was taken as the only Chinese entry.");
+            // 五笔版的五笔就是 .Hans：方案自己的入口按本版本 bundle 找，不去找一个不存在的 .Wubi。
+            NSDictionary *wubiModes = @{@"MSIMEEdition": @"wubi", @"ComponentInputModeDict": @{@"tsInputModeListKey": @{
+                MSIMEChineseInputModeID: @{}, MSIMEEnglishInputModeID: @{}}}};
+            gListedModes = [NSSet setWithArray:@[MSIMEChineseInputModeID]];
+            require(!MSIMEReportIsOnlyChineseEntryIn(wubiModes, @"wubi", @"quanpin", MSIMEChineseInputModeID, Listed),
+                    "The wubi edition's own entry was taken as missing.");
+            gListedModes = nil;
         }
         {
             // 报告先于激活校准：切回后第一次报告 中，方案不动，同步把菜单栏重新选回 双；之后在水杉里从 双 切到 中，才改用全拼。

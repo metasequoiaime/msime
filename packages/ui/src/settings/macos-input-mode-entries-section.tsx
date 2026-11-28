@@ -46,16 +46,20 @@ export function MacosInputModeEntriesSection({
       <>
         <span className="block">
           {current
-            ? `菜单栏里还没有「${current.name}」，到「${current.language}」下添加后才能从菜单栏切过去。`
+            ? "没加之前，菜单栏会停在别的入口上，打字仍按这里选的方案。"
             : `还有 ${missing.length} 个入口没加进输入法菜单。`}
         </span>
         <MissingEntries groups={groups} count={missing.length} />
       </>
     );
   }
+  // 当前方案的入口不在系统列表里是状态，常驻显示（#11911）：用户只加了「水杉双拼」时菜单栏一直显示「双」，看起来像方案被改成了双拼。
+  const detail = current
+    ? `输入法菜单里还没有当前方案的「${current.name}」，请到「系统设置 › 键盘 › 文字输入 › 输入法」的「${current.language}」下添加。`
+    : undefined;
 
   return (
-    <Row title="菜单栏入口" description={description}>
+    <Row title="菜单栏入口" description={description} detail={detail}>
       {missing.length > 0 && (
         <ActionButton
           action={openSettings}

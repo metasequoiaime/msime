@@ -318,7 +318,7 @@ static inline BOOL MSIMEReportReturnsToLeftInputMode(const MSIMESystemInputModeS
     return switchedIn && (state.left == nil || [reported isEqualToString:state.left]);
 }
 
-// 切进后报告的入口确知就是离开时的那一个。这样的报告不论是哪个入口都不改方案：只加了「水杉双拼」一个入口、又在设置里把方案改成全拼的人，菜单栏只能停在「双」上，每次从别的输入源切回来系统都报告「双」，以前这份报告把方案改回双拼，设置里选的全拼留不住。离开时的入口未知（进程刚启动）时不算，那时报告的 双、五、日 等仍选各自的方案。
+// 切进后报告的入口确知就是离开时的那一个。这样的报告不论是哪个入口都不改方案：只加了「水杉双拼」一个入口、又在设置里把方案改成全拼的人，菜单栏只能停在「双」上，每次从别的输入源切回来系统都报告「双」，以前这份报告把方案改回双拼，设置里选的全拼留不住。离开时的入口未知（进程刚启动）时不算，那时报告的 双、五、日 等仍选各自的方案；只有方案自己的入口不在系统列表里、报告的是唯一可选的中文入口时例外，见 MSIMEReportIsOnlyChineseEntryIn。
 static inline BOOL MSIMEReportRepeatsLeftInputMode(const MSIMESystemInputModeState &state, BOOL switchedIn, NSString *reported) {
     return switchedIn && state.left != nil && [reported isEqualToString:state.left];
 }
@@ -341,13 +341,35 @@ static inline BOOL MSIMERecordRestoredSystemInputMode(MSIMESystemInputModeState 
     return YES;
 }
 
+// 换语言的方案：japanese、korean、vietnamese、tibetan。它们不是设置里存的中文方案，切到它们之前的中文方案记在 lastChineseScheme。
+static inline BOOL MSIMESchemeIsLanguageScheme(NSString *scheme) {
+    return [@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:scheme];
+}
+
+// 设置里存的方案自己的入口不在系统的输入法列表里，而报告的入口是本 bundle 唯一一个可选的中文入口时，这份报告不是用户在入口之间做的选择：用户想用水杉就只能落在它上面。只加了「水杉双拼」、在设置里选了全拼的人，每次重新登录、更新后切进来系统都报告「双」，`left` 这时还不知道（MSIMEReportRepeatsLeftInputMode 管不到），以前这份报告把方案改成双拼（#11911）。这样的报告不改方案，以设置里存的方案为准。系统里还有别的中文入口可选（例如同时加了「五」），或者报告的是 日、한、越、藏 这类换语言的入口，报告仍是用户的选择。读不到列表、或列表里还没有被报告的那个入口时不算，照旧按报告走。`info` 是本版本 bundle 的 Info.plist，用来按 MSIMEInputModeIDForSchemeIn 找方案自己的入口。
+//
+// 当前方案是 japanese、korean、vietnamese 或 tibetan 时，设置里存的中文方案是 `lastChineseScheme`，按它的入口判断，和 MSIMESchemeForReportedInputMode 取 `chinese` 的方式一致：存了全拼、列表里只有「双」和「日」的人从 日 选回 双，看的是「水杉全拼」在不在列表里，而不是「日」在不在。这时返回 YES 的调用方要回到 `lastChineseScheme`，见 InputController 的 systemDidReportInputMode:client:。
+static inline BOOL MSIMEReportIsOnlyChineseEntryIn(NSDictionary *info, NSString *scheme, NSString *lastChineseScheme, NSString *reported,
+                                                   MSIMEInputModeAvailability available) {
+    if (!available || !MSIMEIsInputModeID(reported)) return NO;
+    NSArray<NSString *> *chinese = @[ MSIMEChineseInputModeID, MSIMEShuangpinInputModeID, MSIMEWubiInputModeID,
+                                      MSIMECantoneseInputModeID, MSIMEZhuyinInputModeID, MSIMEStrokeInputModeID ];
+    if (![chinese containsObject:reported] || !available(reported)) return NO;
+    NSString *saved = MSIMESchemeIsLanguageScheme(scheme) ? lastChineseScheme : scheme;
+    NSString *own = MSIMEInputModeIDForSchemeIn(info, saved);
+    if ([own isEqualToString:reported] || available(own)) return NO;
+    for (NSString *mode in chinese)
+        if (![mode isEqualToString:reported] && available(mode)) return NO;
+    return YES;
+}
+
 // 用户选中某个模式后方案要切到哪里，返回 nil 表示不动方案。中 回到进入 japanese、korean、vietnamese 或 tibetan 之前的中文方案，或者保留已经在用的中文方案——除非那个方案有自己的、系统提供的模式：那说明用户是越过 双、五、粤、注 或 笔 选了 中，意思是本版本的默认方案（full 是全拼），保留方案会立刻又选回那个模式。
 //
 // `switchedIn` 由 MSIMEReportReturnsToLeftInputMode 给出：切进水杉后还没见到用户的选择，并且报告的就是离开时的入口。这时报告的 中 不算用户越过 双 等模式做的选择：系统只是把用户送回了离开时的入口，用户并没有在 中 和 双 之间挑过（#10199）。所以照样回到或保留中文方案，控制器随后的同步会把菜单栏重新选回这个方案自己的模式。已经在水杉里按过键或做过选择之后从 双 等模式切到 中，或者从别的输入源直接选了离开时不在的 中，才改用默认方案。
 static inline NSString *MSIMESchemeForReportedInputMode(MSIMEInputMode mode, NSString *scheme, NSString *lastChineseScheme,
                                                         MSIMEInputModeAvailability available, BOOL switchedIn) {
     if (mode != MSIMEInputMode::Chinese) return MSIMESchemeForInputMode(mode);
-    const BOOL returning = [@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:scheme];
+    const BOOL returning = MSIMESchemeIsLanguageScheme(scheme);
     NSString *chinese = returning ? lastChineseScheme : scheme;
     const MSIMEInputMode own = MSIMEInputModeFor(NO, chinese);
     if (!switchedIn && own != MSIMEInputMode::Chinese && available && available(MSIMEInputModeID(own))) return MSIMEEditionDefaultScheme();

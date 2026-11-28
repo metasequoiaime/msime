@@ -6,6 +6,7 @@ import {
   MacosInputModeEntriesSection,
   macosInputModeEntries,
   macosInputModeEntriesFor,
+  macosInputModeEntryForScheme,
   type MacosInputModesClient,
 } from "@msime/ui";
 
@@ -70,7 +71,7 @@ test("names the language each missing entry sits under in the add dialog", async
     ["简体中文", ["水杉笔画"]],
   ]);
   expect(screen.getByText(/还有 4 个入口没加进输入法菜单/)).toBeTruthy();
-  expect(screen.queryByText(/菜单栏里还没有/)).toBeNull();
+  expect(screen.queryByText(/输入法菜单里还没有当前方案/)).toBeNull();
   expect(screen.getByRole("button", { name: "打开键盘设置" })).toBeTruthy();
 });
 
@@ -108,8 +109,10 @@ test("leads with the current scheme's entry when it is missing", async () => {
     />,
   );
 
-  const text = (await screen.findByText(/菜单栏里还没有/)).textContent ?? "";
-  expect(text.startsWith("菜单栏里还没有「水杉粤语」，到「粤语」下添加")).toBe(true);
+  const text = (await screen.findByText(/输入法菜单里还没有当前方案/)).textContent ?? "";
+  expect(text).toBe(
+    "输入法菜单里还没有当前方案的「水杉粤语」，请到「系统设置 › 键盘 › 文字输入 › 输入法」的「粤语」下添加。",
+  );
   expect(text).not.toContain("重新登录");
   // 简体中文下的几个入口排在同一行，不再各写一遍语言。
   expect((await missingGroups())[0]).toEqual([
@@ -128,8 +131,40 @@ test("leads with the Stroke entry when Stroke is the current scheme", async () =
     />,
   );
 
-  const text = (await screen.findByText(/菜单栏里还没有/)).textContent ?? "";
-  expect(text.startsWith("菜单栏里还没有「水杉笔画」")).toBe(true);
+  const text = (await screen.findByText(/输入法菜单里还没有当前方案/)).textContent ?? "";
+  expect(text).toContain("「水杉笔画」");
+});
+
+// #11911：只加了「水杉双拼」、方案是全拼时，菜单栏一直显示「双」。全拼在菜单栏里就是主模式「水杉全拼」（原生 `MSIMEInputModeIDForSchemeIn`），提示要常驻在标题下面，不能只藏在「?」里。
+test("names 水杉全拼 as the missing entry of quanpin, outside the help popover", async () => {
+  render(
+    <MacosInputModeEntriesSection
+      client={client([prefix + "Shuangpin"])}
+      scheme="quanpin"
+      inputSchemes={allSchemes}
+      onError={vi.fn()}
+    />,
+  );
+
+  const text = await screen.findByText(
+    "输入法菜单里还没有当前方案的「水杉全拼」，请到「系统设置 › 键盘 › 文字输入 › 输入法」的「简体中文」下添加。",
+  );
+  expect(text.closest(".sr-only")).toBeNull();
+  expect(screen.getByRole("button", { name: "打开键盘设置" })).toBeTruthy();
+});
+
+test("says nothing about the current scheme once its entry is in the list", async () => {
+  render(
+    <MacosInputModeEntriesSection
+      client={client([prefix + "Hans"])}
+      scheme="quanpin"
+      inputSchemes={allSchemes}
+      onError={vi.fn()}
+    />,
+  );
+
+  await screen.findByRole("button", { name: "打开键盘设置" });
+  expect(screen.queryByText(/输入法菜单里还没有当前方案/)).toBeNull();
 });
 
 test("leaves out the entries of schemes the host does not offer", async () => {
@@ -180,7 +215,7 @@ test("reads the list again while the user is in System Settings", async () => {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(3000);
   });
-  await vi.waitFor(() => expect(screen.queryByText(/菜单栏里还没有/)).toBeNull());
+  await vi.waitFor(() => expect(screen.queryByText(/输入法菜单里还没有当前方案/)).toBeNull());
   expect(await missingGroups()).toEqual([["简体中文", ["水杉英文"]]]);
 });
 
@@ -277,6 +312,44 @@ test("an edition whose entries are all in the list says so under its own name", 
     />,
   );
   expect(await screen.findByText("输入法菜单里已经有水杉五笔的全部入口。")).toBeTruthy();
+});
+
+test("maps each scheme to the entry the native host selects for it", () => {
+  const full = allSchemes.map((scheme) => [scheme, macosInputModeEntryForScheme(scheme).mode]);
+  expect(full).toEqual([
+    ["quanpin", "Hans"],
+    ["shuangpin", "Shuangpin"],
+    ["wubi", "Wubi"],
+    ["japanese", "Japanese"],
+    ["korean", "Korean"],
+    ["cantonese", "Cantonese"],
+    ["zhuyin", "Zhuyin"],
+    ["vietnamese", "Vietnamese"],
+    ["tibetan", "Tibetan"],
+    ["stroke", "Stroke"],
+  ]);
+  // 五笔版不声明 .Wubi，五笔落在用五笔名字的 Hans 上，与原生的回退一致。
+  expect(macosInputModeEntryForScheme("wubi", wubiEdition)).toMatchObject({
+    mode: "Hans",
+    name: "水杉五笔",
+  });
+});
+
+test("an edition names its missing current entry by the edition's name", async () => {
+  render(
+    <MacosInputModeEntriesSection
+      client={client(["app.msime.inputmethod.wubi.Roman"])}
+      scheme="wubi"
+      inputSchemes={["wubi"]}
+      edition={wubiEdition}
+      onError={vi.fn()}
+    />,
+  );
+  expect(
+    await screen.findByText(
+      "输入法菜单里还没有当前方案的「水杉五笔」，请到「系统设置 › 键盘 › 文字输入 › 输入法」的「简体中文」下添加。",
+    ),
+  ).toBeTruthy();
 });
 
 test("an edition names its missing entry by the edition's name", async () => {
