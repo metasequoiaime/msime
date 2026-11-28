@@ -98,6 +98,8 @@ RUST_ONLY: dict[str, set[str]] = {
     "HelpcodePreferences": {
         # 14/18 键辅助码（上滑分词键放下分隔符）只有 Android 键盘有入口，开关只在 Android 原生「输入 › 辅助码」里；桌面没有字母网格，React 设置页不显示。见 .agents/notes/implemented/feature/2026-11-04-grid-helpcode.md。
         "grid",
+        # 全拼反引号后按部件拼音筛选（#11804）先只在 iOS 原生「辅助码」页提供开关；packages/ui 迁移期只修缺陷、不加新设置，冻结的 AppKit 回退窗口也不加控件，macOS 期间经偏好文档的 `quanpin_helpcode.component_filter_backtick` 打开，界面随原生设置迁移接入。
+        "component_filter_backtick",
     },
 }
 

@@ -5321,6 +5321,10 @@ pub struct HelpcodePreferences {
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "is_false")]
     pub grid: bool,
+    /// 全拼组字后按反引号进入部件辅助段，用部件全拼筛当前候选（#11804，引擎 `SessionOptions::component_filter_backtick`）。只在 `quanpin_helpcode` 里读，`shuangpin_helpcode` 的这个键不起作用；不依赖 `enabled` 和辅助码表。默认关闭（https://github.com/metasequoiaime/msime/issues/11804 维护者的决定），缺键的旧文档读作关，关闭时不写进文档。
+    #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub component_filter_backtick: bool,
     /// 双拼专属的辅助码触发方式，对应 Windows v0.11.1 `[helpcode]` 组里 `shuangpin_helpcode_direct` 起的十一枚键；`quanpin_helpcode` 不读这一段。等于默认值时不写进文档，旧文档缺这一段时按 [`ShuangpinHelpcodeModes::default`] 处理。
     #[cfg_attr(feature = "preferences-schema", schemars(!skip_serializing_if))]
     #[serde(default, skip_serializing_if = "ShuangpinHelpcodeModes::is_default")]
@@ -5336,6 +5340,7 @@ impl Default for HelpcodePreferences {
             show_in_candidate_window: true,
             strict_filter: false,
             grid: false,
+            component_filter_backtick: false,
             modes: ShuangpinHelpcodeModes::default(),
         }
     }
@@ -5419,6 +5424,7 @@ fn default_quanpin_helpcode() -> HelpcodePreferences {
         show_in_candidate_window: false,
         strict_filter: false,
         grid: false,
+        component_filter_backtick: false,
         modes: ShuangpinHelpcodeModes::default(),
     }
 }
@@ -5474,6 +5480,7 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
         show_in_candidate_window: true,
         strict_filter: false,
         grid: false,
+        component_filter_backtick: false,
         modes: ShuangpinHelpcodeModes::default(),
     }
 }

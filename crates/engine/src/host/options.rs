@@ -97,6 +97,8 @@ pub struct EngineOptions {
     pub helpcode: bool,
     /// 一码辅助码严格筛选；关闭时仍按原来的规则重排候选。
     pub strict_quanpin_helpcode: bool,
+    /// 全拼组字后按反引号用部件全拼筛候选（`SessionOptions::component_filter_backtick`）；宿主按偏好 `quanpin_helpcode.component_filter_backtick` 填，默认关。
+    pub component_filter_backtick: bool,
     /// Display only: filtering stays on while annotations are hidden.
     pub show_helpcode: bool,
     /// 双拼辅助码的触发方式（`SessionOptions::shuangpin_helpcode_modes`）；宿主按偏好 `shuangpin_helpcode.modes` 填，其它方案给默认值也不会被读。
@@ -312,6 +314,7 @@ fn options_for_paths(paths: &RuntimePaths, enabled_schemes: SchemeSet) -> Engine
         wubi_phrase_placement: 0,
         helpcode: true,
         strict_quanpin_helpcode: false,
+        component_filter_backtick: false,
         show_helpcode: true,
         shuangpin_helpcode_modes: ShuangpinHelpcodeModes::default(),
         grid_helpcode: false,
@@ -458,6 +461,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
         autocorrect_types,
         helpcode: options.helpcode,
         strict_quanpin_helpcode: options.strict_quanpin_helpcode,
+        component_filter_backtick: options.component_filter_backtick,
         shuangpin_helpcode_modes: options.shuangpin_helpcode_modes,
         grid_helpcode: options.grid_helpcode,
         precise_nine_key: options.precise_nine_key,

@@ -192,6 +192,7 @@ impl InputSession {
         engine.set_autocorrect_types(0);
         engine.set_quanpin_helpcode_enabled(true);
         engine.set_strict_quanpin_helpcode(options.strict_quanpin_helpcode);
+        engine.set_component_filter_backtick(options.component_filter_backtick);
         engine.set_shuangpin_helpcode_enabled(true);
         engine.set_korean_layout(options.korean_layout);
         engine.set_vietnamese_options(
@@ -460,6 +461,8 @@ impl InputSession {
         // 双拼辅助码的间接触发键（`event_listener_keys.cpp` 的对应物）：`;` 先让给 `ing` 韵母，
         // 再看它当前归句中还是末尾；反引号同理。返回写进输入串的标记字符。
         let helpcode_marker = self.shuangpin_helpcode_marker(value);
+        // 全拼组字末尾的反引号打开部件辅助段（`component_filter.rs`）。
+        let component_marker = value == b'`' && self.component_filter_backtick_ready();
         let microsoft_final = value == b';'
             && scheme == SchemeType::Shuangpin
             && self.profile.uses_semicolon_key()
@@ -481,6 +484,7 @@ impl InputSession {
             && !cantonese_final
             && !japanese_long_vowel
             && helpcode_marker.is_none()
+            && !component_marker
         {
             // With nothing composed the host inserts the key itself (a digit, a space, a capital), so the next word no longer follows the last one.
             if !self.has_composition() {
@@ -505,6 +509,8 @@ impl InputSession {
         } else if let Some(marker) = helpcode_marker {
             // 触发键在输入串里一律记成标记字符（反引号或 '|'），与用户敲的键无关。
             SchemeKey::Symbol(marker)
+        } else if component_marker {
+            SchemeKey::Symbol(crate::quanpin::scheme::COMPONENT_FILTER_MARKER)
         } else if microsoft_final || cantonese_final {
             SchemeKey::Semicolon
         } else if japanese_long_vowel {
@@ -1264,6 +1270,10 @@ impl InputSession {
         if self.url_entry(value).is_some() {
             return self.handle_character(value, false);
         }
+        // 全拼的部件辅助段反引号同理（`component_filter.rs`）。
+        if value == b'`' && self.component_filter_backtick_ready() {
+            return self.handle_character(value, false);
+        }
         // 双拼组字末尾转超级简拼的 `/`、以及转出来之后撤回用的第二个 `/` 同理：直接调用方（golden、单测）也走字符入口。
         if value == b'/'
             && (self.super_jianpin_slash_ready() || self.super_jianpin_slash_escape_ready())
@@ -1458,6 +1468,10 @@ impl InputSession {
             if self.shuangpin_helpcode_marker(key).is_some() && !symbols.contains(char::from(key)) {
                 symbols.push(char::from(key));
             }
+        }
+        // 全拼组字末尾的反引号要打开部件辅助段时同样发布。
+        if self.component_filter_backtick_ready() && !symbols.contains('`') {
+            symbols.push('`');
         }
         // 双拼组字末尾的 `/` 要转超级简拼、或转出来之后要撤回时同样发布：发布的键必须正是 `dispatch_character` 接受的键。
         if (self.super_jianpin_slash_ready() || self.super_jianpin_slash_escape_ready())
@@ -2414,14 +2428,15 @@ impl InputSession {
         }
     }
 
-    /// 手动辅助码的 Tab 标记与辅码不属于原文；无候选回退和回车使用同一份拼写。
+    /// 手动辅助码的 Tab 标记与辅码不属于原文，全拼的部件辅助段也不属于；无候选回退和回车使用同一份拼写。
     pub(super) fn raw_commit_text(&self) -> String {
         let request = self.engine.request();
-        if self.scheme() == SchemeType::Shuangpin
-            && self.local_mode == LocalInputMode::None
-            && !self.dedicated_english
-            && request.shuangpin_helpcode_modes.manual_tab
-            && request.raw_input_with_helpcode_marks.contains('|')
+        if self.component_filter_open()
+            || (self.scheme() == SchemeType::Shuangpin
+                && self.local_mode == LocalInputMode::None
+                && !self.dedicated_english
+                && request.shuangpin_helpcode_modes.manual_tab
+                && request.raw_input_with_helpcode_marks.contains('|'))
         {
             request.raw_input_with_cases.clone()
         } else if self.local_mode != LocalInputMode::None && !self.dedicated_english {

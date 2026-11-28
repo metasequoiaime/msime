@@ -101,6 +101,8 @@ pub struct ImeSession {
     autocorrect_types: u32,
     quanpin_helpcode: bool,
     strict_quanpin_helpcode: bool,
+    /// 全拼组字后按反引号用部件全拼筛候选（`SessionOptions::component_filter_backtick`）。
+    component_filter_backtick: bool,
     shuangpin_helpcode: bool,
     shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes,
     fuzzy: FuzzyPinyinOptions,
@@ -192,6 +194,7 @@ impl ImeSession {
             autocorrect_types: 0,
             quanpin_helpcode: false,
             strict_quanpin_helpcode: false,
+            component_filter_backtick: false,
             shuangpin_helpcode: false,
             shuangpin_helpcode_modes: crate::types::ShuangpinHelpcodeModes::default(),
             fuzzy: FuzzyPinyinOptions::default(),
@@ -920,6 +923,14 @@ impl ImeSession {
         self.strict_quanpin_helpcode
     }
 
+    pub fn set_component_filter_backtick(&mut self, enabled: bool) {
+        self.component_filter_backtick = enabled;
+    }
+
+    pub(crate) fn component_filter_backtick(&self) -> bool {
+        self.component_filter_backtick
+    }
+
     pub fn set_shuangpin_helpcode_enabled(&mut self, enabled: bool) {
         self.shuangpin_helpcode = enabled;
         // 末尾大写触发归谁同时看总开关，方案层要重算。
@@ -1204,6 +1215,10 @@ impl ImeSession {
         }
         request.enable_quanpin_helpcode = self.quanpin_helpcode;
         request.strict_quanpin_helpcode = self.strict_quanpin_helpcode;
+        // 选项关着时会话不收反引号；宿主改写进来的反引号段照样显示，但不筛候选。
+        if !self.component_filter_backtick {
+            request.component_filter_parts.clear();
+        }
         request.sentence_alternatives = self.sentence_alternatives;
         request.sentence_pool = self.sentence_pool;
         request.sentence_scorer = self.sentence_scorer.clone();
