@@ -101,7 +101,7 @@ enum SymbolLayerLayout {
       return ascii ? .symbol(face) : .literal(face)
     }
     if let key = chineseLayerKeys[face] {
-      return chinesePunctuation && !preserveEnglish.contains(key) ? .symbol(key) : .literal(face)
+      return chinesePunctuation && !preserveEnglish.contains(where: { String($0) == key }) ? .symbol(key) : .literal(face)
     }
     return ascii && !engineTranslatedKeys.contains(face) ? .symbol(face) : .literal(face)
   }
