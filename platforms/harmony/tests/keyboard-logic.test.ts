@@ -7511,6 +7511,16 @@ group("quick punctuation prints one glyph and sends another", () => {
     QuickPunctuationPolicy.entries(false, 0, "emoji")[0].face === ",",
     "a local mode falls back to ASCII",
   );
+  // 保留英文的键（#11890）在中文表里画 ASCII，与 Engine 原样写出的字一致；日文表和注音不看这个集合。
+  const preserved: PunctuationEntry[] = QuickPunctuationPolicy.entries(false, 0, "none", ",\\");
+  check(
+    preserved[0].face === "," && preserved[0].input === "," && preserved[4].face === "\\"
+      && preserved[1].face === "。",
+    "a preserved key shows the ASCII it types",
+  );
+  check(QuickPunctuationPolicy.entries(false, 0, "none", "") === chinese, "an empty set keeps the Chinese menu");
+  check(QuickPunctuationPolicy.entries(false, 3, "none", "\\") === japanese, "Japanese ignores the set");
+  check(QuickPunctuationPolicy.entries(false, 6, "none", ",")[0].face === "，", "Zhuyin ignores the set");
 });
 
 group("bounds Harmony smart punctuation editor context", () => {

@@ -49,11 +49,16 @@ const JAPANESE: PunctuationEntry[] = [
 
 export class QuickPunctuationPolicy {
   /** Display faces paired with the ASCII input each one sends to the Engine. */
-  static entries(dedicatedEnglish: boolean, scheme: number, localMode: string): PunctuationEntry[] {
+  /** `preserveEnglish` 是 View 的 `preserve_english_punctuation`（#11890）：中文表里设成保留英文的键 Engine 原样写出 ASCII，这一项就画这个键，键面与上屏一致（与 `ChineseSymbolFaces.face` 同一条规则）。日文表和注音（scheme 6，Engine 先按注音规则处理这些键）不看这个集合。 */
+  static entries(dedicatedEnglish: boolean, scheme: number, localMode: string,
+    preserveEnglish: string = ""): PunctuationEntry[] {
     // Korean (scheme 4) writes half-width ASCII punctuation, so its menu is the ASCII one.
     if (dedicatedEnglish || localMode !== "none" || scheme === 4) {
       return ASCII;
     }
-    return scheme === 3 ? JAPANESE : CHINESE;
+    if (scheme === 3) return JAPANESE;
+    if (preserveEnglish.length === 0 || scheme === 6) return CHINESE;
+    return CHINESE.map((item: PunctuationEntry): PunctuationEntry =>
+      preserveEnglish.includes(item.input) ? entry(item.input, item.input) : item);
   }
 }

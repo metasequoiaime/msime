@@ -5915,7 +5915,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         enumerationCommaBackslash:
           ChineseSymbolFaces.enumerationCommaBackslash(view.punctuation_marks),
         enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view.punctuation_marks),
-        preserveEnglish: ChineseSymbolFaces.preserveEnglish(view.punctuation_marks),
+      preserveEnglish: ChineseSymbolFaces.preserveEnglish(view.punctuation_marks),
         prediction: NextWordPredictionPolicy.showing(view.prediction, entries.length)
       });
     }
@@ -5989,7 +5989,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       enumerationCommaBackslash:
         ChineseSymbolFaces.enumerationCommaBackslash(view.punctuation_marks),
       enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view.punctuation_marks),
-        preserveEnglish: ChineseSymbolFaces.preserveEnglish(view.punctuation_marks),
+      preserveEnglish: ChineseSymbolFaces.preserveEnglish(view.punctuation_marks),
       prediction: NextWordPredictionPolicy.showing(view.prediction, entries.length)
     });
     if (this.onCandidateWidth !== undefined) {
@@ -6098,7 +6098,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       enumerationCommaBackslash:
         ChineseSymbolFaces.enumerationCommaBackslash(view?.punctuation_marks),
       enumerationCommaSlash: ChineseSymbolFaces.enumerationCommaSlash(view?.punctuation_marks),
-        preserveEnglish: ChineseSymbolFaces.preserveEnglish(view?.punctuation_marks),
+      preserveEnglish: ChineseSymbolFaces.preserveEnglish(view?.punctuation_marks),
       // 译文页是某个组字候选的几种译法，不是上屏后联想。
       prediction: false
     });

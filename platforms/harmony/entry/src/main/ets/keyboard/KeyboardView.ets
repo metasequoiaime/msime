@@ -6051,7 +6051,7 @@ struct KeyboardView {
 
   /** 拼音网格的 1 键（@#）：候选条换成当前模式的常用标点（与逗号长按的「常用标点」同一组），组字中也一样，Engine 下一次回报时换回它的候选。 */
   private showNineKeyQuickMarks(): void {
-    this.nineKeyQuickMarks = QuickPunctuationPolicy.entries(this.english, this.engineScheme, this.localMode);
+    this.nineKeyQuickMarks = QuickPunctuationPolicy.entries(this.english, this.engineScheme, this.localMode, this.preserveEnglish);
   }
 
   /** 点选 1 键放进来的一个标点：先清掉候选条，再与侧栏标点一样交给 Engine 的标点处理，组字中先上屏首选。空闲时标点不一定经过 Engine 回报（智能标点的连按替换就不经过），所以不能等 `onChanged` 来清。 */
@@ -10148,7 +10148,7 @@ struct KeyboardView {
                 })
             }, (bracket: string) => bracket + this.faceKey())
           } else if (this.punctuation) {
-            ForEach(QuickPunctuationPolicy.entries(this.english, this.engineScheme, this.localMode),
+            ForEach(QuickPunctuationPolicy.entries(this.english, this.engineScheme, this.localMode, this.preserveEnglish),
               (item: PunctuationEntry) => {
                 Text(item.face)
                   .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
