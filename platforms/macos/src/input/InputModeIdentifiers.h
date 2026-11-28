@@ -268,13 +268,36 @@ static inline NSString *MSIMESchemeForInputMode(MSIMEInputMode mode) {
 // `restoringUntil` 是系统自己恢复输入源的那段时间（systemUptime 秒）：开盖时系统会恢复输入源并报告一个模式，这份报告不是用户的选择，有用户每次开盖方案都被改成没碰过的注音。合盖睡眠或锁屏时它是无穷大（锁着屏用户在水杉里什么也选不了），解锁、或者没锁屏的唤醒之后再保留几秒。期间的报告只记下，不改方案也不改中英状态，控制器随后把菜单栏选回自己的模式；解锁之后的第一次报告或用户按下的第一个键结束它。从锁屏切走时清空共享记录也保留它，否则解锁时的报告若先于解锁通知送到就不受保护。代价是解锁后几秒内、还没按键时在输入菜单里明确选别的模式，这一次不生效。
 //
 // `left` 是上一次离开水杉时 `current` 记着的入口，也就是系统自己把用户送回水杉时会落在的那一个；进程启动后还没离开过时是 nil。离开时 `current` 已经是空的（连着离开两次、中间没有报告也没有校准）就保留上一次的值。
+//
+// `switchInLateUntil` 是切进后第一次按键之后、切进报告仍可能迟到的那段时间（systemUptime 秒）。第一次按键清掉 `switchedIn`，但切进时的报告不一定先于按键送到：切进后立刻打字（进程刚被拉起时尤其如此），报告的 中 会排在头几个键后面。以前这份迟到的报告被当成用户越过 双 选了 中，把设置里的双拼改成全拼并保存，正在打的双拼按全拼切分（#11391）。这段时间里到达的报告仍按切进处理（MSIMESystemInputModeSwitchedIn），设置里保存的方案为准；过了这段时间，报告才是用户在输入菜单里做的选择。
 struct MSIMESystemInputModeState {
     NSString *current = nil;
     bool selecting = false;
     bool switchedIn = true;
     double restoringUntil = 0;
     NSString *left = nil;
+    double switchInLateUntil = 0;
 };
+
+// 切进后第一次按键之后多久内到达的报告仍按切进处理。要盖住进程刚被拉起时报告的延迟，又要短于用户打了字、发现不对、再去输入菜单选别的入口所需的时间。
+static constexpr double MSIMESwitchInLateReportSeconds = 2;
+
+// 在水杉里按下了键（`now` 是 systemUptime）：之后的报告是用户的选择，只是切进时的报告还可能在 MSIMESwitchInLateReportSeconds 秒内迟到。只有切进后的第一次按键开始这段时间，之后的按键不延长它。
+static inline void MSIMENoteSystemInputModeKey(MSIMESystemInputModeState &state, double now) {
+    if (state.switchedIn) state.switchInLateUntil = now + MSIMESwitchInLateReportSeconds;
+    state.switchedIn = false;
+}
+
+// 此刻到达的报告是否仍按切进处理：还没采纳过报告也没按过键，或者切进后的第一次按键刚过去不久。
+static inline BOOL MSIMESystemInputModeSwitchedIn(const MSIMESystemInputModeState &state, double now) {
+    return state.switchedIn || now < state.switchInLateUntil;
+}
+
+// 采纳一份报告之后，切进已经处理完，迟到的窗口一并结束。
+static inline void MSIMEFinishSystemInputModeSwitchIn(MSIMESystemInputModeState &state) {
+    state.switchedIn = false;
+    state.switchInLateUntil = 0;
+}
 
 // 解锁或唤醒之后多久内的报告仍按系统恢复处理。
 static constexpr double MSIMESystemInputModeRestoreSeconds = 10;

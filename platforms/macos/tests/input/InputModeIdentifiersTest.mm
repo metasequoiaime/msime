@@ -306,6 +306,25 @@ int main() {
                     "中 picked after the switch back had been handled did not move to quanpin.");
         }
         {
+            // #11391：切进后第一次按键清掉 switchedIn，但 MSIMESwitchInLateReportSeconds 秒内到达的报告仍按切进处理；之后的按键不延长窗口，采纳一份报告或离开水杉都结束它。
+            MSIMESystemInputModeState state;
+            require(MSIMESystemInputModeSwitchedIn(state, 100), "A fresh record was not taken as just switched in.");
+            MSIMENoteSystemInputModeKey(state, 100);
+            require(!state.switchedIn && MSIMESystemInputModeSwitchedIn(state, 100 + MSIMESwitchInLateReportSeconds - 0.5) &&
+                        !MSIMESystemInputModeSwitchedIn(state, 100 + MSIMESwitchInLateReportSeconds),
+                    "The first key after switching in did not leave a short window for a late switch-in report.");
+            MSIMENoteSystemInputModeKey(state, 101);
+            require(!MSIMESystemInputModeSwitchedIn(state, 100 + MSIMESwitchInLateReportSeconds),
+                    "A later key extended the window for a late switch-in report.");
+            MSIMEFinishSystemInputModeSwitchIn(state);
+            require(!MSIMESystemInputModeSwitchedIn(state, 100), "Adopting a report did not end the switch-in window.");
+            MSIMENoteSystemInputModeKey(state, 200);
+            require(!MSIMESystemInputModeSwitchedIn(state, 200), "A key after the switch-in had been handled opened a new window.");
+            MSIMENoteSystemInputModeKey(state, 300);
+            MSIMEResetSystemInputModeState(state);
+            require(state.switchInLateUntil == 0 && MSIMESystemInputModeSwitchedIn(state, 0), "Leaving the input method kept the old window.");
+        }
+        {
             // 校准记下的 中 被重复报告时不采纳，也不清掉标记：之后滞后的选择仍按切回处理，直到第一次采纳或按键。
             MSIMESystemInputModeState state;
             require(MSIMERecordRestoredSystemInputMode(state, MSIMEChineseInputModeID) &&

@@ -3150,11 +3150,24 @@ static void TestSwitchBackKeepsShuangpin() {
     assert([appearance.inputScheme isEqual:@"shuangpin"]);
     assert([client.selectedModes isEqualToArray:(@[MSIMEShuangpinInputModeID, MSIMEShuangpinInputModeID])]);
 
-    // 切回后先在水杉里按了键，之后报告的「中」是用户的选择。
+    // #11391：切回后立刻打字，切回时的「中」报告排在第一个键后面才到。这份迟到的报告仍按切回处理，设置里的双拼不被改成全拼，菜单栏选回「双」；切回处理过之后再报告「中」才是用户的选择。
     client = switchBack();
     assert(MSIMERecordRestoredSystemInputMode(MSIMESharedSystemInputModeState(), MSIMEShuangpinInputModeID));
     [controller handleEvent:KeypadKey(122, [NSString stringWithFormat:@"%C", (unichar)NSF1FunctionKey], 0, NO) client:client];
     assert(!MSIMESharedSystemInputModeState().switchedIn);
+    assert(MSIMESystemInputModeSwitchedIn(MSIMESharedSystemInputModeState(), NSProcessInfo.processInfo.systemUptime));
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"shuangpin"]);
+    assert([client.selectedModes isEqualToArray:@[MSIMEShuangpinInputModeID]]);
+    assert(!MSIMESystemInputModeSwitchedIn(MSIMESharedSystemInputModeState(), NSProcessInfo.processInfo.systemUptime));
+    [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
+    assert([appearance.inputScheme isEqual:@"quanpin"]);
+
+    // 切回后按过键、迟到窗口也已经过去，之后报告的「中」是用户在输入菜单里的选择。窗口过去用把截止时间挪到此刻之前来模拟。
+    client = switchBack();
+    assert(MSIMERecordRestoredSystemInputMode(MSIMESharedSystemInputModeState(), MSIMEShuangpinInputModeID));
+    [controller handleEvent:KeypadKey(122, [NSString stringWithFormat:@"%C", (unichar)NSF1FunctionKey], 0, NO) client:client];
+    MSIMESharedSystemInputModeState().switchInLateUntil = NSProcessInfo.processInfo.systemUptime - 1;
     [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
     assert([appearance.inputScheme isEqual:@"quanpin"]);
 
