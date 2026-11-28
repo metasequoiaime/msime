@@ -31,6 +31,8 @@ struct HelpcodeSettingsView: View {
   @State private var schema: [String: String] = [:]
   @State private var shown: [String: Bool] = [:]
   @State private var strict: [String: Bool] = [:]
+  /// 全拼的部件辅助段（`quanpin_helpcode.component_filter_backtick`，#11804），缺字段读作关。
+  @State private var componentFilter: [String: Bool] = [:]
   /// 双拼辅助码对象里的 `modes`，缺这一段时为空：各行缺字段时按 `Mode.fallback` 读。
   @State private var storedModes: [String: Any] = [:]
   /// 每份方案选中的已导入码表，没选时为空字符串。
@@ -80,6 +82,12 @@ struct HelpcodeSettingsView: View {
           helpcodeToggle(title: "\(scheme.label)一码严格筛选", info: Self.strictFilterInfo,
                          enabled: on, isOn: stored(scheme.key, "strict_filter", $strict, false),
                          identifier: "\(scheme.key).strictFilter")
+          if scheme.key == Self.quanpin.key {
+            // 部件辅助段不用码表，也不看全拼辅助码开关，所以这一行一直可用。
+            helpcodeToggle(title: "反引号后按部件拼音筛选", info: Self.componentFilterInfo,
+                           enabled: true, isOn: stored(scheme.key, "component_filter_backtick", $componentFilter, false),
+                           identifier: "\(scheme.key).componentFilterBacktick")
+          }
           if scheme.key == Self.shuangpin.key {
             ForEach(Self.modes, id: \.field) { mode in
               helpcodeToggle(title: mode.title, info: mode.info,
@@ -310,6 +318,7 @@ struct HelpcodeSettingsView: View {
       schema[scheme.key] = stored["schema"] as? String ?? scheme.defaultSchema
       shown[scheme.key] = stored["show_in_candidate_window"] as? Bool ?? scheme.defaultShown
       strict[scheme.key] = stored["strict_filter"] as? Bool ?? false
+      componentFilter[scheme.key] = stored["component_filter_backtick"] as? Bool ?? false
       selectedPack[scheme.key] = HelpcodeChoicePolicy.selectedPack(of: scheme, in: preferences)
     }
     storedModes = (preferences[Self.shuangpin.key] as? [String: Any])?["modes"] as? [String: Any] ?? [:]
@@ -342,6 +351,9 @@ extension HelpcodeSettingsView {
 
   /// 「一码严格筛选」的说明，与共享页 strictFilterRow 相同。
   static let strictFilterInfo = "关闭时一码只把匹配项前移；打开后排除辅助码不匹配的候选。两码本来就是严格筛选。"
+
+  /// 「反引号后按部件拼音筛选」的说明（#11804）。
+  static let componentFilterInfo = "全拼拼完后输入反引号，再输入字的部件拼音，只留下由这些部件组成的字，如 cheng`chong 得 蛏。多字词看最后一个字。不用辅助码表" + touchBacktick
 
   private static let touchSemicolon = "。触屏键盘上的分号直接上屏，这种触发要用外接键盘"
   private static let touchBacktick = "。触屏键盘上的反引号直接上屏，这种触发要用外接键盘"
