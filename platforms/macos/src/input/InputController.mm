@@ -1459,9 +1459,22 @@ static msime::input::PunctuationMarks MSIMEViewPunctuationMarks(NSDictionary *vi
     if (![marks isKindOfClass:NSDictionary.class]) return {};
     NSString *quotes = [marks[@"quotes"] isKindOfClass:NSString.class] ? marks[@"quotes"] : @"";
     NSString *brackets = [marks[@"brackets"] isKindOfClass:NSString.class] ? marks[@"brackets"] : @"";
+    std::string preserved;
+    NSArray *keys = [marks[@"preserve_english_punctuation"] isKindOfClass:NSArray.class] ? marks[@"preserve_english_punctuation"] : nil;
+    for (id key in keys)
+        if ([key isKindOfClass:NSString.class] && [key length] == 1 && [key characterAtIndex:0] < 0x80)
+            preserved.push_back((char)[key characterAtIndex:0]);
     return msime::input::punctuation_marks_from_view(quotes.UTF8String, brackets.UTF8String,
         ![marks[@"enumeration_comma_backslash"] isEqual:@NO],
-        [marks[@"enumeration_comma_slash"] isEqual:@YES]);
+        [marks[@"enumeration_comma_slash"] isEqual:@YES], preserved);
+}
+// 设成保留英文的键（View 的 preserve_english_punctuation，契约第 7 版）在中文标点下是普通字符：宿主不把 `{` `}` 拦成「」，不补全、不跨过，智能标点也不碰它。日文标点表不看这个集合。
+static BOOL MSIMEPreservesEnglishKey(NSDictionary *view, unichar key) {
+    if (key >= 0x80) return NO;
+    if ([view isKindOfClass:NSDictionary.class] &&
+        (MSIMEViewScheme(view) == msime::mac::scheme::Japanese || [view[@"local_mode"] isEqual:@"temporary_japanese"]))
+        return NO;
+    return MSIMEViewPunctuationMarks(view).preserves_english((char)key);
 }
 // `、` 的 ASCII 孪生按出的键算：`/` 出的顿号转回 `/`，`\` 出的转回 `\`——哪个键开着才算数，与直角引号 `MSIMEKeyProducesCornerQuote` 同一条「按出的键算」规则。
 static BOOL MSIMEKeyProducesEnumerationComma(unichar key, unichar mark,
@@ -2378,6 +2391,11 @@ static const char *MSIMESmartPunctuationScalarClass(uint32_t scalar) {
     }
     const BOOL gestures = [self schemeAllowsSmartPunctuationGestures];
     if (!MSIMESmartPunctuationKey(character)) return NO;
+    // 保留英文的 , . : 本来就是 ASCII：不经智能标点路线，也不武装连按转中文。
+    if (MSIMEPreservesEnglishKey(_view, character)) {
+        [self resetSmartPunctuationState];
+        return NO;
+    }
     // Expression mode's decimal point is part of the number being typed, not a mark to convert.
     if (MSIMESpellingSymbol(_view, character)) {
         [self logSmartPunctuationComposing:hasComposition source:"unread" preceding:0 decision:"spelling"];
@@ -8821,6 +8839,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     //
     // 只有这个键匹配本宿主补出的后半个时才查询文档；普通字母不能跨过，不必向应用同步来回两次。
     if (_appearance.pairedPunctuation && event.characters.length == 1 &&
+        !MSIMEPreservesEnglishKey(_view, [event.characters characterAtIndex:0]) &&
         _pairedPunctuation.matches(event.characters.UTF8String ?: "") &&
         !MSIMESpellingSymbolString(_view, event.characters) &&
         !(event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand))) {
@@ -8845,6 +8864,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     // 注音自己使用这两个键，独立英文和本地模式也保留引擎的原始规则。
     if (([event.characters isEqualToString:@"{"] || [event.characters isEqualToString:@"}"]) &&
         (event.modifierFlags & NSEventModifierFlagShift) && MSIMESchemeRulesApply(_view) &&
+        !MSIMEPreservesEnglishKey(_view, [event.characters characterAtIndex:0]) &&
         msime::mac::scheme::HostSmartPunctuation(MSIMEViewScheme(_view)) &&
         _appearance.runtimeChinesePunctuation && ![_appearance.punctuationLock isEqual:@"english"] &&
         !(_capsLock && MSIMEStrictBoolean(MSIMEStatisticsHostOptions(_session)[@"preferences"][@"caps_lock_ascii_punctuation"])) &&
@@ -8889,7 +8909,7 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     }
     // The reference sends `{` down its punctuation path and closes it with `}` (`_GetPairedPunctuationClosingFor`), whether or not a composition is live, and the Linux host does the same. The Engine answers `{` on its ASCII route: while composing it commits the candidate followed by `{`, and idle it leaves the key alone, so the host commits the opening mark itself. The mark is not in MSIMEPunctuationPairs because a symbol candidate that is exactly `{` is not paired by the reference.
     // A scheme outside the Chinese punctuation table (`uses_chinese_punctuation`: Korean, Vietnamese) ignores the Chinese punctuation switch, so its `{` is the Engine's plain ASCII mark. Zhuyin's Shift overlay turns `{` into 『 in the Engine whatever the switches say, so its `{` is the Engine's as well.
-    if ([event.characters isEqualToString:@"{"] &&
+    if ([event.characters isEqualToString:@"{"] && !MSIMEPreservesEnglishKey(_view, '{') &&
         !(MSIMESchemeRulesApply(_view) && (!msime::mac::scheme::UsesChinesePunctuation(MSIMEViewScheme(_view)) ||
                                            MSIMEViewScheme(_view) == msime::mac::scheme::Zhuyin)) &&
         !(event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand)) &&
